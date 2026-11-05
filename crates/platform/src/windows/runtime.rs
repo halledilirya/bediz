@@ -1,7 +1,9 @@
 mod delivery;
 mod displays;
+mod save_as;
 mod screenshot;
 
+use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -19,8 +21,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, DispatchMessageW, HWND_MESSAGE, KillTimer, MSG,
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetTimer, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_HOTKEY, WM_KEYDOWN,
-    WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_SYSKEYDOWN,
-    WM_SYSKEYUP, WM_TIMER, WaitMessage,
+    WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONUP,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WaitMessage,
 };
 use windows::core::{Result, w};
 
@@ -30,18 +32,21 @@ use super::clock::{self, Clock};
 use super::desktop_switch::{self, DesktopSwitchHook};
 use super::hotkey::{self, Change, PrintScreen};
 use super::label_window::LabelWindow;
+use super::save_dialog::Answers;
 use super::scene::Scene;
 use super::session::Session;
 use super::virtual_desktop::VirtualDesktops;
 use super::window_class::{self, MESSAGE_CLASS};
 use super::window_list::WindowList;
 use super::worker::Worker;
-use crate::event::{Command, Event, Label};
+use crate::event::{Command, Event, Label, MenuTexts};
 use delivery::{PendingCopy, Tracked};
+use save_as::{PendingSaveAs, Retry};
 
 pub const WM_COMMANDS: u32 = WM_APP + 1;
 pub const WM_STOP: u32 = WM_APP + 2;
 pub const WM_OUTCOMES: u32 = WM_APP + 3;
+pub const WM_SAVE_AS: u32 = WM_APP + 4;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -76,6 +81,10 @@ struct Runtime {
     deliveries: u64,
     reports: Vec<Tracked>,
     label: Option<LabelWindow>,
+    menu_texts: Option<MenuTexts>,
+    save_as: Option<PendingSaveAs>,
+    save_as_answers: Answers,
+    retries: VecDeque<Retry>,
     window: MessageWindow,
     instance: HINSTANCE,
     commands: Commands,
@@ -141,6 +150,10 @@ impl Runtime {
             deliveries: 0,
             reports: Vec::new(),
             label: None,
+            menu_texts: None,
+            save_as: None,
+            save_as_answers: Answers::default(),
+            retries: VecDeque::new(),
             window: MessageWindow(window),
             instance,
             commands,
@@ -239,14 +252,12 @@ impl Runtime {
     fn drain(&mut self) -> bool {
         let mut message = MSG::default();
         while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
-            if message.message == WM_QUIT || !self.dispatch(&message) {
+            if message.message == WM_QUIT || !self.dispatch(&message) || !self.after_message() {
                 return false;
             }
-            self.after_message();
         }
         // Sent messages and WinEvents run inside PeekMessageW, which then returns no message.
-        self.after_message();
-        true
+        self.after_message()
     }
 
     fn dispatch(&mut self, message: &MSG) -> bool {
@@ -272,8 +283,9 @@ impl Runtime {
             WM_TIMER if own && message.wParam.0 == LABEL_TIMER => self.hide_label(),
             WM_COMMANDS if own => self.on_commands(),
             WM_OUTCOMES if own => self.on_outcomes(),
-            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_MOUSEMOVE | WM_KEYDOWN
-            | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+            WM_SAVE_AS if own => self.on_save_as_answer(),
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
+            | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.is_overlay(message.hwnd) =>
             {
                 self.on_input(message);
@@ -309,6 +321,7 @@ impl Runtime {
                 }
                 Command::SetAllocation(allocation) => self.set_allocation(allocation),
                 Command::ShowLabel(label) => self.show_label(&label),
+                Command::SetMenuTexts(texts) => self.menu_texts = Some(texts),
             }
         }
     }
@@ -338,7 +351,7 @@ impl Runtime {
         }
     }
 
-    fn after_message(&mut self) {
+    fn after_message(&mut self) -> bool {
         if window_class::take_close_requested() {
             self.hide();
         }
@@ -353,6 +366,14 @@ impl Runtime {
             let change = self.print_screen.refresh();
             self.report_hotkey(change);
         }
+        let own = self.window.0;
+        window_class::take_missed().into_iter().all(|message| {
+            self.dispatch(&MSG {
+                hwnd: own,
+                message,
+                ..Default::default()
+            })
+        })
     }
 
     fn report_hotkey(&self, change: Option<Change>) {

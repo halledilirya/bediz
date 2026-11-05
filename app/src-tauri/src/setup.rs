@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::sync::mpsc;
 
-use bediz_platform::{Platform, preferred_languages};
+use bediz_platform::{Command, MenuTexts, Platform, preferred_languages};
 use tauri::{App, AppHandle, Manager, RunEvent};
 
 use crate::events;
@@ -24,12 +24,26 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
         let _ = sender.send(event);
     }) {
         Ok(platform) => {
+            platform.send(Command::SetMenuTexts(menu_texts(&texts)));
             app.manage(platform);
         }
         Err(error) => log.write(&format!("failed {error}")),
     }
     events::spawn(receiver, log, tray, app.handle().clone(), languages)?;
     Ok(())
+}
+
+fn menu_texts(texts: &Texts) -> MenuTexts {
+    MenuTexts {
+        copy_and_save: texts.get("overlay-menu-copy-and-save"),
+        copy: texts.get("overlay-menu-copy"),
+        save: texts.get("overlay-menu-save"),
+        save_as: texts.get("overlay-menu-save-as"),
+        copy_colour: texts.get("overlay-menu-copy-colour"),
+        whole_monitor: texts.get("overlay-menu-whole-monitor"),
+        last_region: texts.get("overlay-menu-last-region"),
+        cancel: texts.get("overlay-menu-cancel"),
+    }
 }
 
 pub fn on_run_event(app: &AppHandle, event: RunEvent) {

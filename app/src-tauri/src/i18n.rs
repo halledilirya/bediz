@@ -67,7 +67,7 @@ mod tests {
 
     use super::*;
 
-    const USED: [&str; 10] = [
+    const USED: [&str; 18] = [
         "tray-tooltip",
         "tray-tooltip-hotkey-taken",
         "tray-tooltip-snipping-tool",
@@ -78,6 +78,14 @@ mod tests {
         "tray-take-print-screen",
         "tray-open-logs",
         "tray-quit",
+        "overlay-menu-copy-and-save",
+        "overlay-menu-copy",
+        "overlay-menu-save",
+        "overlay-menu-save-as",
+        "overlay-menu-copy-colour",
+        "overlay-menu-whole-monitor",
+        "overlay-menu-last-region",
+        "overlay-menu-cancel",
     ];
 
     fn messages(source: &str) -> BTreeMap<String, BTreeSet<String>> {
@@ -237,6 +245,7 @@ price = Costs $5
             SaveError::InUse,
             SaveError::NoFreeName,
             SaveError::Busy,
+            SaveError::Appeared,
             SaveError::Other(reason()),
         ];
         let delivery_errors = [DeliveryError::Busy, DeliveryError::Other(reason())];

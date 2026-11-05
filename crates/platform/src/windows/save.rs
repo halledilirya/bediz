@@ -2,6 +2,8 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 
 use bediz_core::delivery::SaveError;
@@ -9,9 +11,13 @@ use bediz_core::file_name::{self, LocalTime};
 use windows::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_BAD_NETPATH, ERROR_DISK_FULL,
     ERROR_FILE_EXISTS, ERROR_HANDLE_DISK_FULL, ERROR_LOCK_VIOLATION, ERROR_PATH_NOT_FOUND,
-    ERROR_SHARING_VIOLATION, WIN32_ERROR,
+    ERROR_SHARING_VIOLATION, HANDLE, WIN32_ERROR,
 };
-use windows::Win32::Storage::FileSystem::{MOVE_FILE_FLAGS, MoveFileExW};
+use windows::Win32::Storage::FileSystem::{
+    FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    FileIdInfo, GetFileInformationByHandleEx, MOVE_FILE_FLAGS, MOVEFILE_REPLACE_EXISTING,
+    MoveFileExW,
+};
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::UI::Shell::{FOLDERID_Screenshots, KF_FLAG_CREATE, SHGetKnownFolderPath};
 use windows::core::{HRESULT, PCWSTR};
@@ -27,10 +33,14 @@ pub fn screenshots_folder() -> Result<PathBuf, SaveError> {
 }
 
 pub fn save_screenshot(folder: &Path, time: &LocalTime, png: &[u8]) -> Result<PathBuf, SaveError> {
-    let temporary = write_temporary(folder, time, png)?;
+    let temporary = write_temporary(
+        folder,
+        |attempt| file_name::temporary(&file_name::screenshot(time, attempt)),
+        png,
+    )?;
     for attempt in 1..=LAST_ATTEMPT {
         let target = folder.join(file_name::screenshot(time, attempt));
-        match move_without_replacing(&temporary, &target) {
+        match move_file(&temporary, &target, MOVE_FILE_FLAGS(0)) {
             Ok(()) => return Ok(target),
             Err(error) if is_taken(error.code()) => {}
             Err(error) => {
@@ -43,9 +53,73 @@ pub fn save_screenshot(folder: &Path, time: &LocalTime, png: &[u8]) -> Result<Pa
     Err(SaveError::NoFreeName)
 }
 
-fn write_temporary(folder: &Path, time: &LocalTime, png: &[u8]) -> Result<PathBuf, SaveError> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileId {
+    volume: u64,
+    file: [u8; 16],
+}
+
+#[cfg(test)]
+impl FileId {
+    pub fn for_tests(number: u8) -> Self {
+        Self {
+            volume: 1,
+            file: [number; 16],
+        }
+    }
+}
+
+pub fn file_id(path: &Path) -> io::Result<FileId> {
+    let file = OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .open(path)?;
+    let mut info = FILE_ID_INFO::default();
+    unsafe {
+        GetFileInformationByHandleEx(
+            HANDLE(file.as_raw_handle()),
+            FileIdInfo,
+            (&mut info as *mut FILE_ID_INFO).cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    }
+    .map_err(io::Error::from)?;
+    Ok(FileId {
+        volume: info.VolumeSerialNumber,
+        file: info.FileId.Identifier,
+    })
+}
+
+pub fn save_chosen(path: &Path, png: &[u8], replace: Option<FileId>) -> Result<PathBuf, SaveError> {
+    let Some(folder) = path.parent() else {
+        return Err(SaveError::FolderMissing);
+    };
+    let temporary = write_temporary(folder, file_name::scratch, png)?;
+    // Only the very file the Save as dialog asked about may be replaced; any other one is kept.
+    let flags = match replace {
+        Some(asked) if file_id(path).ok() == Some(asked) => MOVEFILE_REPLACE_EXISTING,
+        _ => MOVE_FILE_FLAGS(0),
+    };
+    match move_file(&temporary, path, flags) {
+        Ok(()) => Ok(path.to_path_buf()),
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            if is_taken(error.code()) {
+                Err(SaveError::Appeared)
+            } else {
+                Err(save_error(error.code(), error.message()))
+            }
+        }
+    }
+}
+
+fn write_temporary(
+    folder: &Path,
+    name: impl Fn(u32) -> String,
+    png: &[u8],
+) -> Result<PathBuf, SaveError> {
     for attempt in 1..=LAST_ATTEMPT {
-        let path = folder.join(file_name::temporary(&file_name::screenshot(time, attempt)));
+        let path = folder.join(name(attempt));
         let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
@@ -68,15 +142,9 @@ fn fill(mut file: File, png: &[u8]) -> io::Result<()> {
 }
 
 // std::fs::rename replaces an existing file; MoveFileExW without MOVEFILE_REPLACE_EXISTING never does.
-fn move_without_replacing(from: &Path, to: &Path) -> windows::core::Result<()> {
+fn move_file(from: &Path, to: &Path, flags: MOVE_FILE_FLAGS) -> windows::core::Result<()> {
     let (from, to) = (extended(from), extended(to));
-    unsafe {
-        MoveFileExW(
-            PCWSTR(from.as_ptr()),
-            PCWSTR(to.as_ptr()),
-            MOVE_FILE_FLAGS(0),
-        )
-    }
+    unsafe { MoveFileExW(PCWSTR(from.as_ptr()), PCWSTR(to.as_ptr()), flags) }
 }
 
 fn is_taken(code: HRESULT) -> bool {

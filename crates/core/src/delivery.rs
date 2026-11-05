@@ -73,6 +73,8 @@ pub enum SaveError {
     NoFreeName,
     #[error("earlier screenshots are still being written")]
     Busy,
+    #[error("a file with the chosen name appeared after the name was chosen")]
+    Appeared,
     #[error("{0}")]
     Other(String),
 }
@@ -86,6 +88,7 @@ impl SaveError {
             Self::InUse => "save-error-in-use",
             Self::NoFreeName => "save-error-no-free-name",
             Self::Busy => "save-error-busy",
+            Self::Appeared => "save-error-appeared",
             Self::Other(_) => "save-error-other",
         }
     }

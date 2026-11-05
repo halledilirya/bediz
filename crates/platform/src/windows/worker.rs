@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
@@ -12,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use super::clipboard::Contents;
 use super::runtime::WM_OUTCOMES;
-use super::save;
+use super::save::{self, FileId};
 
 const WAITING_TO_ENCODE: usize = 2;
 const WAITING_TO_SAVE: usize = 4;
@@ -21,8 +22,16 @@ pub struct Job {
     pub id: u64,
     pub image: Image,
     pub copy: Option<u64>,
-    pub save: bool,
+    pub save: Option<Target>,
     pub time: LocalTime,
+}
+
+pub enum Target {
+    Screenshots,
+    Chosen {
+        path: PathBuf,
+        replace: Option<FileId>,
+    },
 }
 
 pub enum Outcome {
@@ -35,22 +44,30 @@ pub enum Outcome {
         job: u64,
         result: Result<(), SaveError>,
     },
+    Appeared {
+        job: u64,
+        png: Vec<u8>,
+        path: PathBuf,
+        time: LocalTime,
+    },
     Failed {
         job: u64,
         error: DeliveryError,
     },
 }
 
-struct Save {
-    job: u64,
-    png: Vec<u8>,
-    time: LocalTime,
+pub struct Save {
+    pub job: u64,
+    pub png: Vec<u8>,
+    pub target: Target,
+    pub time: LocalTime,
 }
 
 type Outcomes = Arc<Mutex<Vec<Outcome>>>;
 
 pub struct Worker {
     jobs: Option<SyncSender<Job>>,
+    saves: Option<SyncSender<Save>>,
     outcomes: Outcomes,
     threads: Vec<JoinHandle<()>>,
 }
@@ -75,6 +92,7 @@ impl Worker {
                     unsafe { CoUninitialize() };
                 }
             })?;
+        let own_saves = saves.clone();
         let (jobs, waiting_jobs) = mpsc::sync_channel::<Job>(WAITING_TO_ENCODE);
         let encoder = std::thread::Builder::new()
             .name("bediz-encode".to_owned())
@@ -85,9 +103,17 @@ impl Worker {
             })?;
         Ok(Self {
             jobs: Some(jobs),
+            saves: Some(own_saves),
             outcomes,
             threads: vec![encoder, saver],
         })
+    }
+
+    pub fn save(&self, save: Save) -> Result<(), SaveError> {
+        match &self.saves {
+            Some(saves) => queue_save(saves, save),
+            None => Err(SaveError::Other(stopped().to_string())),
+        }
     }
 
     pub fn send(&self, job: Job) -> Result<(), DeliveryError> {
@@ -108,6 +134,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.jobs = None;
+        self.saves = None;
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
@@ -154,10 +181,10 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
         }
     };
     let (to_copy, to_save) = match (copy, save) {
-        (Some(ticket), true) => (Some((ticket, png.clone())), Some(png)),
-        (Some(ticket), false) => (Some((ticket, png)), None),
-        (None, true) => (None, Some(png)),
-        (None, false) => (None, None),
+        (Some(ticket), Some(target)) => (Some((ticket, png.clone())), Some((target, png))),
+        (Some(ticket), None) => (Some((ticket, png)), None),
+        (None, Some(target)) => (None, Some((target, png))),
+        (None, None) => (None, None),
     };
     if let Some((ticket, png)) = to_copy {
         reply.send(Outcome::Encoded {
@@ -167,13 +194,14 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
         });
     }
     drop(image);
-    if let Some(png) = to_save {
-        let refused = match saves.try_send(Save { job: id, png, time }) {
-            Ok(()) => None,
-            Err(TrySendError::Full(_)) => Some(SaveError::Busy),
-            Err(TrySendError::Disconnected(_)) => Some(SaveError::Other(stopped().to_string())),
+    if let Some((target, png)) = to_save {
+        let save = Save {
+            job: id,
+            png,
+            target,
+            time,
         };
-        if let Some(error) = refused {
+        if let Err(error) = queue_save(saves, save) {
             reply.send(Outcome::Saved {
                 job: id,
                 result: Err(error),
@@ -182,11 +210,35 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
     }
 }
 
-fn save_one(job: Save, reply: &Reply) {
-    let saved = save::screenshots_folder()
-        .and_then(|folder| save::save_screenshot(&folder, &job.time, &job.png));
-    reply.send(Outcome::Saved {
-        job: job.job,
-        result: saved.map(|_| ()),
+fn queue_save(saves: &SyncSender<Save>, save: Save) -> Result<(), SaveError> {
+    saves.try_send(save).map_err(|error| match error {
+        TrySendError::Full(_) => SaveError::Busy,
+        TrySendError::Disconnected(_) => SaveError::Other(stopped().to_string()),
+    })
+}
+
+fn save_one(save: Save, reply: &Reply) {
+    let Save {
+        job,
+        png,
+        target,
+        time,
+    } = save;
+    let saved = match &target {
+        Target::Screenshots => save::screenshots_folder()
+            .and_then(|folder| save::save_screenshot(&folder, &time, &png)),
+        Target::Chosen { path, replace } => save::save_chosen(path, &png, *replace),
+    };
+    reply.send(match (saved, target) {
+        (Err(SaveError::Appeared), Target::Chosen { path, .. }) => Outcome::Appeared {
+            job,
+            png,
+            path,
+            time,
+        },
+        (saved, _) => Outcome::Saved {
+            job,
+            result: saved.map(|_| ()),
+        },
     });
 }

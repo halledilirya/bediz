@@ -151,6 +151,14 @@ impl Scene {
         self.overlays.iter().try_for_each(Overlay::uncloak)
     }
 
+    pub fn window_at(&self, at: Point) -> Option<HWND> {
+        self.overlays
+            .iter()
+            .find(|overlay| overlay.rect().contains(at))
+            .or_else(|| self.overlays.first())
+            .map(Overlay::window)
+    }
+
     pub fn windows(&self) -> Vec<HWND> {
         self.overlays.iter().map(Overlay::window).collect()
     }

@@ -12,6 +12,19 @@ pub enum Command {
     TakePrintScreen,
     SetAllocation(Allocation),
     ShowLabel(Label),
+    SetMenuTexts(MenuTexts),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuTexts {
+    pub copy_and_save: String,
+    pub copy: String,
+    pub save: String,
+    pub save_as: String,
+    pub copy_colour: String,
+    pub whole_monitor: String,
+    pub last_region: String,
+    pub cancel: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

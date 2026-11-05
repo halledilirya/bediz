@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use bediz_core::capture::Allocation;
-use bediz_core::geometry::Rect;
+use bediz_core::geometry::{Point, Rect};
 use bediz_core::measurement::Measurement;
 use bediz_core::notice::Notice;
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE,
@@ -15,6 +15,8 @@ use windows::core::BOOL;
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
 use crate::windows::foreground::{self, Foreground};
+use crate::windows::overlay_menu::{self, Choice, Offer};
+use crate::windows::scene::Scene;
 use crate::windows::session::{Action, Session};
 
 const MENU_FADE_MILLISECONDS: u32 = 500;
@@ -166,14 +168,64 @@ impl Runtime {
             Ok(Action::None) => {}
             Ok(Action::Cancel) => self.hide(),
             Ok(Action::Deliver(delivery)) => self.deliver(delivery),
+            Ok(Action::SaveAs) => self.save_as(),
             Ok(Action::CopyColour(at)) => self.copy_colour(at),
+            Ok(Action::Menu(at)) => self.open_menu(at),
             Err(error) => (self.sink)(Event::Failed(Failure::Overlay(error.to_string()))),
         }
     }
 
-    pub(super) fn hide(&mut self) {
-        let Some(session) = self.session.take() else {
+    fn open_menu(&mut self, at: Point) {
+        let (Some(texts), Some(scene), Some(session)) = (
+            self.menu_texts.as_ref(),
+            self.scene.as_ref(),
+            self.session.as_ref(),
+        ) else {
             return;
+        };
+        let Some(owner) = scene.window_at(at) else {
+            return;
+        };
+        let offer = Offer {
+            selected: session.selected().is_some(),
+            last_region: self.last_region.is_some(),
+        };
+        match overlay_menu::choose(owner, at, texts, &offer) {
+            Ok(Some(Choice::Deliver(delivery))) => self.deliver(delivery),
+            Ok(Some(Choice::SaveAs)) => self.save_as(),
+            Ok(Some(Choice::CopyColour)) => self.copy_colour(at),
+            Ok(Some(Choice::WholeMonitor)) => {
+                self.reselect(|session, scene| session.select_whole_monitor(scene, at));
+            }
+            Ok(Some(Choice::LastRegion)) => {
+                if let Some(region) = self.last_region {
+                    self.reselect(|session, scene| session.select_region(scene, region));
+                }
+            }
+            Ok(Some(Choice::Cancel)) => self.hide(),
+            Ok(None) => {}
+            Err(error) => (self.sink)(Event::Failed(Failure::Overlay(error.to_string()))),
+        }
+    }
+
+    fn reselect(&mut self, change: impl FnOnce(&mut Session, &Scene)) {
+        let (Some(scene), Some(session)) = (self.scene.as_ref(), self.session.as_mut()) else {
+            return;
+        };
+        change(session, scene);
+        let windows = self.detect_windows.then_some(&self.windows);
+        if let Err(error) = session.redraw(scene, windows) {
+            (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+        }
+    }
+
+    pub(super) fn hide(&mut self) {
+        self.close_overlay(true);
+    }
+
+    pub(super) fn close_overlay(&mut self, give_back: bool) -> HWND {
+        let Some(session) = self.session.take() else {
+            return HWND::default();
         };
         let _ = unsafe { ReleaseCapture() };
         if let Some(scene) = self.scene.as_ref()
@@ -181,9 +233,12 @@ impl Runtime {
         {
             (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
         }
-        foreground::give_back(session.previous());
+        if give_back {
+            foreground::give_back(session.previous());
+        }
         self.rest_scene();
         self.report_idle();
+        session.previous()
     }
 
     fn rest_scene(&mut self) {

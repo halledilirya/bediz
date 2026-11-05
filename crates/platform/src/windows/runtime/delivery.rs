@@ -1,6 +1,7 @@
 use bediz_core::delivery::{CopyError, Delivery, DeliveryError, Report, SaveError};
+use bediz_core::file_name::LocalTime;
 use bediz_core::geometry::{Point, Rect};
-use bediz_core::image::hex_colour;
+use bediz_core::image::{Image, hex_colour};
 use bediz_core::notice::Notice;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
@@ -9,7 +10,7 @@ use crate::event::Event;
 use crate::windows::clipboard::{self, Contents, Placed};
 use crate::windows::clock;
 use crate::windows::session::Session;
-use crate::windows::worker::{self, Job, Outcome, Worker};
+use crate::windows::worker::{self, Job, Outcome, Target, Worker};
 
 const CLIPBOARD_RETRY_MILLISECONDS: u32 = 25;
 const CLIPBOARD_ATTEMPTS: u32 = 10;
@@ -34,11 +35,43 @@ pub(super) struct Tracked {
 
 impl Runtime {
     pub(super) fn deliver(&mut self, delivery: Delivery) {
-        let Some(rect) = self.session.as_ref().and_then(Session::selected) else {
+        let Some((rect, read)) = self.read_selection() else {
             return;
         };
-        let read = self.scene.as_ref().map(|scene| scene.read(rect));
         self.hide();
+        let target = delivery.save.then_some(Target::Screenshots);
+        self.send_job(rect, read, delivery, target, clock::local_time());
+    }
+
+    pub(super) fn forget(&mut self, job: u64) {
+        self.reports.retain(|tracked| tracked.job != job);
+    }
+
+    pub(super) fn near_of(&self, job: u64) -> Option<Rect> {
+        self.reports
+            .iter()
+            .find(|tracked| tracked.job == job)
+            .map(|tracked| tracked.near)
+    }
+
+    pub(super) fn read_selection(&self) -> Option<(Rect, Result<Image, DeliveryError>)> {
+        let rect = self.session.as_ref().and_then(Session::selected)?;
+        let read = match self.scene.as_ref().map(|scene| scene.read(rect)) {
+            Some(Ok(image)) => Ok(image),
+            Some(Err(error)) => Err(DeliveryError::Other(error.to_string())),
+            None => Err(DeliveryError::Other("no display is ready".to_owned())),
+        };
+        Some((rect, read))
+    }
+
+    pub(super) fn send_job(
+        &mut self,
+        rect: Rect,
+        read: Result<Image, DeliveryError>,
+        delivery: Delivery,
+        save: Option<Target>,
+        time: LocalTime,
+    ) {
         self.deliveries = self.deliveries.wrapping_add(1);
         let job = self.deliveries;
         self.reports.push(Tracked {
@@ -47,14 +80,8 @@ impl Runtime {
             report: Report::new(delivery),
         });
         let image = match read {
-            Some(Ok(image)) => image,
-            Some(Err(error)) => {
-                let error = DeliveryError::Other(error.to_string());
-                self.update(job, |report| report.failed(error));
-                return;
-            }
-            None => {
-                let error = DeliveryError::Other("no display is ready".to_owned());
+            Ok(image) => image,
+            Err(error) => {
                 self.update(job, |report| report.failed(error));
                 return;
             }
@@ -65,8 +92,8 @@ impl Runtime {
                 id: job,
                 image,
                 copy: ticket,
-                save: delivery.save,
-                time: clock::local_time(),
+                save,
+                time,
             }),
             None => Err(worker::stopped()),
         };
@@ -110,6 +137,12 @@ impl Runtime {
                     contents,
                 } => self.place_on_clipboard(ticket, contents, Copied::Image { job }),
                 Outcome::Saved { job, result } => self.save_settled(job, result),
+                Outcome::Appeared {
+                    job,
+                    png,
+                    path,
+                    time,
+                } => self.ask_again(job, png, path, time),
                 Outcome::Failed { job, error } => self.update(job, |report| report.failed(error)),
             }
         }
@@ -209,7 +242,7 @@ impl Runtime {
         }
     }
 
-    fn update(&mut self, job: u64, change: impl FnOnce(&mut Report)) {
+    pub(super) fn update(&mut self, job: u64, change: impl FnOnce(&mut Report)) {
         let Some(index) = self.reports.iter().position(|tracked| tracked.job == job) else {
             return;
         };
@@ -223,7 +256,7 @@ impl Runtime {
         }
     }
 
-    fn notify(&self, notices: Vec<Notice>, near: Rect) {
+    pub(super) fn notify(&self, notices: Vec<Notice>, near: Rect) {
         if !notices.is_empty() {
             (self.sink)(Event::Notice { notices, near });
         }

@@ -1,6 +1,9 @@
 use windows::Win32::Foundation::HWND;
+use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{INPUT, INPUT_MOUSE, SendInput, SetFocus};
-use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Foreground {
@@ -24,6 +27,17 @@ pub fn take(window: HWND) -> Foreground {
 pub fn give_back(previous: HWND) {
     if unsafe { IsWindow(Some(previous)) }.as_bool() {
         let _ = unsafe { SetForegroundWindow(previous) };
+    }
+}
+
+pub fn give_back_from_us(previous: HWND) {
+    let current = unsafe { GetForegroundWindow() };
+    let mut process = 0;
+    if !current.is_invalid() {
+        unsafe { GetWindowThreadProcessId(current, Some(&mut process)) };
+    }
+    if current.is_invalid() || process == unsafe { GetCurrentProcessId() } {
+        give_back(previous);
     }
 }
 

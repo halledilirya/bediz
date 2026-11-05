@@ -13,7 +13,7 @@ There is no release yet. To try Bediz now, install [Rust](https://rustup.rs) and
 
 ## Usage
 
-Press **Print Screen** or click the tray icon. The screen freezes on every monitor. Drag to select a region, which can span monitors, then press **Enter** to copy it and save it to Pictures\Screenshots as a PNG. If copying or saving fails, a short label says why. A file that exists is never replaced; the new one gets a number.
+Press **Print Screen** or click the tray icon. The screen freezes on every monitor. Drag to select a region, which can span monitors, then press **Enter** to copy it and save it to Pictures\Screenshots as a PNG. If copying or saving fails, a short label says why. A file that exists is never replaced; the new one gets a number. Save as replaces a file only after Windows asks and you agree.
 
 | Key | Action |
 | --- | --- |
@@ -28,6 +28,8 @@ Press **Print Screen** or click the tray icon. The screen freezes on every monit
 | Enter or a double-click | Copy and save the selection |
 | Ctrl+C | Only copy the selection |
 | Ctrl+S | Only save the selection |
+| Ctrl+Shift+S | Save the selection where you choose |
+| Right-click, the menu key or Shift+F10 | Open a menu with these actions |
 | Esc | Cancel |
 
 If Print Screen opens the Snipping Tool, choose **Let Bediz use Print Screen** in the tray menu. When another app holds the key, the tray menu says so; the tray icon still takes a screenshot. Windows does not send Print Screen to Bediz while a window running as administrator is in front.

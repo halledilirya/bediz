@@ -3,13 +3,13 @@ use bediz_core::geometry::{Point, Rect};
 use bediz_core::selection::{Grip, Handle, Modifiers, Selection};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_A, VK_C, VK_CONTROL, VK_DOWN,
-    VK_ESCAPE, VK_F4, VK_LEFT, VK_MENU, VK_R, VK_RETURN, VK_RIGHT, VK_S, VK_SHIFT, VK_UP,
+    GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_A, VK_APPS, VK_C, VK_CONTROL, VK_DOWN,
+    VK_ESCAPE, VK_F4, VK_F10, VK_LEFT, VK_MENU, VK_R, VK_RETURN, VK_RIGHT, VK_S, VK_SHIFT, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetSystemMetrics, IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
     IDC_SIZEWE, LoadCursorW, MSG, SM_CXDRAG, SM_CYDRAG, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -22,7 +22,9 @@ pub enum Action {
     None,
     Cancel,
     Deliver(Delivery),
+    SaveAs,
     CopyColour(Point),
+    Menu(Point),
 }
 
 struct Click {
@@ -89,6 +91,7 @@ impl Session {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, point)
             }
+            WM_RBUTTONUP if !self.is_dragging() => return Ok(Action::Menu(point)),
             WM_KEYDOWN | WM_SYSKEYDOWN => match self.key(scene, last_region, message, point) {
                 Some(Action::None) => true,
                 Some(action) => return Ok(action),
@@ -101,6 +104,21 @@ impl Session {
             self.redraw(scene, windows)?;
         }
         Ok(Action::None)
+    }
+
+    pub fn select_whole_monitor(&mut self, scene: &Scene, at: Point) {
+        self.click = None;
+        self.selection = Selection::whole_monitor(scene.monitor_rects(), at);
+    }
+
+    pub fn select_region(&mut self, scene: &Scene, region: Rect) {
+        self.click = None;
+        self.selection = Selection::restore(scene.monitor_rects(), region);
+    }
+
+    fn is_dragging(&self) -> bool {
+        self.selection
+            .is_some_and(|selection| selection.is_dragging())
     }
 
     fn inside_selection(&self, scene: &Scene, point: Point) -> bool {
@@ -178,6 +196,7 @@ impl Session {
             VK_RETURN if selected => Some(Action::Deliver(Delivery::COPY_AND_SAVE)),
             VK_C if control && selected => Some(Action::Deliver(Delivery::COPY)),
             VK_S if control && !shift && selected => Some(Action::Deliver(Delivery::SAVE)),
+            VK_S if control && shift && selected => Some(Action::SaveAs),
             VK_LEFT | VK_RIGHT | VK_UP | VK_DOWN => {
                 let (dx, dy) = match key {
                     VK_LEFT => (-step, 0),
@@ -194,19 +213,18 @@ impl Session {
                 Some(Action::None)
             }
             VK_A if control => {
-                self.click = None;
-                self.selection = Selection::whole_monitor(scene.monitor_rects(), point);
+                self.select_whole_monitor(scene, point);
                 Some(Action::None)
             }
             VK_R if !control => {
-                let region = last_region?;
-                self.click = None;
-                self.selection = Selection::restore(scene.monitor_rects(), region);
+                self.select_region(scene, last_region?);
                 Some(Action::None)
             }
             VK_C if !control => Some(Action::CopyColour(
                 self.magnified().or(self.pointer).unwrap_or(point),
             )),
+            VK_APPS => Some(Action::Menu(self.pointer.unwrap_or(point))),
+            VK_F10 if shift => Some(Action::Menu(self.pointer.unwrap_or(point))),
             VK_SHIFT | VK_MENU => self.modifiers_changed(message).then_some(Action::None),
             _ => None,
         }
