@@ -1,0 +1,23 @@
+# Rust
+/target/
+
+# Node
+node_modules/
+
+# Tauri
+/app/dist/
+/app/src-tauri/gen/schemas/
+
+# Editors and operating systems
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local only
+/CLAUDE.md
+/roadmap/
+/.claude/
+/temp/

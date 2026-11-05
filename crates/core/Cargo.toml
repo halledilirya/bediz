@@ -1,0 +1,16 @@
+[package]
+name = "bediz-core"
+description = "Platform-independent logic of Bediz"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+png = "0.18.1"
+thiserror.workspace = true
+
+[lints]
+workspace = true

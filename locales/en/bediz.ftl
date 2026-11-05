@@ -1,0 +1,10 @@
+tray-tooltip = Bediz
+tray-tooltip-hotkey-taken = Bediz: another app uses Print Screen
+tray-tooltip-snipping-tool = Bediz: Print Screen opens the Snipping Tool
+tray-take-screenshot = Take a screenshot
+tray-hotkey-taken = Print Screen is used by another app
+tray-hotkey-snipping-tool = Print Screen opens the Snipping Tool
+tray-retry = Try again
+tray-take-print-screen = Let Bediz use Print Screen
+tray-open-logs = Open log folder
+tray-quit = Quit Bediz

@@ -1,0 +1,10 @@
+tray-tooltip = Bediz
+tray-tooltip-hotkey-taken = Bediz: Print Screen başka bir uygulamada
+tray-tooltip-snipping-tool = Bediz: Print Screen, Ekran Alıntısı Aracı'nı açıyor
+tray-take-screenshot = Ekran görüntüsü al
+tray-hotkey-taken = Print Screen başka bir uygulamada
+tray-hotkey-snipping-tool = Print Screen, Ekran Alıntısı Aracı'nı açıyor
+tray-retry = Tekrar dene
+tray-take-print-screen = Print Screen'i Bediz'e ver
+tray-open-logs = Kayıt klasörünü aç
+tray-quit = Bediz'den çık
