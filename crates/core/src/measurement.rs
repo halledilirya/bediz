@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::time::Duration;
 
-use crate::capture::{Allocation, CaptureMethod};
+use crate::capture::{Allocation, CaptureMethod, Pixels};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Memory {
@@ -28,6 +28,7 @@ pub struct MonitorCapture {
     pub width: u32,
     pub height: u32,
     pub method: CaptureMethod,
+    pub pixels: Pixels,
     pub fresh: bool,
 }
 
@@ -54,10 +55,11 @@ impl Measurement {
             }
             let _ = write!(
                 monitors,
-                "{}x{}:{}:{}",
+                "{}x{}:{}:{}:{}",
                 monitor.width,
                 monitor.height,
                 monitor.method.name(),
+                monitor.pixels,
                 if monitor.fresh { "fresh" } else { "held" }
             );
         }
@@ -136,12 +138,16 @@ mod tests {
                     width: 3840,
                     height: 2160,
                     method: CaptureMethod::Duplication,
+                    pixels: Pixels::Hdr {
+                        sdr_white_level: std::num::NonZeroU32::new(3000).unwrap(),
+                    },
                     fresh: false,
                 },
                 MonitorCapture {
                     width: 1920,
                     height: 1080,
                     method: CaptureMethod::Gdi,
+                    pixels: Pixels::Bgra8,
                     fresh: true,
                 },
             ],
@@ -161,7 +167,7 @@ mod tests {
         };
         assert_eq!(
             measurement.log_line(),
-            "hotkey allocation=on-hotkey monitors=3840x2160:duplication:held,1920x1080:gdi:fresh queued_ms=1.00 captured_ms=4.21 listed_ms=4.80 presented_ms=6.02 uncloaked_ms=6.10 focused_ms=6.35 windows=37 working_set_mib=12.0 commit_mib=25.0 gpu_local_mib=1.5 gpu_shared_mib=0.0"
+            "hotkey allocation=on-hotkey monitors=3840x2160:duplication:hdr-240nits:held,1920x1080:gdi:bgra8:fresh queued_ms=1.00 captured_ms=4.21 listed_ms=4.80 presented_ms=6.02 uncloaked_ms=6.10 focused_ms=6.35 windows=37 working_set_mib=12.0 commit_mib=25.0 gpu_local_mib=1.5 gpu_shared_mib=0.0"
         );
     }
 }

@@ -1,7 +1,9 @@
 mod duplication;
 mod gdi;
+mod scrgb;
+mod white_level;
 
-use bediz_core::capture::CaptureMethod;
+use bediz_core::capture::{CaptureMethod, Pixels};
 use bediz_core::measurement::MonitorCapture;
 use windows::Win32::Foundation::E_FAIL;
 use windows::Win32::Graphics::Direct3D11::{
@@ -13,6 +15,7 @@ use super::displays::{Displays, Monitor};
 use super::overlay::Overlay;
 use duplication::Duplicator;
 use gdi::GdiSurface;
+use white_level::WhiteLevels;
 
 enum Source {
     Duplication(Duplicator),
@@ -47,13 +50,14 @@ impl Capturer {
                 Some((&displays.gpus.get(monitor.gpu)?.context, overlay.image()?))
             })
             .collect();
+        let mut levels = WhiteLevels::default();
         let begun: Vec<Option<Result<()>>> = self
             .sources
             .iter_mut()
             .zip(&targets)
             .map(|(source, target)| match (source, target) {
                 (Some(Source::Duplication(duplicator)), Some((context, image))) => {
-                    Some(duplicator.begin(context, image))
+                    Some(duplicator.begin(context, image, &mut levels))
                 }
                 _ => None,
             })
@@ -75,11 +79,11 @@ impl Capturer {
             };
             let outcome = match (source, begun) {
                 (Some(Source::Duplication(duplicator)), Some(begun)) => duplicator
-                    .finish(begun, context, image)
-                    .map(|fresh| (CaptureMethod::Duplication, fresh)),
+                    .finish(begun, context, image, &mut levels)
+                    .map(|(fresh, pixels)| (CaptureMethod::Duplication, pixels, fresh)),
                 (Some(Source::Gdi(surface)), _) => surface
                     .capture(monitor.rect, context, image)
-                    .map(|()| (CaptureMethod::Gdi, true)),
+                    .map(|()| (CaptureMethod::Gdi, Pixels::Bgra8, true)),
                 _ => Err(Error::new(E_FAIL, "the monitor has no capture source")),
             };
             let outcome = outcome.or_else(|error| {
@@ -90,13 +94,14 @@ impl Capturer {
                 ));
                 GdiSurface::new(monitor.rect.width(), monitor.rect.height())
                     .and_then(|surface| surface.capture(monitor.rect, context, image))
-                    .map(|()| (CaptureMethod::Gdi, true))
+                    .map(|()| (CaptureMethod::Gdi, Pixels::Bgra8, true))
             });
             match outcome {
-                Ok((method, fresh)) => captures.push(MonitorCapture {
+                Ok((method, pixels, fresh)) => captures.push(MonitorCapture {
                     width: monitor.rect.width(),
                     height: monitor.rect.height(),
                     method,
+                    pixels,
                     fresh,
                 }),
                 Err(error) => {
