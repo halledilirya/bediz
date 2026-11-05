@@ -1,4 +1,5 @@
 mod delivery;
+mod displays;
 mod screenshot;
 
 use std::sync::mpsc::Sender;
@@ -28,14 +29,15 @@ use bediz_core::geometry::Rect;
 use super::clock::{self, Clock};
 use super::desktop_switch::{self, DesktopSwitchHook};
 use super::hotkey::{self, Change, PrintScreen};
+use super::label_window::LabelWindow;
 use super::scene::Scene;
 use super::session::Session;
 use super::virtual_desktop::VirtualDesktops;
 use super::window_class::{self, MESSAGE_CLASS};
 use super::window_list::WindowList;
 use super::worker::Worker;
-use crate::event::{Command, Event, Failure};
-use delivery::PendingCopy;
+use crate::event::{Command, Event, Label};
+use delivery::{PendingCopy, Tracked};
 
 pub const WM_COMMANDS: u32 = WM_APP + 1;
 pub const WM_STOP: u32 = WM_APP + 2;
@@ -44,7 +46,10 @@ pub const WM_OUTCOMES: u32 = WM_APP + 3;
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
 const CLIPBOARD_TIMER: usize = 3;
+const LABEL_TIMER: usize = 4;
 const DISPLAY_SETTLE_MILLISECONDS: u32 = 500;
+const LABEL_MILLISECONDS: u32 = 1500;
+const WARNING_MILLISECONDS: u32 = 6000;
 
 pub type Commands = Arc<Mutex<Vec<Command>>>;
 pub type Sink = Box<dyn Fn(Event) + Send>;
@@ -68,6 +73,9 @@ struct Runtime {
     worker: Option<Worker>,
     copies: CopyOrder,
     clipboard: Option<PendingCopy>,
+    deliveries: u64,
+    reports: Vec<Tracked>,
+    label: Option<LabelWindow>,
     window: MessageWindow,
     instance: HINSTANCE,
     commands: Commands,
@@ -130,6 +138,9 @@ impl Runtime {
             worker: None,
             copies: CopyOrder::default(),
             clipboard: None,
+            deliveries: 0,
+            reports: Vec::new(),
+            label: None,
             window: MessageWindow(window),
             instance,
             commands,
@@ -160,6 +171,12 @@ impl Runtime {
             Ok(worker) => self.worker = Some(worker),
             Err(error) => notes.push(format!(
                 "the thread that encodes and saves could not start: {error}"
+            )),
+        }
+        match LabelWindow::create(self.instance) {
+            Ok(label) => self.label = Some(label),
+            Err(error) => notes.push(format!(
+                "confirmations cannot be shown; they still go to the log: {error}"
             )),
         }
         self.emit_notes(notes);
@@ -252,6 +269,7 @@ impl Runtime {
                 }
             }
             WM_TIMER if own && message.wParam.0 == CLIPBOARD_TIMER => self.retry_clipboard(),
+            WM_TIMER if own && message.wParam.0 == LABEL_TIMER => self.hide_label(),
             WM_COMMANDS if own => self.on_commands(),
             WM_OUTCOMES if own => self.on_outcomes(),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_MOUSEMOVE | WM_KEYDOWN
@@ -290,23 +308,34 @@ impl Runtime {
                     self.report_hotkey(change);
                 }
                 Command::SetAllocation(allocation) => self.set_allocation(allocation),
+                Command::ShowLabel(label) => self.show_label(&label),
             }
         }
     }
 
-    fn set_allocation(&mut self, allocation: Allocation) {
-        self.hide();
-        self.allocation = allocation;
-        if let Some(scene) = self.scene.as_mut() {
-            let result = match allocation {
-                Allocation::Ahead => scene.allocate().and_then(|()| scene.warm_up()),
-                Allocation::OnHotkey => scene.release(),
-            };
-            if let Err(error) = result {
-                (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
-            }
+    fn show_label(&mut self, label: &Label) {
+        let Some(window) = &self.label else {
+            return;
+        };
+        if let Err(error) = window.show(label) {
+            self.emit_notes(vec![format!(
+                "the confirmation could not be shown: {error}"
+            )]);
+            return;
         }
-        self.report_idle();
+        let shown_for = if label.warning {
+            WARNING_MILLISECONDS
+        } else {
+            LABEL_MILLISECONDS
+        };
+        let _ = unsafe { SetTimer(Some(self.window.0), LABEL_TIMER, shown_for, None) };
+    }
+
+    fn hide_label(&mut self) {
+        let _ = unsafe { KillTimer(Some(self.window.0), LABEL_TIMER) };
+        if let Some(window) = &self.label {
+            window.hide();
+        }
     }
 
     fn after_message(&mut self) {
@@ -314,19 +343,7 @@ impl Runtime {
             self.hide();
         }
         if window_class::take_display_changed() {
-            self.hide();
-            self.displays_changed = true;
-            let timer = unsafe {
-                SetTimer(
-                    Some(self.window.0),
-                    DISPLAY_TIMER,
-                    DISPLAY_SETTLE_MILLISECONDS,
-                    None,
-                )
-            };
-            if timer == 0 {
-                self.rebuild_scene();
-            }
+            self.on_display_change();
         }
         if desktop_switch::take_switched() {
             self.hide();
@@ -336,23 +353,6 @@ impl Runtime {
             let change = self.print_screen.refresh();
             self.report_hotkey(change);
         }
-    }
-
-    fn rebuild_scene(&mut self) {
-        let _ = unsafe { KillTimer(Some(self.window.0), DISPLAY_TIMER) };
-        self.displays_changed = false;
-        self.build_scene();
-        self.report_idle();
-    }
-
-    fn build_scene(&mut self) {
-        self.scene = None;
-        let mut notes = Vec::new();
-        match Scene::new(self.instance, self.allocation, &mut notes) {
-            Ok(scene) => self.scene = Some(scene),
-            Err(error) => (self.sink)(Event::Failed(Failure::Displays(error.to_string()))),
-        }
-        self.emit_notes(notes);
     }
 
     fn report_hotkey(&self, change: Option<Change>) {

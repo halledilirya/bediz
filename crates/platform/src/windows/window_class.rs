@@ -12,6 +12,7 @@ use windows::core::{Error, PCWSTR, Result, w};
 
 pub const MESSAGE_CLASS: PCWSTR = w!("BedizMessage");
 pub const OVERLAY_CLASS: PCWSTR = w!("BedizOverlay");
+pub const LABEL_CLASS: PCWSTR = w!("BedizLabel");
 
 thread_local! {
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
@@ -50,7 +51,15 @@ pub fn register(instance: HINSTANCE) -> Result<()> {
         lpszClassName: OVERLAY_CLASS,
         ..Default::default()
     };
-    register_class(&overlay)
+    register_class(&overlay)?;
+    let label = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(message_procedure),
+        hInstance: instance,
+        lpszClassName: LABEL_CLASS,
+        ..Default::default()
+    };
+    register_class(&label)
 }
 
 fn register_class(class: &WNDCLASSEXW) -> Result<()> {

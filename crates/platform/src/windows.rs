@@ -6,6 +6,7 @@ mod displays;
 mod foreground;
 mod gpu;
 mod hotkey;
+mod label_window;
 mod language;
 mod memory;
 mod overlay;

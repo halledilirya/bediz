@@ -1,15 +1,24 @@
 use bediz_core::capture::Allocation;
-use bediz_core::delivery::{CopyError, SaveError};
+use bediz_core::geometry::Rect;
 use bediz_core::measurement::{Measurement, Memory};
+use bediz_core::notice::Notice;
 use thiserror::Error;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     Capture,
     CaptureAfterMenu,
     RetryHotkey,
     TakePrintScreen,
     SetAllocation(Allocation),
+    ShowLabel(Label),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Label {
+    pub lines: Vec<String>,
+    pub near: Rect,
+    pub warning: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,18 +32,8 @@ pub enum HotkeyState {
 pub enum Failure {
     #[error("starting the displays failed: {0}")]
     Displays(String),
-    #[error("capturing failed: {0}")]
-    Capture(String),
     #[error("showing the overlay failed: {0}")]
     Overlay(String),
-    #[error("encoding the image failed: {0}")]
-    Encode(String),
-    #[error("earlier screenshots are still being encoded")]
-    Busy,
-    #[error("copying failed: {0}")]
-    Copy(CopyError),
-    #[error("saving failed: {0}")]
-    Save(SaveError),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,9 +41,7 @@ pub enum Event {
     Hotkey(HotkeyState),
     Idle(Memory),
     Measured(Measurement),
-    Copied { width: u32, height: u32 },
-    Saved { width: u32, height: u32 },
-    CopiedColour,
+    Notice { notices: Vec<Notice>, near: Rect },
     Note(String),
     Failed(Failure),
 }

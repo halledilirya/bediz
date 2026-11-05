@@ -3,9 +3,8 @@ use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
-use bediz_core::delivery::SaveError;
+use bediz_core::delivery::{DeliveryError, SaveError};
 use bediz_core::file_name::LocalTime;
-use bediz_core::geometry::Rect;
 use bediz_core::image::Image;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
@@ -14,14 +13,13 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 use super::clipboard::Contents;
 use super::runtime::WM_OUTCOMES;
 use super::save;
-use crate::event::Failure;
 
 const WAITING_TO_ENCODE: usize = 2;
 const WAITING_TO_SAVE: usize = 4;
 
 pub struct Job {
+    pub id: u64,
     pub image: Image,
-    pub rect: Rect,
     pub copy: Option<u64>,
     pub save: bool,
     pub time: LocalTime,
@@ -29,25 +27,23 @@ pub struct Job {
 
 pub enum Outcome {
     Encoded {
+        job: u64,
         ticket: u64,
-        rect: Rect,
-        width: u32,
-        height: u32,
         contents: Contents,
     },
     Saved {
-        rect: Rect,
-        width: u32,
-        height: u32,
+        job: u64,
+        result: Result<(), SaveError>,
     },
-    Failed(Failure),
+    Failed {
+        job: u64,
+        error: DeliveryError,
+    },
 }
 
 struct Save {
+    job: u64,
     png: Vec<u8>,
-    rect: Rect,
-    width: u32,
-    height: u32,
     time: LocalTime,
 }
 
@@ -94,12 +90,12 @@ impl Worker {
         })
     }
 
-    pub fn send(&self, job: Job) -> Result<(), Failure> {
+    pub fn send(&self, job: Job) -> Result<(), DeliveryError> {
         let Some(jobs) = &self.jobs else {
             return Err(stopped());
         };
         jobs.try_send(job).map_err(|error| match error {
-            TrySendError::Full(_) => Failure::Busy,
+            TrySendError::Full(_) => DeliveryError::Busy,
             TrySendError::Disconnected(_) => stopped(),
         })
     }
@@ -135,23 +131,25 @@ impl Reply {
     }
 }
 
-fn stopped() -> Failure {
-    Failure::Encode("the threads that encode and save are not running".to_owned())
+pub fn stopped() -> DeliveryError {
+    DeliveryError::Other("the threads that encode and save are not running".to_owned())
 }
 
 fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
     let Job {
+        id,
         image,
-        rect,
         copy,
         save,
         time,
     } = job;
-    let (width, height) = (image.width(), image.height());
     let png = match image.encode_png() {
         Ok(png) => png,
         Err(error) => {
-            reply.send(Outcome::Failed(Failure::Encode(error.to_string())));
+            reply.send(Outcome::Failed {
+                job: id,
+                error: DeliveryError::Other(error.to_string()),
+            });
             return;
         }
     };
@@ -163,29 +161,23 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
     };
     if let Some((ticket, png)) = to_copy {
         reply.send(Outcome::Encoded {
+            job: id,
             ticket,
-            rect,
-            width,
-            height,
             contents: Contents::image(&image, png),
         });
     }
     drop(image);
     if let Some(png) = to_save {
-        let queued = saves.try_send(Save {
-            png,
-            rect,
-            width,
-            height,
-            time,
-        });
-        let refused = match queued {
+        let refused = match saves.try_send(Save { job: id, png, time }) {
             Ok(()) => None,
             Err(TrySendError::Full(_)) => Some(SaveError::Busy),
             Err(TrySendError::Disconnected(_)) => Some(SaveError::Other(stopped().to_string())),
         };
         if let Some(error) = refused {
-            reply.send(Outcome::Failed(Failure::Save(error)));
+            reply.send(Outcome::Saved {
+                job: id,
+                result: Err(error),
+            });
         }
     }
 }
@@ -193,12 +185,8 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
 fn save_one(job: Save, reply: &Reply) {
     let saved = save::screenshots_folder()
         .and_then(|folder| save::save_screenshot(&folder, &job.time, &job.png));
-    reply.send(match saved {
-        Ok(_) => Outcome::Saved {
-            rect: job.rect,
-            width: job.width,
-            height: job.height,
-        },
-        Err(error) => Outcome::Failed(Failure::Save(error)),
+    reply.send(Outcome::Saved {
+        job: job.job,
+        result: saved.map(|_| ()),
     });
 }

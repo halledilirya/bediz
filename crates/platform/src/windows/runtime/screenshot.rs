@@ -1,11 +1,14 @@
 use std::time::Duration;
 
 use bediz_core::capture::Allocation;
+use bediz_core::geometry::Rect;
 use bediz_core::measurement::Measurement;
+use bediz_core::notice::Notice;
+use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    SetTimer, SystemParametersInfoW,
+    GetCursorPos, GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer, SystemParametersInfoW,
 };
 use windows::core::BOOL;
 
@@ -46,7 +49,10 @@ impl Runtime {
             Ok(monitors) => monitors,
             Err(error) => {
                 self.emit_notes(notes);
-                (self.sink)(Event::Failed(Failure::Capture(error.to_string())));
+                (self.sink)(Event::Notice {
+                    notices: vec![Notice::CaptureFailed(error.to_string())],
+                    near: pointer_rect(),
+                });
                 self.rest_scene();
                 return;
             }
@@ -120,6 +126,7 @@ impl Runtime {
             windows,
             memory,
         }));
+        self.hide_label();
     }
 
     // The clicked menu item fades out for a moment and would be in the capture.
@@ -190,4 +197,17 @@ impl Runtime {
         }
         scene.rearm();
     }
+}
+
+fn pointer_rect() -> Rect {
+    let mut cursor = POINT::default();
+    if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+        return Rect::default();
+    }
+    Rect::new(
+        cursor.x,
+        cursor.y,
+        cursor.x.saturating_add(1),
+        cursor.y.saturating_add(1),
+    )
 }

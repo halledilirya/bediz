@@ -12,7 +12,7 @@ use crate::tray::Tray;
 pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     let languages = preferred_languages();
     let texts = Texts::for_languages(&languages);
-    let log = Log::open(app.path().local_data_dir()?.join("Bediz").join("logs"))?;
+    let log = Log::open(app.path().app_local_data_dir()?.join("logs"))?;
     log.write(&format!(
         "start version={} languages={}",
         env!("CARGO_PKG_VERSION"),
@@ -28,6 +28,6 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
         }
         Err(error) => log.write(&format!("failed {error}")),
     }
-    events::spawn(receiver, log, tray)?;
+    events::spawn(receiver, log, tray, app.handle().clone(), languages)?;
     Ok(())
 }

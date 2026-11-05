@@ -1,14 +1,15 @@
-use bediz_core::delivery::{CopyError, Delivery};
+use bediz_core::delivery::{CopyError, Delivery, DeliveryError, Report, SaveError};
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::hex_colour;
+use bediz_core::notice::Notice;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
 use super::{CLIPBOARD_TIMER, Runtime};
-use crate::event::{Event, Failure};
+use crate::event::Event;
 use crate::windows::clipboard::{self, Contents, Placed};
 use crate::windows::clock;
 use crate::windows::session::Session;
-use crate::windows::worker::{Job, Outcome, Worker};
+use crate::windows::worker::{self, Job, Outcome, Worker};
 
 const CLIPBOARD_RETRY_MILLISECONDS: u32 = 25;
 const CLIPBOARD_ATTEMPTS: u32 = 10;
@@ -21,8 +22,14 @@ pub(super) struct PendingCopy {
 }
 
 enum Copied {
-    Image { rect: Rect, width: u32, height: u32 },
-    Colour,
+    Image { job: u64 },
+    Colour { hex: String, near: Rect },
+}
+
+pub(super) struct Tracked {
+    job: u64,
+    near: Rect,
+    report: Report,
 }
 
 impl Runtime {
@@ -32,54 +39,60 @@ impl Runtime {
         };
         let read = self.scene.as_ref().map(|scene| scene.read(rect));
         self.hide();
+        self.deliveries = self.deliveries.wrapping_add(1);
+        let job = self.deliveries;
+        self.reports.push(Tracked {
+            job,
+            near: rect,
+            report: Report::new(delivery),
+        });
         let image = match read {
             Some(Ok(image)) => image,
             Some(Err(error)) => {
-                self.fail(Failure::Capture(error.to_string()));
+                let error = DeliveryError::Other(error.to_string());
+                self.update(job, |report| report.failed(error));
                 return;
             }
             None => {
-                self.fail(Failure::Displays("no display is ready".to_owned()));
+                let error = DeliveryError::Other("no display is ready".to_owned());
+                self.update(job, |report| report.failed(error));
                 return;
             }
         };
         let ticket = delivery.copy.then(|| self.copies.upcoming());
-        let job = Job {
-            image,
-            rect,
-            copy: ticket,
-            save: delivery.save,
-            time: clock::local_time(),
-        };
         let sent = match &self.worker {
-            Some(worker) => worker.send(job),
-            None => Err(Failure::Encode(
-                "the threads that encode and save are not running".to_owned(),
-            )),
+            Some(worker) => worker.send(Job {
+                id: job,
+                image,
+                copy: ticket,
+                save: delivery.save,
+                time: clock::local_time(),
+            }),
+            None => Err(worker::stopped()),
         };
         match (sent, ticket) {
             (Ok(()), Some(ticket)) => self.copies.accept(ticket),
             (Ok(()), None) => {}
-            (Err(failure), _) => self.fail(failure),
+            (Err(error), _) => self.update(job, |report| report.failed(error)),
         }
     }
 
     pub(super) fn copy_colour(&mut self, at: Point) {
         let colour = self.scene.as_ref().and_then(|scene| scene.pixel(at));
         self.hide();
+        let near = Rect::new(at.x, at.y, at.x.saturating_add(1), at.y.saturating_add(1));
         match colour {
             Some(colour) => {
                 let ticket = self.copies.upcoming();
                 self.copies.accept(ticket);
-                self.place_on_clipboard(
-                    ticket,
-                    Contents::text(&hex_colour(colour)),
-                    Copied::Colour,
-                );
+                let hex = hex_colour(colour);
+                let contents = Contents::text(&hex);
+                self.place_on_clipboard(ticket, contents, Copied::Colour { hex, near });
             }
-            None => self.fail(Failure::Copy(CopyError::Other(
-                "no colour under the pointer".to_owned(),
-            ))),
+            None => {
+                let error = CopyError::Other("no colour under the pointer".to_owned());
+                self.notify(vec![Notice::CopyFailed(error)], near);
+            }
         }
     }
 
@@ -92,47 +105,31 @@ impl Runtime {
         for outcome in outcomes {
             match outcome {
                 Outcome::Encoded {
-                    ticket,
-                    rect,
-                    width,
-                    height,
-                    contents,
-                } => self.place_on_clipboard(
+                    job,
                     ticket,
                     contents,
-                    Copied::Image {
-                        rect,
-                        width,
-                        height,
-                    },
-                ),
-                Outcome::Saved {
-                    rect,
-                    width,
-                    height,
-                } => {
-                    self.last_region = Some(rect);
-                    (self.sink)(Event::Saved { width, height });
-                }
-                Outcome::Failed(failure) => self.fail(failure),
+                } => self.place_on_clipboard(ticket, contents, Copied::Image { job }),
+                Outcome::Saved { job, result } => self.save_settled(job, result),
+                Outcome::Failed { job, error } => self.update(job, |report| report.failed(error)),
             }
         }
     }
 
     pub(super) fn retry_clipboard(&mut self) {
-        let Some(mut pending) = self
-            .clipboard
-            .take()
-            .filter(|pending| self.copies.is_latest(pending.ticket))
-        else {
+        let Some(mut pending) = self.clipboard.take() else {
             self.stop_clipboard_timer();
             return;
         };
+        if !self.copies.is_latest(pending.ticket) {
+            self.stop_clipboard_timer();
+            self.supersede(pending.copied);
+            return;
+        }
         pending.attempts += 1;
         match clipboard::place(self.window.0, &pending.contents) {
             Ok(Placed::Done) => {
                 self.stop_clipboard_timer();
-                self.announce(pending.copied);
+                self.copy_settled(pending.copied, Ok(()));
             }
             Ok(Placed::Busy) => {
                 let scheduled = pending.attempts < CLIPBOARD_ATTEMPTS
@@ -148,19 +145,23 @@ impl Runtime {
                     self.clipboard = Some(pending);
                 } else {
                     self.stop_clipboard_timer();
-                    self.fail(Failure::Copy(CopyError::Busy));
+                    self.copy_settled(pending.copied, Err(CopyError::Busy));
                 }
             }
             Err(error) => {
                 self.stop_clipboard_timer();
-                self.fail(Failure::Copy(CopyError::Other(error.to_string())));
+                self.copy_settled(pending.copied, Err(CopyError::Other(error.to_string())));
             }
         }
     }
 
     fn place_on_clipboard(&mut self, ticket: u64, contents: Contents, copied: Copied) {
         if !self.copies.is_latest(ticket) {
+            self.supersede(copied);
             return;
+        }
+        if let Some(previous) = self.clipboard.take() {
+            self.supersede(previous.copied);
         }
         self.clipboard = Some(PendingCopy {
             ticket,
@@ -171,25 +172,64 @@ impl Runtime {
         self.retry_clipboard();
     }
 
-    fn stop_clipboard_timer(&self) {
-        let _ = unsafe { KillTimer(Some(self.window.0), CLIPBOARD_TIMER) };
-    }
-
-    fn announce(&mut self, copied: Copied) {
+    fn copy_settled(&mut self, copied: Copied, result: Result<(), CopyError>) {
         match copied {
-            Copied::Image {
-                rect,
-                width,
-                height,
-            } => {
-                self.last_region = Some(rect);
-                (self.sink)(Event::Copied { width, height });
+            Copied::Image { job } => {
+                if result.is_ok() {
+                    self.remember(job);
+                }
+                self.update(job, |report| report.copied(result));
             }
-            Copied::Colour => (self.sink)(Event::CopiedColour),
+            Copied::Colour { hex, near } => {
+                let notice = match result {
+                    Ok(()) => Notice::ColourCopied(hex),
+                    Err(error) => Notice::CopyFailed(error),
+                };
+                self.notify(vec![notice], near);
+            }
         }
     }
 
-    fn fail(&self, failure: Failure) {
-        (self.sink)(Event::Failed(failure));
+    fn save_settled(&mut self, job: u64, result: Result<(), SaveError>) {
+        if result.is_ok() {
+            self.remember(job);
+        }
+        self.update(job, |report| report.saved(result));
+    }
+
+    fn supersede(&mut self, copied: Copied) {
+        if let Copied::Image { job } = copied {
+            self.update(job, Report::superseded);
+        }
+    }
+
+    fn remember(&mut self, job: u64) {
+        if let Some(tracked) = self.reports.iter().find(|tracked| tracked.job == job) {
+            self.last_region = Some(tracked.near);
+        }
+    }
+
+    fn update(&mut self, job: u64, change: impl FnOnce(&mut Report)) {
+        let Some(index) = self.reports.iter().position(|tracked| tracked.job == job) else {
+            return;
+        };
+        let complete = self.reports.get_mut(index).is_some_and(|tracked| {
+            change(&mut tracked.report);
+            tracked.report.is_complete()
+        });
+        if complete {
+            let tracked = self.reports.swap_remove(index);
+            self.notify(tracked.report.notices(), tracked.near);
+        }
+    }
+
+    fn notify(&self, notices: Vec<Notice>, near: Rect) {
+        if !notices.is_empty() {
+            (self.sink)(Event::Notice { notices, near });
+        }
+    }
+
+    fn stop_clipboard_timer(&self) {
+        let _ = unsafe { KillTimer(Some(self.window.0), CLIPBOARD_TIMER) };
     }
 }

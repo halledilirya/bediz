@@ -13,7 +13,7 @@ There is no release yet. To try Bediz now, install [Rust](https://rustup.rs) and
 
 ## Usage
 
-Press **Print Screen** or click the tray icon. The screen freezes on every monitor. Drag to select a region, which can span monitors, then press **Enter** to copy it and save it to Pictures\Screenshots as a PNG. A file that exists is never replaced; the new one gets a number.
+Press **Print Screen** or click the tray icon. The screen freezes on every monitor. Drag to select a region, which can span monitors, then press **Enter** to copy it and save it to Pictures\Screenshots as a PNG. If copying or saving fails, a short label says why. A file that exists is never replaced; the new one gets a number.
 
 | Key | Action |
 | --- | --- |

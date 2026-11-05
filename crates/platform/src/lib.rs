@@ -1,6 +1,6 @@
 mod event;
 
-pub use event::{Command, Event, Failure, HotkeyState};
+pub use event::{Command, Event, Failure, HotkeyState, Label};
 
 #[cfg(windows)]
 #[allow(unsafe_code)]

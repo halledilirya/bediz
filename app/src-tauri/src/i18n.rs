@@ -1,4 +1,5 @@
-use fluent_bundle::{FluentBundle, FluentResource};
+use bediz_core::notice::Notice;
+use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 use unic_langid::LanguageIdentifier;
 
 const ENGLISH: (&str, &str) = ("en", include_str!("../../../locales/en/bediz.ftl"));
@@ -32,6 +33,18 @@ impl Texts {
     }
 
     pub fn get(&self, id: &str) -> String {
+        self.format(id, None)
+    }
+
+    pub fn notice(&self, notice: &Notice) -> String {
+        let mut args = FluentArgs::new();
+        if let Some((name, value)) = notice.argument() {
+            args.set(name, value.to_owned());
+        }
+        self.format(notice.locale_id(), Some(&args))
+    }
+
+    fn format(&self, id: &str, args: Option<&FluentArgs>) -> String {
         let Some(pattern) = self
             .bundle
             .get_message(id)
@@ -41,7 +54,7 @@ impl Texts {
         };
         let mut errors = Vec::new();
         self.bundle
-            .format_pattern(pattern, None, &mut errors)
+            .format_pattern(pattern, args, &mut errors)
             .into_owned()
     }
 }
@@ -50,7 +63,7 @@ impl Texts {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use fluent_bundle::FluentArgs;
+    use bediz_core::delivery::{CopyError, DeliveryError, SaveError};
 
     use super::*;
 
@@ -211,6 +224,64 @@ price = Costs $5
         let english = messages(ENGLISH.1);
         for id in USED {
             assert!(english.contains_key(id), "en is missing {id}");
+        }
+    }
+
+    fn every_notice() -> Vec<Notice> {
+        let reason = || "reason".to_owned();
+        let copy_errors = [CopyError::Busy, CopyError::Other(reason())];
+        let save_errors = [
+            SaveError::DiskFull,
+            SaveError::AccessDenied,
+            SaveError::FolderMissing,
+            SaveError::InUse,
+            SaveError::NoFreeName,
+            SaveError::Busy,
+            SaveError::Other(reason()),
+        ];
+        let delivery_errors = [DeliveryError::Busy, DeliveryError::Other(reason())];
+        [
+            Notice::Copied,
+            Notice::Saved,
+            Notice::CopiedAndSaved,
+            Notice::ColourCopied("#FFA010".to_owned()),
+            Notice::CaptureFailed(reason()),
+        ]
+        .into_iter()
+        .chain(copy_errors.map(Notice::CopyFailed))
+        .chain(save_errors.map(Notice::SaveFailed))
+        .chain(delivery_errors.map(Notice::DeliveryFailed))
+        .collect()
+    }
+
+    #[test]
+    fn every_notice_has_an_english_message_with_its_variable() {
+        let english = messages(ENGLISH.1);
+        for notice in every_notice() {
+            let id = notice.locale_id();
+            let Some(variables) = english.get(id) else {
+                panic!("en is missing {id}");
+            };
+            let expected: BTreeSet<String> = notice
+                .argument()
+                .map(|(name, _)| name.to_owned())
+                .into_iter()
+                .collect();
+            assert_eq!(variables, &expected, "{id} has other variables");
+        }
+    }
+
+    #[test]
+    fn notices_are_formatted_with_their_values() {
+        let texts = Texts::for_languages(&["tr-TR".to_owned()]);
+        let colour = texts.notice(&Notice::ColourCopied("#FFA010".to_owned()));
+        assert!(colour.contains("#FFA010"), "{colour}");
+        let reason = texts.notice(&Notice::SaveFailed(SaveError::Other(
+            "network gone".to_owned(),
+        )));
+        assert!(reason.contains("network gone"), "{reason}");
+        for notice in every_notice() {
+            assert_ne!(texts.notice(&notice), notice.locale_id());
         }
     }
 
