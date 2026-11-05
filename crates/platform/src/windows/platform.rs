@@ -21,7 +21,7 @@ pub enum StartError {
 pub struct Platform {
     window: isize,
     commands: Commands,
-    thread: Option<JoinHandle<()>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Platform {
@@ -37,7 +37,7 @@ impl Platform {
             Ok(Ok(window)) => Ok(Self {
                 window,
                 commands,
-                thread: Some(thread),
+                thread: Mutex::new(Some(thread)),
             }),
             Ok(Err(message)) => {
                 let _ = thread.join();
@@ -60,6 +60,18 @@ impl Platform {
         self.post(WM_COMMANDS);
     }
 
+    pub fn shutdown(&self) {
+        let thread = self
+            .thread
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(thread) = thread {
+            self.post(WM_STOP);
+            let _ = thread.join();
+        }
+    }
+
     fn post(&self, message: u32) {
         let window = HWND(self.window as *mut c_void);
         let _ = unsafe { PostMessageW(Some(window), message, WPARAM(0), LPARAM(0)) };
@@ -68,9 +80,6 @@ impl Platform {
 
 impl Drop for Platform {
     fn drop(&mut self) {
-        self.post(WM_STOP);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        self.shutdown();
     }
 }

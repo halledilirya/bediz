@@ -2,7 +2,7 @@ use std::error::Error;
 use std::sync::mpsc;
 
 use bediz_platform::{Platform, preferred_languages};
-use tauri::{App, Manager};
+use tauri::{App, AppHandle, Manager, RunEvent};
 
 use crate::events;
 use crate::i18n::Texts;
@@ -30,4 +30,19 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     }
     events::spawn(receiver, log, tray, app.handle().clone(), languages)?;
     Ok(())
+}
+
+pub fn on_run_event(app: &AppHandle, event: RunEvent) {
+    match event {
+        RunEvent::ExitRequested {
+            code: None, api, ..
+        } => api.prevent_exit(),
+        // Tauri ends the process without dropping managed state, so the queued saves finish here.
+        RunEvent::Exit => {
+            if let Some(platform) = app.try_state::<Platform>() {
+                platform.shutdown();
+            }
+        }
+        _ => {}
+    }
 }
