@@ -5,8 +5,8 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Gdi::ValidateRect;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, HCURSOR, HTCLIENT, IDC_CROSS, LoadCursorW, RegisterClassExW, SetCursor,
-    WM_CLOSE, WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_PAINT, WM_SETCURSOR, WNDCLASSEXW,
+    CS_DBLCLKS, DefWindowProcW, HCURSOR, HTCLIENT, IDC_CROSS, LoadCursorW, RegisterClassExW,
+    SetCursor, WM_CLOSE, WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_PAINT, WM_SETCURSOR, WNDCLASSEXW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
@@ -43,6 +43,7 @@ pub fn register(instance: HINSTANCE) -> Result<()> {
     register_class(&message)?;
     let overlay = WNDCLASSEXW {
         cbSize: size_of::<WNDCLASSEXW>() as u32,
+        style: CS_DBLCLKS,
         lpfnWndProc: Some(overlay_procedure),
         hInstance: instance,
         hCursor: unsafe { LoadCursorW(None, IDC_CROSS) }?,

@@ -25,6 +25,7 @@ fn line(event: &Event) -> String {
         Event::Idle(memory) => format!("idle {}", memory.log_fields()),
         Event::Measured(measurement) => measurement.log_line(),
         Event::Copied { width, height } => format!("copied {width}x{height}"),
+        Event::Saved { width, height } => format!("saved {width}x{height}"),
         Event::CopiedColour => "copied colour".to_owned(),
         Event::Note(note) => format!("note {note}"),
         Event::Failed(failure) => format!("failed {failure}"),

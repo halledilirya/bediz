@@ -7,4 +7,4 @@ pub use event::{Command, Event, Failure, HotkeyState};
 mod windows;
 
 #[cfg(windows)]
-pub use windows::{Platform, StartError, preferred_languages};
+pub use windows::{Platform, StartError, preferred_languages, save_screenshot};

@@ -1,20 +1,16 @@
 use std::time::Duration;
 
 use bediz_core::capture::Allocation;
-use bediz_core::geometry::Point;
-use bediz_core::image::hex_colour;
 use bediz_core::measurement::Measurement;
-use windows::Win32::Foundation::E_FAIL;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     SetTimer, SystemParametersInfoW,
 };
-use windows::core::{BOOL, Error};
+use windows::core::BOOL;
 
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
-use crate::windows::clipboard;
 use crate::windows::foreground::{self, Foreground};
 use crate::windows::session::{Action, Session};
 
@@ -86,7 +82,7 @@ impl Runtime {
             Foreground::Refused
         };
         let focused = self.clock.since(start);
-        self.session = Some(Session::new(previous, self.last_region));
+        self.session = Some(Session::new(previous));
         if let Err(error) = shown {
             self.emit_notes(notes);
             (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
@@ -159,52 +155,12 @@ impl Runtime {
             return;
         };
         let windows = self.detect_windows.then_some(&self.windows);
-        match session.handle(scene, windows, message) {
+        match session.handle(scene, windows, self.last_region, message) {
             Ok(Action::None) => {}
             Ok(Action::Cancel) => self.hide(),
-            Ok(Action::Copy) => self.copy(),
+            Ok(Action::Deliver(delivery)) => self.deliver(delivery),
             Ok(Action::CopyColour(at)) => self.copy_colour(at),
             Err(error) => (self.sink)(Event::Failed(Failure::Overlay(error.to_string()))),
-        }
-    }
-
-    fn copy(&mut self) {
-        let Some(rect) = self.session.as_ref().and_then(Session::selected) else {
-            return;
-        };
-        let read = self.scene.as_ref().map(|scene| scene.read(rect));
-        self.hide();
-        let copied = match read {
-            Some(Ok(image)) => image
-                .encode_png()
-                .map_err(|error| error.to_string())
-                .and_then(|png| {
-                    clipboard::copy_image(self.window.0, &image, &png)
-                        .map_err(|error| error.to_string())
-                })
-                .map(|()| (image.width(), image.height())),
-            Some(Err(error)) => Err(error.to_string()),
-            None => Err("no display is ready".to_owned()),
-        };
-        match copied {
-            Ok((width, height)) => {
-                self.last_region = Some(rect);
-                (self.sink)(Event::Copied { width, height });
-            }
-            Err(error) => (self.sink)(Event::Failed(Failure::Copy(error))),
-        }
-    }
-
-    fn copy_colour(&mut self, at: Point) {
-        let colour = self.scene.as_ref().and_then(|scene| scene.pixel(at));
-        self.hide();
-        let copied = match colour {
-            Some(colour) => clipboard::copy_text(self.window.0, &hex_colour(colour)),
-            None => Err(Error::new(E_FAIL, "no colour under the pointer")),
-        };
-        match copied {
-            Ok(()) => (self.sink)(Event::CopiedColour),
-            Err(error) => (self.sink)(Event::Failed(Failure::Copy(error.to_string()))),
         }
     }
 

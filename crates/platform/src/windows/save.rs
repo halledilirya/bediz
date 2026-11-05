@@ -1,0 +1,176 @@
+use std::ffi::OsString;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, ErrorKind, Write};
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::path::{Path, PathBuf};
+
+use bediz_core::delivery::SaveError;
+use bediz_core::file_name::{self, LocalTime};
+use windows::Win32::Foundation::{
+    ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_BAD_NETPATH, ERROR_DISK_FULL,
+    ERROR_FILE_EXISTS, ERROR_HANDLE_DISK_FULL, ERROR_LOCK_VIOLATION, ERROR_PATH_NOT_FOUND,
+    ERROR_SHARING_VIOLATION, WIN32_ERROR,
+};
+use windows::Win32::Storage::FileSystem::{MOVE_FILE_FLAGS, MoveFileExW};
+use windows::Win32::System::Com::CoTaskMemFree;
+use windows::Win32::UI::Shell::{FOLDERID_Screenshots, KF_FLAG_CREATE, SHGetKnownFolderPath};
+use windows::core::{HRESULT, PCWSTR};
+
+const LAST_ATTEMPT: u32 = 1000;
+
+pub fn screenshots_folder() -> Result<PathBuf, SaveError> {
+    let path = unsafe { SHGetKnownFolderPath(&FOLDERID_Screenshots, KF_FLAG_CREATE, None) }
+        .map_err(|error| save_error(error.code(), error.message()))?;
+    let folder = OsString::from_wide(unsafe { path.as_wide() });
+    unsafe { CoTaskMemFree(Some(path.0.cast())) };
+    Ok(PathBuf::from(folder))
+}
+
+pub fn save_screenshot(folder: &Path, time: &LocalTime, png: &[u8]) -> Result<PathBuf, SaveError> {
+    let temporary = write_temporary(folder, time, png)?;
+    for attempt in 1..=LAST_ATTEMPT {
+        let target = folder.join(file_name::screenshot(time, attempt));
+        match move_without_replacing(&temporary, &target) {
+            Ok(()) => return Ok(target),
+            Err(error) if is_taken(error.code()) => {}
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(save_error(error.code(), error.message()));
+            }
+        }
+    }
+    let _ = fs::remove_file(&temporary);
+    Err(SaveError::NoFreeName)
+}
+
+fn write_temporary(folder: &Path, time: &LocalTime, png: &[u8]) -> Result<PathBuf, SaveError> {
+    for attempt in 1..=LAST_ATTEMPT {
+        let path = folder.join(file_name::temporary(&file_name::screenshot(time, attempt)));
+        let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(io_error(&error)),
+        };
+        return match fill(file, png) {
+            Ok(()) => Ok(path),
+            Err(error) => {
+                let _ = fs::remove_file(&path);
+                Err(io_error(&error))
+            }
+        };
+    }
+    Err(SaveError::NoFreeName)
+}
+
+fn fill(mut file: File, png: &[u8]) -> io::Result<()> {
+    file.write_all(png)?;
+    file.sync_all()
+}
+
+// std::fs::rename replaces an existing file; MoveFileExW without MOVEFILE_REPLACE_EXISTING never does.
+fn move_without_replacing(from: &Path, to: &Path) -> windows::core::Result<()> {
+    let (from, to) = (extended(from), extended(to));
+    unsafe {
+        MoveFileExW(
+            PCWSTR(from.as_ptr()),
+            PCWSTR(to.as_ptr()),
+            MOVE_FILE_FLAGS(0),
+        )
+    }
+}
+
+fn is_taken(code: HRESULT) -> bool {
+    code == ERROR_ALREADY_EXISTS.to_hresult() || code == ERROR_FILE_EXISTS.to_hresult()
+}
+
+// Direct calls reach past MAX_PATH only with the \\?\ prefix, which std::fs adds by itself.
+fn extended(path: &Path) -> Vec<u16> {
+    let mut wide = extended_wide(&path.as_os_str().encode_wide().collect::<Vec<_>>());
+    wide.push(0);
+    wide
+}
+
+fn extended_wide(path: &[u16]) -> Vec<u16> {
+    let wide = |text: &str| text.encode_utf16().collect::<Vec<u16>>();
+    if path.starts_with(&wide(r"\\?\")) {
+        return path.to_vec();
+    }
+    match path.strip_prefix(wide(r"\\").as_slice()) {
+        Some(share) => [wide(r"\\?\UNC\").as_slice(), share].concat(),
+        None => [wide(r"\\?\").as_slice(), path].concat(),
+    }
+}
+
+fn io_error(error: &io::Error) -> SaveError {
+    match error.raw_os_error() {
+        Some(code) => save_error(WIN32_ERROR(code as u32).to_hresult(), error.to_string()),
+        None => SaveError::Other(error.to_string()),
+    }
+}
+
+fn save_error(code: HRESULT, message: impl ToString) -> SaveError {
+    let is = |error: WIN32_ERROR| code == error.to_hresult();
+    if is(ERROR_DISK_FULL) || is(ERROR_HANDLE_DISK_FULL) {
+        SaveError::DiskFull
+    } else if is(ERROR_ACCESS_DENIED) {
+        SaveError::AccessDenied
+    } else if is(ERROR_PATH_NOT_FOUND) || is(ERROR_BAD_NETPATH) {
+        SaveError::FolderMissing
+    } else if is(ERROR_SHARING_VIOLATION) || is(ERROR_LOCK_VIOLATION) {
+        SaveError::InUse
+    } else {
+        SaveError::Other(message.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().collect()
+    }
+
+    #[test]
+    fn local_paths_get_the_verbatim_prefix() {
+        assert_eq!(
+            extended_wide(&wide(r"C:\Pictures\a.png")),
+            wide(r"\\?\C:\Pictures\a.png")
+        );
+    }
+
+    #[test]
+    fn network_paths_get_the_unc_prefix() {
+        assert_eq!(
+            extended_wide(&wide(r"\\server\share\a.png")),
+            wide(r"\\?\UNC\server\share\a.png")
+        );
+    }
+
+    #[test]
+    fn prefixed_paths_stay_as_they_are() {
+        let path = wide(r"\\?\C:\Pictures\a.png");
+        assert_eq!(extended_wide(&path), path);
+    }
+
+    #[test]
+    fn system_errors_become_typed_save_errors() {
+        let error = |code: WIN32_ERROR| save_error(code.to_hresult(), "other");
+        assert_eq!(error(ERROR_DISK_FULL), SaveError::DiskFull);
+        assert_eq!(error(ERROR_HANDLE_DISK_FULL), SaveError::DiskFull);
+        assert_eq!(error(ERROR_ACCESS_DENIED), SaveError::AccessDenied);
+        assert_eq!(error(ERROR_PATH_NOT_FOUND), SaveError::FolderMissing);
+        assert_eq!(error(ERROR_SHARING_VIOLATION), SaveError::InUse);
+        assert_eq!(
+            error(ERROR_ALREADY_EXISTS),
+            SaveError::Other("other".to_owned())
+        );
+    }
+
+    #[test]
+    fn taken_names_are_recognised() {
+        assert!(is_taken(ERROR_ALREADY_EXISTS.to_hresult()));
+        assert!(is_taken(ERROR_FILE_EXISTS.to_hresult()));
+        assert!(!is_taken(ERROR_ACCESS_DENIED.to_hresult()));
+    }
+}

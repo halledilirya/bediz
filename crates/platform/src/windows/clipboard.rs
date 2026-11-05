@@ -6,65 +6,65 @@ use windows::Win32::System::DataExchange::{
 };
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Ole::{CF_DIBV5, CF_UNICODETEXT};
-use windows::Win32::System::Threading::Sleep;
 use windows::Win32::UI::ColorSystem::LCS_sRGB;
 use windows::core::{Error, Result, w};
 
-const OPEN_ATTEMPTS: u32 = 10;
-const OPEN_RETRY_MILLISECONDS: u32 = 25;
-
-pub fn copy_image(owner: HWND, image: &Image, png: &[u8]) -> Result<()> {
-    let pixels = image.opaque_bottom_up_bgra();
-    let header = dib_header(image, pixels.len());
-    let header_bytes = unsafe {
-        std::slice::from_raw_parts(
-            (&header as *const BITMAPV5HEADER).cast::<u8>(),
-            size_of::<BITMAPV5HEADER>(),
-        )
-    };
-    let mut dib = Vec::with_capacity(header_bytes.len() + pixels.len());
-    dib.extend_from_slice(header_bytes);
-    dib.extend_from_slice(&pixels);
-    publish(owner, || {
-        set(unsafe { RegisterClipboardFormatW(w!("PNG")) }, png)?;
-        set(u32::from(CF_DIBV5.0), &dib)
-    })
+pub enum Contents {
+    Image { png: Vec<u8>, dib: Vec<u8> },
+    Text(Vec<u8>),
 }
 
-pub fn copy_text(owner: HWND, text: &str) -> Result<()> {
-    let utf16: Vec<u8> = text
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    publish(owner, || set(u32::from(CF_UNICODETEXT.0), &utf16))
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placed {
+    Done,
+    Busy,
+}
+
+impl Contents {
+    pub fn image(image: &Image, png: Vec<u8>) -> Self {
+        let pixels = image.opaque_bottom_up_bgra();
+        let header = dib_header(image, pixels.len());
+        let header_bytes = unsafe {
+            std::slice::from_raw_parts(
+                (&header as *const BITMAPV5HEADER).cast::<u8>(),
+                size_of::<BITMAPV5HEADER>(),
+            )
+        };
+        let mut dib = Vec::with_capacity(header_bytes.len() + pixels.len());
+        dib.extend_from_slice(header_bytes);
+        dib.extend_from_slice(&pixels);
+        Self::Image { png, dib }
+    }
+
+    pub fn text(text: &str) -> Self {
+        Self::Text(
+            text.encode_utf16()
+                .chain(std::iter::once(0))
+                .flat_map(u16::to_le_bytes)
+                .collect(),
+        )
+    }
 }
 
 // The cloud flag goes first and a failure empties the clipboard, so content never stays without it.
-fn publish(owner: HWND, formats: impl FnOnce() -> Result<()>) -> Result<()> {
-    open(owner)?;
+pub fn place(owner: HWND, contents: &Contents) -> Result<Placed> {
+    if unsafe { OpenClipboard(Some(owner)) }.is_err() {
+        return Ok(Placed::Busy);
+    }
     let result = unsafe { EmptyClipboard() }
         .and_then(|()| keep_off_cloud())
-        .and_then(|()| formats());
+        .and_then(|()| match contents {
+            Contents::Image { png, dib } => {
+                set(unsafe { RegisterClipboardFormatW(w!("PNG")) }, png)?;
+                set(u32::from(CF_DIBV5.0), dib)
+            }
+            Contents::Text(utf16) => set(u32::from(CF_UNICODETEXT.0), utf16),
+        });
     if result.is_err() {
         let _ = unsafe { EmptyClipboard() };
     }
     let closed = unsafe { CloseClipboard() };
-    result.and(closed)
-}
-
-fn open(owner: HWND) -> Result<()> {
-    let mut last = Ok(());
-    for attempt in 0..OPEN_ATTEMPTS {
-        if attempt > 0 {
-            unsafe { Sleep(OPEN_RETRY_MILLISECONDS) };
-        }
-        last = unsafe { OpenClipboard(Some(owner)) };
-        if last.is_ok() {
-            return last;
-        }
-    }
-    last
+    result.and(closed).map(|()| Placed::Done)
 }
 
 fn keep_off_cloud() -> Result<()> {

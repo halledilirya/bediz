@@ -1,14 +1,15 @@
+use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::selection::{Grip, Handle, Modifiers, Selection};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_A, VK_C, VK_CONTROL, VK_DOWN,
-    VK_ESCAPE, VK_F4, VK_LEFT, VK_MENU, VK_R, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_UP,
+    VK_ESCAPE, VK_F4, VK_LEFT, VK_MENU, VK_R, VK_RETURN, VK_RIGHT, VK_S, VK_SHIFT, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetSystemMetrics, IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
-    IDC_SIZEWE, LoadCursorW, MSG, SM_CXDRAG, SM_CYDRAG, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    IDC_SIZEWE, LoadCursorW, MSG, SM_CXDRAG, SM_CYDRAG, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -20,7 +21,7 @@ use super::window_list::WindowList;
 pub enum Action {
     None,
     Cancel,
-    Copy,
+    Deliver(Delivery),
     CopyColour(Point),
 }
 
@@ -31,7 +32,6 @@ struct Click {
 
 pub struct Session {
     previous: HWND,
-    last_region: Option<Rect>,
     selection: Option<Selection>,
     click: Option<Click>,
     pointer: Option<Point>,
@@ -39,7 +39,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(previous: HWND, last_region: Option<Rect>) -> Self {
+    pub fn new(previous: HWND) -> Self {
         show_cursor(IDC_CROSS);
         let mut cursor = POINT::default();
         let pointer = unsafe { GetCursorPos(&mut cursor) }
@@ -47,7 +47,6 @@ impl Session {
             .map(|()| Point::new(cursor.x, cursor.y));
         Self {
             previous,
-            last_region,
             selection: None,
             click: None,
             pointer,
@@ -67,6 +66,7 @@ impl Session {
         &mut self,
         scene: &Scene,
         windows: Option<&WindowList>,
+        last_region: Option<Rect>,
         message: &MSG,
     ) -> Result<Action> {
         let point = Point::new(message.pt.x, message.pt.y);
@@ -74,7 +74,10 @@ impl Session {
             self.pointer = Some(point);
         }
         let changed = match message.message {
-            WM_LBUTTONDOWN => {
+            WM_LBUTTONDBLCLK if self.inside_selection(scene, point) => {
+                return Ok(Action::Deliver(Delivery::COPY_AND_SAVE));
+            }
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
                 self.press(scene, windows, point);
                 if self.selection.is_some() {
                     unsafe { SetCapture(message.hwnd) };
@@ -86,7 +89,7 @@ impl Session {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, point)
             }
-            WM_KEYDOWN | WM_SYSKEYDOWN => match self.key(scene, message, point) {
+            WM_KEYDOWN | WM_SYSKEYDOWN => match self.key(scene, last_region, message, point) {
                 Some(Action::None) => true,
                 Some(action) => return Ok(action),
                 None => false,
@@ -98,6 +101,13 @@ impl Session {
             self.redraw(scene, windows)?;
         }
         Ok(Action::None)
+    }
+
+    fn inside_selection(&self, scene: &Scene, point: Point) -> bool {
+        self.selection.is_some_and(|selection| {
+            !selection.is_dragging()
+                && selection.grip_at(point, scene.reach_at(point)) == Some(Grip::Inside)
+        })
     }
 
     fn press(&mut self, scene: &Scene, windows: Option<&WindowList>, point: Point) {
@@ -150,14 +160,24 @@ impl Session {
         }
     }
 
-    fn key(&mut self, scene: &Scene, message: &MSG, point: Point) -> Option<Action> {
+    fn key(
+        &mut self,
+        scene: &Scene,
+        last_region: Option<Rect>,
+        message: &MSG,
+        point: Point,
+    ) -> Option<Action> {
         let key = VIRTUAL_KEY(message.wParam.0 as u16);
         let control = is_down(VK_CONTROL);
-        let step = if is_down(VK_SHIFT) { 10 } else { 1 };
+        let shift = is_down(VK_SHIFT);
+        let step = if shift { 10 } else { 1 };
+        let selected = self.selected().is_some();
         match key {
             VK_ESCAPE => Some(Action::Cancel),
             VK_F4 if message.message == WM_SYSKEYDOWN => Some(Action::Cancel),
-            VK_RETURN => Some(Action::Copy),
+            VK_RETURN if selected => Some(Action::Deliver(Delivery::COPY_AND_SAVE)),
+            VK_C if control && selected => Some(Action::Deliver(Delivery::COPY)),
+            VK_S if control && !shift && selected => Some(Action::Deliver(Delivery::SAVE)),
             VK_LEFT | VK_RIGHT | VK_UP | VK_DOWN => {
                 let (dx, dy) = match key {
                     VK_LEFT => (-step, 0),
@@ -179,7 +199,7 @@ impl Session {
                 Some(Action::None)
             }
             VK_R if !control => {
-                let region = self.last_region?;
+                let region = last_region?;
                 self.click = None;
                 self.selection = Selection::restore(scene.monitor_rects(), region);
                 Some(Action::None)

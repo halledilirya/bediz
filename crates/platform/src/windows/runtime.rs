@@ -1,3 +1,4 @@
+mod delivery;
 mod screenshot;
 
 use std::sync::mpsc::Sender;
@@ -5,6 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use bediz_core::capture::Allocation;
+use bediz_core::delivery::CopyOrder;
 use windows::Win32::Foundation::{HINSTANCE, HWND, WAIT_FAILED, WAIT_OBJECT_0};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -16,8 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, DispatchMessageW, HWND_MESSAGE, KillTimer, MSG,
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetTimer, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_HOTKEY, WM_KEYDOWN,
-    WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WM_TIMER, WaitMessage,
+    WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_SYSKEYDOWN,
+    WM_SYSKEYUP, WM_TIMER, WaitMessage,
 };
 use windows::core::{Result, w};
 
@@ -31,13 +33,17 @@ use super::session::Session;
 use super::virtual_desktop::VirtualDesktops;
 use super::window_class::{self, MESSAGE_CLASS};
 use super::window_list::WindowList;
+use super::worker::Worker;
 use crate::event::{Command, Event, Failure};
+use delivery::PendingCopy;
 
 pub const WM_COMMANDS: u32 = WM_APP + 1;
 pub const WM_STOP: u32 = WM_APP + 2;
+pub const WM_OUTCOMES: u32 = WM_APP + 3;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
+const CLIPBOARD_TIMER: usize = 3;
 const DISPLAY_SETTLE_MILLISECONDS: u32 = 500;
 
 pub type Commands = Arc<Mutex<Vec<Command>>>;
@@ -59,6 +65,9 @@ struct Runtime {
     print_screen: PrintScreen,
     desktop_switch: Option<DesktopSwitchHook>,
     desktops: Option<VirtualDesktops>,
+    worker: Option<Worker>,
+    copies: CopyOrder,
+    clipboard: Option<PendingCopy>,
     window: MessageWindow,
     instance: HINSTANCE,
     commands: Commands,
@@ -118,6 +127,9 @@ impl Runtime {
             print_screen: PrintScreen::new(window),
             desktop_switch: DesktopSwitchHook::install(),
             desktops: None,
+            worker: None,
+            copies: CopyOrder::default(),
+            clipboard: None,
             window: MessageWindow(window),
             instance,
             commands,
@@ -144,6 +156,12 @@ impl Runtime {
                 "virtual desktops are not followed; the overlay stays where it was made: {error}"
             )),
         }
+        match Worker::start(self.window.0) {
+            Ok(worker) => self.worker = Some(worker),
+            Err(error) => notes.push(format!(
+                "the thread that encodes and saves could not start: {error}"
+            )),
+        }
         self.emit_notes(notes);
         let change = self.print_screen.refresh();
         self.report_hotkey(change);
@@ -161,6 +179,7 @@ impl Runtime {
     fn stop(&mut self) {
         self.hide();
         self.print_screen.unregister();
+        self.worker = None;
         self.scene = None;
     }
 
@@ -232,9 +251,11 @@ impl Runtime {
                     self.rebuild_scene();
                 }
             }
+            WM_TIMER if own && message.wParam.0 == CLIPBOARD_TIMER => self.retry_clipboard(),
             WM_COMMANDS if own => self.on_commands(),
-            WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_KEYDOWN | WM_KEYUP
-            | WM_SYSKEYDOWN | WM_SYSKEYUP
+            WM_OUTCOMES if own => self.on_outcomes(),
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_MOUSEMOVE | WM_KEYDOWN
+            | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.is_overlay(message.hwnd) =>
             {
                 self.on_input(message);
