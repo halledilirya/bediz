@@ -37,7 +37,8 @@ export function enableSections(
     button.addEventListener("click", () => {
       const target = section(button);
       if (target) {
-        pane.scrollTo({ top: target.offsetTop - 12 });
+        const gap = parseFloat(getComputedStyle(pane).paddingTop);
+        pane.scrollTo({ top: target.offsetTop - gap });
       }
       mark(button);
     });
