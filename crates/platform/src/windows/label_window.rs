@@ -11,8 +11,9 @@ use windows::Win32::Graphics::Direct2D::{
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-    DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_MEASURING_MODE_NATURAL, DWRITE_TEXT_ALIGNMENT_CENTER,
-    DWRITE_TEXT_METRICS, DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection,
+    DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_MEASURING_MODE_NATURAL,
+    DWRITE_READING_DIRECTION_RIGHT_TO_LEFT, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_METRICS,
+    DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
@@ -27,7 +28,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     USER_DEFAULT_SCREEN_DPI, UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
-use windows::core::{Error, Result, w};
+use windows::core::{Error, HSTRING, Result, w};
 
 use super::contrast::Colours;
 use super::window_class::LABEL_CLASS;
@@ -196,10 +197,13 @@ impl LabelWindow {
                 DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
                 FONT_SIZE * scale,
-                w!(""),
+                &HSTRING::from(label.language.as_str()),
             )
         }?;
         unsafe { format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER) }?;
+        if label.right_to_left {
+            unsafe { format.SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT) }?;
+        }
         let wide: Vec<u16> = label.lines.join("\n").encode_utf16().collect();
         let layout = unsafe {
             self.text

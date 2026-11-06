@@ -6,10 +6,22 @@ use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 use unic_langid::LanguageIdentifier;
 
 const ENGLISH: (&str, &str) = ("en", include_str!("../../../locales/en/bediz.ftl"));
-const LOCALES: [(&str, &str); 2] = [
+const LOCALES: [(&str, &str); 13] = [
     ENGLISH,
+    ("ar", include_str!("../../../locales/ar/bediz.ftl")),
+    ("de", include_str!("../../../locales/de/bediz.ftl")),
+    ("es", include_str!("../../../locales/es/bediz.ftl")),
+    ("fr", include_str!("../../../locales/fr/bediz.ftl")),
+    ("hi", include_str!("../../../locales/hi/bediz.ftl")),
+    ("it", include_str!("../../../locales/it/bediz.ftl")),
+    ("ja", include_str!("../../../locales/ja/bediz.ftl")),
+    ("ko", include_str!("../../../locales/ko/bediz.ftl")),
+    ("pt", include_str!("../../../locales/pt/bediz.ftl")),
+    ("ru", include_str!("../../../locales/ru/bediz.ftl")),
     ("tr", include_str!("../../../locales/tr/bediz.ftl")),
+    ("zh", include_str!("../../../locales/zh/bediz.ftl")),
 ];
+const RIGHT_TO_LEFT: [&str; 1] = ["ar"];
 
 pub struct Language(Mutex<&'static str>);
 
@@ -50,6 +62,7 @@ impl Texts {
             whole_monitor: self.get("overlay-menu-whole-monitor"),
             last_region: self.get("overlay-menu-last-region"),
             cancel: self.get("overlay-menu-cancel"),
+            right_to_left: self.right_to_left(),
         }
     }
 
@@ -77,6 +90,10 @@ impl Texts {
 
     pub const fn language(&self) -> &'static str {
         self.language
+    }
+
+    pub fn right_to_left(&self) -> bool {
+        RIGHT_TO_LEFT.contains(&self.language)
     }
 
     pub fn get(&self, id: &str) -> String {
@@ -414,8 +431,42 @@ price = Costs $5
 
     #[test]
     fn picks_the_first_supported_language() {
-        let texts = Texts::for_languages(&["de-DE".to_owned(), "tr-TR".to_owned()]);
+        let texts = Texts::for_languages(&["fi-FI".to_owned(), "tr-TR".to_owned()]);
         assert_eq!(texts.get("tray-open-logs"), "Günlük klasörünü aç");
+    }
+
+    #[test]
+    fn a_regional_windows_language_finds_its_translation() {
+        for (tag, code) in [
+            ("pt-BR", "pt"),
+            ("pt-PT", "pt"),
+            ("zh-CN", "zh"),
+            ("zh-Hans-CN", "zh"),
+            ("ar-SA", "ar"),
+            ("de-AT", "de"),
+            ("ja-JP", "ja"),
+        ] {
+            assert_eq!(Texts::for_languages(&[tag.to_owned()]).language(), code);
+        }
+    }
+
+    #[test]
+    fn every_locale_names_its_own_language() {
+        let names: BTreeSet<String> = LOCALES
+            .iter()
+            .map(|(code, _)| Texts::for_languages(&[(*code).to_owned()]).get("language-name"))
+            .collect();
+        assert_eq!(names.len(), LOCALES.len(), "{names:?}");
+        assert!(names.contains("English") && names.contains("Türkçe"));
+    }
+
+    #[test]
+    fn only_arabic_is_written_right_to_left() {
+        for (code, _) in LOCALES {
+            let texts = Texts::for_languages(&[code.to_owned()]);
+            assert_eq!(texts.right_to_left(), code == "ar", "{code}");
+            assert_eq!(texts.menu_texts().right_to_left, code == "ar", "{code}");
+        }
     }
 
     #[test]
@@ -428,7 +479,7 @@ price = Costs $5
 
     #[test]
     fn falls_back_to_english() {
-        let texts = Texts::for_languages(&["de-DE".to_owned()]);
+        let texts = Texts::for_languages(&["fi-FI".to_owned()]);
         assert_eq!(texts.get("tray-open-logs"), "Open log folder");
         let texts = Texts::for_languages(&[]);
         assert_eq!(texts.get("tray-quit"), "Quit Bediz");

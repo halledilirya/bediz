@@ -3,7 +3,8 @@ use bediz_core::geometry::Point;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, HMENU, MF_GRAYED, MF_SEPARATOR, MF_STRING,
-    SetMenuDefaultItem, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx,
+    SetMenuDefaultItem, TPM_LAYOUTRTL, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTALIGN,
+    TPM_RIGHTBUTTON, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -88,9 +89,18 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
     menu.item(LAST_REGION, &texts.last_region, "R", offer.last_region)?;
     menu.separator()?;
     menu.item(CANCEL, &texts.cancel, "Esc", true)?;
-    let flags = TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY;
+    let flags = flags(texts.right_to_left);
     let chosen = unsafe { TrackPopupMenuEx(menu.0, flags.0, at.x, at.y, owner, None) };
     Ok(choice(chosen.0))
+}
+
+fn flags(right_to_left: bool) -> TRACK_POPUP_MENU_FLAGS {
+    let flags = TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY;
+    if right_to_left {
+        flags | TPM_LAYOUTRTL | TPM_RIGHTALIGN
+    } else {
+        flags
+    }
 }
 
 fn label(text: &str, key: &str) -> String {
@@ -144,6 +154,14 @@ mod tests {
     fn an_item_without_a_key_shows_no_tab() {
         assert_eq!(label("Copy", "Ctrl+C"), "Copy\tCtrl+C");
         assert_eq!(label("Copy and save", ""), "Copy and save");
+    }
+
+    #[test]
+    fn a_right_to_left_menu_is_mirrored_and_opens_to_the_left() {
+        let mirrored = TPM_LAYOUTRTL | TPM_RIGHTALIGN;
+        assert_eq!(flags(false).0 & mirrored.0, 0);
+        assert_eq!(flags(true).0 & mirrored.0, mirrored.0);
+        assert_eq!(flags(true).0 & !mirrored.0, flags(false).0);
     }
 
     #[test]

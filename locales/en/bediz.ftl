@@ -1,3 +1,4 @@
+language-name = English
 tray-tooltip = Bediz
 tray-tooltip-hotkey-taken = Bediz: another app uses { $key }
 tray-tooltip-snipping-tool = Bediz: Print Screen opens the Snipping Tool
@@ -57,11 +58,9 @@ settings-start-with-windows = Start with Windows
 settings-start-with-windows-detail = Bediz waits in the tray, so the shortcut works as soon as you sign in. If you turn it off in Task Manager, Bediz leaves that alone.
 settings-start-problem = Bediz could not change whether Windows starts it, so this may not happen as set: { $reason }
 settings-language = Language
-    .keywords = language, English, Türkçe, translation
+    .keywords = language, translation, English
 settings-language-detail = The window and the tray menu switch at once.
 settings-language-system = Same as Windows
-settings-language-en = English
-settings-language-tr = Türkçe
 settings-theme = Look
     .keywords = theme, dark, light, mode, appearance
 settings-theme-detail = Light or dark; when it follows Windows, it changes with Windows.

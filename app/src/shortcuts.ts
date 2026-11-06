@@ -43,6 +43,11 @@ export async function enableShortcuts(
   const drawKeys = (names: string[], waiting: boolean): void => {
     keys.replaceChildren();
     keys.classList.toggle("listening", waiting);
+    if (names.length > 0) {
+      keys.dir = "ltr";
+    } else {
+      keys.removeAttribute("dir");
+    }
     if (waiting && names.length === 0) {
       keys.textContent = text("settings-hotkey-listening");
       return;

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enableFileName } from "./file-name";
 import { enableFolder } from "./folder";
-import { onLanguage, text } from "./i18n";
+import { isolated, languageName, languages, onLanguage, text } from "./i18n";
 import { saveChanges } from "./saving";
 import { enableShortcuts } from "./shortcuts";
 import "./styles/settings.css";
@@ -77,6 +77,14 @@ export async function showSettings(
       found.value = wanted;
     }
   };
+  const language = control("language");
+  if (language instanceof HTMLSelectElement) {
+    for (const code of languages) {
+      const option = new Option(isolated(languageName(code)), code);
+      option.lang = code;
+      language.add(option);
+    }
+  }
   const warning: { said: (() => string) | null } = { said: null };
   const warn = (said: () => string): void => {
     warning.said = said;

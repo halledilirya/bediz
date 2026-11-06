@@ -3,27 +3,54 @@ import {
   FluentResource,
   type FluentVariable,
 } from "@fluent/bundle";
-import english from "../../locales/en/bediz.ftl?raw";
-import turkish from "../../locales/tr/bediz.ftl?raw";
 
-const sources = new Map([
-  ["en", english],
-  ["tr", turkish],
-]);
+const ENGLISH = "en";
+const RIGHT_TO_LEFT = new Set(["ar"]);
+const FIRST_STRONG_ISOLATE = String.fromCodePoint(0x2068);
+const POP_DIRECTIONAL_ISOLATE = String.fromCodePoint(0x2069);
 
-let bundle = create("en", english);
+const sources = new Map<string, string>();
+for (const [path, source] of Object.entries(
+  import.meta.glob<string>("../../locales/*/bediz.ftl", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+)) {
+  const code = /([^/]+)\/bediz\.ftl$/.exec(path)?.[1];
+  if (code !== undefined) {
+    sources.set(code, source);
+  }
+}
 
-function create(language: string, source: string): FluentBundle {
+export const languages: readonly string[] = [
+  ENGLISH,
+  ...[...sources.keys()].filter((code) => code !== ENGLISH).sort(),
+];
+
+let bundle = create(ENGLISH);
+
+function create(language: string): FluentBundle {
   const created = new FluentBundle(language);
-  created.addResource(new FluentResource(source));
+  created.addResource(new FluentResource(sources.get(language) ?? ""));
   return created;
 }
 
+export function languageName(code: string): string {
+  const named = create(code);
+  const pattern = named.getMessage("language-name")?.value ?? null;
+  return pattern === null ? code : named.formatPattern(pattern);
+}
+
+export function isolated(phrase: string): string {
+  return `${FIRST_STRONG_ISOLATE}${phrase}${POP_DIRECTIONAL_ISOLATE}`;
+}
+
 export function useLanguage(language: string): void {
-  const source = sources.get(language);
-  const chosen = source === undefined ? "en" : language;
-  bundle = create(chosen, source ?? english);
+  const chosen = sources.has(language) ? language : ENGLISH;
+  bundle = create(chosen);
   document.documentElement.lang = chosen;
+  document.documentElement.dir = RIGHT_TO_LEFT.has(chosen) ? "rtl" : "ltr";
 }
 
 export function text(

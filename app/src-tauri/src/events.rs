@@ -241,6 +241,8 @@ impl Dispatcher {
                 .collect(),
             near,
             warning: notices.iter().any(Notice::is_failure),
+            language: self.texts.language().to_owned(),
+            right_to_left: self.texts.right_to_left(),
         }));
     }
 }

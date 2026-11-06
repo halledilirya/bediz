@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { onLanguage, text } from "./i18n";
+import { isolated, onLanguage, text } from "./i18n";
 import { type Fetch, readNotices } from "./licences";
 import "./styles/about.css";
 
@@ -59,7 +59,8 @@ export async function enableAbout(): Promise<void> {
     invoke("open_source").catch(failed);
   });
   licences.addEventListener("click", () => {
-    void readNotices(fetched, text("settings-licences-missing")).then((all) => {
+    const missing = isolated(text("settings-licences-missing"));
+    void readNotices(fetched, missing).then((all) => {
       notices.textContent = all;
       dialog.showModal();
     });

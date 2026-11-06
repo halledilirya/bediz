@@ -48,6 +48,7 @@ pub struct MenuTexts {
     pub whole_monitor: String,
     pub last_region: String,
     pub cancel: String,
+    pub right_to_left: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +56,8 @@ pub struct Label {
     pub lines: Vec<String>,
     pub near: Rect,
     pub warning: bool,
+    pub language: String,
+    pub right_to_left: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

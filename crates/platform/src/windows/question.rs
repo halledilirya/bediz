@@ -1,6 +1,7 @@
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows::Win32::UI::Controls::{
-    TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDF_ALLOW_DIALOG_CANCELLATION,
+    TASKDIALOG_BUTTON, TASKDIALOG_FLAGS, TASKDIALOGCONFIG, TDF_ALLOW_DIALOG_CANCELLATION,
+    TDF_RTL_LAYOUT,
 };
 use windows::core::{BOOL, Error, HRESULT, HSTRING, PCWSTR, Result, s, w};
 
@@ -17,6 +18,7 @@ pub struct Question {
     pub accept: String,
     pub decline: String,
     pub never_again: String,
+    pub right_to_left: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,7 +50,7 @@ pub fn ask(question: &Question) -> Result<Reply> {
     ];
     let config = TASKDIALOGCONFIG {
         cbSize: size_of::<TASKDIALOGCONFIG>() as u32,
-        dwFlags: TDF_ALLOW_DIALOG_CANCELLATION,
+        dwFlags: flags(question.right_to_left),
         pszWindowTitle: PCWSTR(title.as_ptr()),
         pszMainInstruction: PCWSTR(heading.as_ptr()),
         pszContent: PCWSTR(body.as_ptr()),
@@ -67,6 +69,14 @@ pub fn ask(question: &Question) -> Result<Reply> {
     })
 }
 
+fn flags(right_to_left: bool) -> TASKDIALOG_FLAGS {
+    if right_to_left {
+        TDF_ALLOW_DIALOG_CANCELLATION | TDF_RTL_LAYOUT
+    } else {
+        TDF_ALLOW_DIALOG_CANCELLATION
+    }
+}
+
 // Only comctl32 6, chosen by the app's manifest, has it; linking it would stop test binaries loading.
 fn task_dialog() -> Result<TaskDialogIndirect> {
     let module = unsafe { LoadLibraryW(w!("comctl32.dll")) }?;
@@ -75,4 +85,15 @@ fn task_dialog() -> Result<TaskDialogIndirect> {
     Ok(unsafe {
         std::mem::transmute::<unsafe extern "system" fn() -> isize, TaskDialogIndirect>(found)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_right_to_left_question_is_mirrored_and_can_still_be_cancelled() {
+        assert_eq!(flags(false), TDF_ALLOW_DIALOG_CANCELLATION);
+        assert_eq!(flags(true), TDF_ALLOW_DIALOG_CANCELLATION | TDF_RTL_LAYOUT);
+    }
 }

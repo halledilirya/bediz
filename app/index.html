@@ -89,14 +89,6 @@
                     value=""
                     data-l10n-id="settings-language-system"
                   ></option>
-                  <option
-                    value="tr"
-                    data-l10n-id="settings-language-tr"
-                  ></option>
-                  <option
-                    value="en"
-                    data-l10n-id="settings-language-en"
-                  ></option>
                 </select>
               </span>
             </div>
@@ -337,7 +329,7 @@
             <div class="row" data-search="settings-folder">
               <div class="row-text">
                 <span data-l10n-id="settings-folder"></span>
-                <p class="path" id="folder-path"></p>
+                <p class="path"><span dir="ltr" id="folder-path"></span></p>
               </div>
               <div class="actions">
                 <button
@@ -393,11 +385,12 @@
                   type="text"
                   id="file-name"
                   name="fileName"
+                  dir="auto"
                   spellcheck="false"
                   autocomplete="off"
                   aria-describedby="file-name-example"
                 />
-                <span class="extension">.png</span>
+                <span class="extension" dir="ltr">.png</span>
               </div>
               <div class="tokens">
                 <span data-l10n-id="settings-file-name-insert"></span>
@@ -554,7 +547,7 @@
       <p class="save-error" role="alert" hidden></p>
       <dialog class="licences" id="licences" aria-labelledby="licences-title">
         <h2 id="licences-title" data-l10n-id="settings-licences"></h2>
-        <pre id="licences-text"></pre>
+        <pre id="licences-text" dir="ltr" lang="en"></pre>
         <form method="dialog">
           <button
             class="button primary"

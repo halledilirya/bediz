@@ -133,7 +133,8 @@
 .select select {
   appearance: none;
   min-width: 190px;
-  padding: 5px 32px 5px 10px;
+  padding-block: 5px;
+  padding-inline: 10px 32px;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
   background: var(--raised);
@@ -211,6 +212,10 @@
 .switch input:checked::before {
   background: var(--on-accent);
   translate: 20px 0;
+}
+
+.switch input:checked:dir(rtl)::before {
+  translate: -20px 0;
 }
 
 .switch-text {

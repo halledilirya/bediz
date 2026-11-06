@@ -38,7 +38,7 @@ Bediz starts with Windows unless you turn that off in the settings or the tray m
 
 If Print Screen opens the Snipping Tool, Bediz asks once as it starts whether it may turn that off; **Let Bediz use Print Screen** in the tray menu and the settings does the same. When another app holds the shortcut, the tray menu and the settings say so; the tray icon still takes a screenshot. Windows does not send Print Screen alone to Bediz while a window running as administrator is in front; a shortcut with Ctrl, Alt or Shift, such as Ctrl+Shift+F9, still arrives. Since Windows 11 24H2, Windows does not hand the frames of a game in exclusive full screen to screen capture, so the screenshot shows an older image; run such a game borderless or windowed.
 
-Bediz follows the Windows display language unless you pick one; it speaks English and Turkish so far. It follows Windows' high contrast themes.
+Bediz follows the Windows display language unless you pick one. It speaks Arabic, Chinese (Simplified), English, French, German, Hindi, Italian, Japanese, Korean, Portuguese, Russian, Spanish and Turkish. It follows Windows' high contrast themes.
 
 Bediz sends nothing anywhere: it has no telemetry and uploads nothing, and the screenshots it copies are kept out of the Windows cloud clipboard. It goes online only to ask GitHub for the latest version, when you check for updates or turn on checking at start (off by default); an update is installed only when you choose to. Saved files are like any other file in their folder: if OneDrive or another service syncs the folder, it uploads them too; the settings say when OneDrive syncs it.
 

@@ -26,6 +26,7 @@ pub fn ask_about_hotkey(
             accept: texts.get("question-snipping-tool-accept"),
             decline: texts.get("question-not-now"),
             never_again: texts.get("question-never-again"),
+            right_to_left: texts.right_to_left(),
         }
     } else {
         Question {
@@ -35,6 +36,7 @@ pub fn ask_about_hotkey(
             accept: texts.get("question-taken-accept"),
             decline: texts.get("question-not-now"),
             never_again: texts.get("question-never-again"),
+            right_to_left: texts.right_to_left(),
         }
     };
     let app = app.clone();
