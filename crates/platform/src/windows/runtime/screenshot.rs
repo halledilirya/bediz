@@ -4,7 +4,7 @@ use bediz_core::capture::Allocation;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::measurement::Measurement;
 use bediz_core::notice::Notice;
-use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE,
@@ -15,6 +15,7 @@ use windows::core::BOOL;
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
 use crate::windows::foreground::{self, Foreground};
+use crate::windows::hotkey;
 use crate::windows::overlay_menu::{self, Choice, Offer};
 use crate::windows::scene::Scene;
 use crate::windows::session::{Action, Session};
@@ -90,7 +91,7 @@ impl Runtime {
             Foreground::Refused
         };
         let focused = self.clock.since(start);
-        self.session = Some(Session::new(previous));
+        self.session = Some(Session::new(previous, self.enter));
         if let Err(error) = shown {
             self.emit_notes(notes);
             (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
@@ -175,6 +176,19 @@ impl Runtime {
         }
     }
 
+    // The shortcut is taken from every window, the overlay too, so there it acts as the key it is.
+    pub(super) fn press_in_overlay(&mut self, keys: LPARAM) {
+        let (message, key) = hotkey::as_key_press(keys);
+        let mut cursor = POINT::default();
+        let _ = unsafe { GetCursorPos(&mut cursor) };
+        self.on_input(&MSG {
+            message,
+            wParam: key,
+            pt: cursor,
+            ..Default::default()
+        });
+    }
+
     fn open_menu(&mut self, at: Point) {
         let (Some(texts), Some(scene), Some(session)) = (
             self.menu_texts.as_ref(),
@@ -189,6 +203,7 @@ impl Runtime {
         let offer = Offer {
             selected: session.selected().is_some(),
             last_region: self.last_region.is_some(),
+            enter: self.enter,
         };
         match overlay_menu::choose(owner, at, texts, &offer) {
             Ok(Some(Choice::Deliver(delivery))) => self.deliver(delivery),

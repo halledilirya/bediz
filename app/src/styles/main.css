@@ -11,12 +11,18 @@
   --faint: #8a8a8a;
   --danger: #c42b1c;
   --danger-soft: #fbe5e2;
+  --ok: #0f7b3f;
+  --ok-soft: #def2e4;
+  --warn: #8a5300;
+  --warn-soft: #fcf0d4;
   --on-accent: #ffffff;
   --accent-h: 255;
   --accent-c: 0.16;
   --accent: oklch(0.52 var(--accent-c) var(--accent-h));
   --accent-hover: oklch(0.47 var(--accent-c) var(--accent-h));
   --accent-ink: oklch(0.52 var(--accent-c) var(--accent-h));
+  --accent-soft: oklch(0.95 0.025 var(--accent-h));
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
   --font-ui:
     "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Noto Sans",
     sans-serif;
@@ -45,9 +51,14 @@
     --faint: #7a7a7a;
     --danger: #ff7a70;
     --danger-soft: #3b1f1d;
+    --ok: #58c98e;
+    --ok-soft: #173022;
+    --warn: #f0b456;
+    --warn-soft: #362a15;
     --accent: oklch(0.62 var(--accent-c) var(--accent-h));
     --accent-hover: oklch(0.68 var(--accent-c) var(--accent-h));
     --accent-ink: oklch(0.77 calc(var(--accent-c) * 0.65) var(--accent-h));
+    --accent-soft: oklch(0.29 0.04 var(--accent-h));
     color-scheme: dark;
   }
 }

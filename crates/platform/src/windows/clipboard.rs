@@ -7,7 +7,7 @@ use windows::Win32::System::DataExchange::{
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Ole::{CF_DIBV5, CF_UNICODETEXT};
 use windows::Win32::UI::ColorSystem::LCS_sRGB;
-use windows::core::{Error, Result, w};
+use windows::core::{Error, PCWSTR, Result, w};
 
 pub enum Contents {
     Image { png: Vec<u8>, dib: Vec<u8> },
@@ -46,13 +46,21 @@ impl Contents {
     }
 }
 
-// The cloud flag goes first and a failure empties the clipboard, so content never stays without it.
-pub fn place(owner: HWND, contents: &Contents) -> Result<Placed> {
+// The flags go first and a failure empties the clipboard, so content never stays without them.
+pub fn place(owner: HWND, contents: &Contents, keep_out_of_history: bool) -> Result<Placed> {
     if unsafe { OpenClipboard(Some(owner)) }.is_err() {
         return Ok(Placed::Busy);
     }
+    let out_of_history = keep_out_of_history && matches!(contents, Contents::Image { .. });
     let result = unsafe { EmptyClipboard() }
-        .and_then(|()| keep_off_cloud())
+        .and_then(|()| refuse(w!("CanUploadToCloudClipboard")))
+        .and_then(|()| {
+            if out_of_history {
+                refuse(w!("CanIncludeInClipboardHistory"))
+            } else {
+                Ok(())
+            }
+        })
         .and_then(|()| match contents {
             Contents::Image { png, dib } => {
                 set(unsafe { RegisterClipboardFormatW(w!("PNG")) }, png)?;
@@ -67,9 +75,9 @@ pub fn place(owner: HWND, contents: &Contents) -> Result<Placed> {
     result.and(closed).map(|()| Placed::Done)
 }
 
-fn keep_off_cloud() -> Result<()> {
+fn refuse(format: PCWSTR) -> Result<()> {
     set(
-        unsafe { RegisterClipboardFormatW(w!("CanUploadToCloudClipboard")) },
+        unsafe { RegisterClipboardFormatW(format) },
         &0u32.to_le_bytes(),
     )
 }

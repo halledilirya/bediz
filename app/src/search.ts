@@ -31,6 +31,7 @@ export function enableSearch(
     const terms = fold(input.value)
       .split(/\s+/)
       .filter((term) => term !== "");
+    pane.classList.toggle("searching", terms.length > 0);
     for (const { row, words } of rows) {
       row.hidden = !terms.every((term) => words.includes(term));
     }

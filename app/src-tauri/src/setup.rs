@@ -4,10 +4,11 @@ use std::sync::mpsc::{self, Sender};
 use bediz_platform::{Command, MenuTexts, Platform, preferred_languages};
 use tauri::{App, AppHandle, Manager, RunEvent};
 
-use crate::events::{self, Events, Message};
+use crate::events::{self, Events, HotkeyStatus, Message};
 use crate::i18n::{Language, Texts};
 use crate::log::Log;
 use crate::settings::{self, Store};
+use crate::startup::{self, StartupStatus};
 use crate::tray::Tray;
 use crate::update;
 
@@ -25,14 +26,29 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     let settings = store.current();
     app.manage(store);
     app.manage(Language(texts.language()));
-    let tray = Tray::create(app, &texts, log.directory().to_path_buf(), sender.clone())?;
+    app.manage(HotkeyStatus::default());
+    app.manage(StartupStatus::default());
+    let tray = Tray::create(
+        app,
+        &texts,
+        log.directory().to_path_buf(),
+        sender.clone(),
+        settings.start_with_windows,
+    )?;
     let platform_events = sender.clone();
     match Platform::start(move |event| {
         let _ = platform_events.send(Message::Platform(event));
     }) {
         Ok(platform) => {
             platform.send(Command::SetMenuTexts(menu_texts(&texts)));
-            settings::apply(&platform, &settings);
+            settings::send(&platform, &settings);
+            // A development build would otherwise make itself start at every sign-in.
+            if !cfg!(debug_assertions) {
+                platform.send(Command::SetStartWithWindows {
+                    on: settings.start_with_windows,
+                    request: startup::AT_START,
+                });
+            }
             app.manage(platform);
         }
         Err(error) => log.write(&format!("failed {error}")),
@@ -45,10 +61,8 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
 fn start_store(app: &App, log: &Log, notes: Sender<Message>) -> Result<Store, Box<dyn Error>> {
     let handle = app.handle().clone();
     let path = app.path().app_config_dir()?.join("settings.json");
-    let (store, note) = Store::start(path, move |saved, reason| {
-        if let Some(platform) = handle.try_state::<Platform>() {
-            settings::apply(&platform, saved);
-        }
+    let (store, note) = Store::start(path, move |dropped, saved, reason| {
+        settings::apply(&handle, dropped, saved);
         update::settings_not_saved(&handle, reason);
         let _ = notes.send(Message::Note(format!(
             "the settings could not be saved, so the saved ones are back: {reason}"

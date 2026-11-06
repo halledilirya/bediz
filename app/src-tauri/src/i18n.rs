@@ -46,6 +46,12 @@ impl Texts {
         self.format(id, None)
     }
 
+    pub fn get_with(&self, id: &str, name: &'static str, value: &str) -> String {
+        let mut args = FluentArgs::new();
+        args.set(name, value.to_owned());
+        self.format(id, Some(&args))
+    }
+
     pub fn notice(&self, notice: &Notice) -> String {
         let mut args = FluentArgs::new();
         if let Some((name, value)) = notice.argument() {
@@ -78,12 +84,15 @@ mod tests {
     use super::*;
 
     const SETTINGS_PAGE: &str = include_str!("../../index.html");
-    const SETTINGS_SCRIPTS: [&str; 2] = [
+    const SETTINGS_SCRIPTS: [&str; 5] = [
         include_str!("../../src/settings.ts"),
         include_str!("../../src/search.ts"),
+        include_str!("../../src/shortcuts.ts"),
+        include_str!("../../src/folder.ts"),
+        include_str!("../../src/file-name.ts"),
     ];
 
-    const USED: [&str; 20] = [
+    const USED: [&str; 30] = [
         "settings-title",
         "tray-settings",
         "tray-tooltip",
@@ -94,6 +103,7 @@ mod tests {
         "tray-hotkey-snipping-tool",
         "tray-retry",
         "tray-take-print-screen",
+        "tray-start-with-windows",
         "tray-open-logs",
         "tray-quit",
         "overlay-menu-copy-and-save",
@@ -104,6 +114,15 @@ mod tests {
         "overlay-menu-whole-monitor",
         "overlay-menu-last-region",
         "overlay-menu-cancel",
+        "question-title",
+        "question-snipping-tool",
+        "question-snipping-tool-detail",
+        "question-snipping-tool-accept",
+        "question-taken",
+        "question-taken-detail",
+        "question-taken-accept",
+        "question-not-now",
+        "question-never-again",
     ];
 
     fn messages(source: &str) -> BTreeMap<String, BTreeSet<String>> {
@@ -343,6 +362,13 @@ price = Costs $5
         for notice in every_notice() {
             assert_ne!(texts.notice(&notice), notice.locale_id());
         }
+    }
+
+    #[test]
+    fn a_message_names_the_shortcut_it_is_about() {
+        let texts = Texts::for_languages(&["en".to_owned()]);
+        let taken = texts.get_with("tray-hotkey-taken", "key", "Ctrl+Shift+A");
+        assert!(taken.contains("Ctrl+Shift+A"), "{taken}");
     }
 
     #[test]

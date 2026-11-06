@@ -1,5 +1,10 @@
+use std::path::PathBuf;
+
 use bediz_core::capture::Allocation;
+use bediz_core::delivery::Delivery;
+use bediz_core::file_name::Pattern;
 use bediz_core::geometry::Rect;
+use bediz_core::hotkey::Hotkey;
 use bediz_core::measurement::{Measurement, Memory};
 use bediz_core::notice::Notice;
 use thiserror::Error;
@@ -10,8 +15,23 @@ pub enum Command {
     CaptureAfterMenu,
     RetryHotkey,
     TakePrintScreen,
+    SetHotkey {
+        hotkey: Hotkey,
+        yields: bool,
+    },
+    RecordHotkey(bool),
     SetAllocation(Allocation),
     SetWindowDetection(bool),
+    SetEnter(Delivery),
+    SetSaving {
+        folder: Option<PathBuf>,
+        file_name: Pattern,
+    },
+    KeepOutOfHistory(bool),
+    SetStartWithWindows {
+        on: bool,
+        request: u64,
+    },
     ShowLabel(Label),
     SetMenuTexts(MenuTexts),
 }
@@ -53,9 +73,19 @@ pub enum Failure {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     Hotkey(HotkeyState),
+    PrintScreenYields,
+    HotkeyWhileRecording,
+    StartWithWindows {
+        on: bool,
+        request: u64,
+        failure: Option<String>,
+    },
     Idle(Memory),
     Measured(Measurement),
-    Notice { notices: Vec<Notice>, near: Rect },
+    Notice {
+        notices: Vec<Notice>,
+        near: Rect,
+    },
     Note(String),
     Failed(Failure),
     SecondStart,

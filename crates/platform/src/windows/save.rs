@@ -7,7 +7,7 @@ use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 
 use bediz_core::delivery::SaveError;
-use bediz_core::file_name::{self, LocalTime};
+use bediz_core::file_name;
 use windows::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_BAD_NETPATH, ERROR_DISK_FULL,
     ERROR_FILE_EXISTS, ERROR_HANDLE_DISK_FULL, ERROR_LOCK_VIOLATION, ERROR_PATH_NOT_FOUND,
@@ -22,9 +22,17 @@ use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::UI::Shell::{FOLDERID_Screenshots, KF_FLAG_CREATE, SHGetKnownFolderPath};
 use windows::core::{HRESULT, PCWSTR};
 
-const LAST_ATTEMPT: u32 = 1000;
+const LAST_ATTEMPT: u32 = 10_000;
 
-pub fn screenshots_folder() -> Result<PathBuf, SaveError> {
+pub fn folder(chosen: Option<&Path>) -> Result<PathBuf, SaveError> {
+    match chosen {
+        Some(folder) if folder.is_absolute() => Ok(folder.to_path_buf()),
+        Some(_) => Err(SaveError::FolderMissing),
+        None => screenshots_folder(),
+    }
+}
+
+fn screenshots_folder() -> Result<PathBuf, SaveError> {
     let path = unsafe { SHGetKnownFolderPath(&FOLDERID_Screenshots, KF_FLAG_CREATE, None) }
         .map_err(|error| save_error(error.code(), error.message()))?;
     let folder = OsString::from_wide(unsafe { path.as_wide() });
@@ -32,14 +40,14 @@ pub fn screenshots_folder() -> Result<PathBuf, SaveError> {
     Ok(PathBuf::from(folder))
 }
 
-pub fn save_screenshot(folder: &Path, time: &LocalTime, png: &[u8]) -> Result<PathBuf, SaveError> {
+pub fn save_screenshot(folder: &Path, stem: &str, png: &[u8]) -> Result<PathBuf, SaveError> {
     let temporary = write_temporary(
         folder,
-        |attempt| file_name::temporary(&file_name::screenshot(time, attempt)),
+        |attempt| file_name::temporary(&file_name::png(stem, attempt)),
         png,
     )?;
     for attempt in 1..=LAST_ATTEMPT {
-        let target = folder.join(file_name::screenshot(time, attempt));
+        let target = folder.join(file_name::png(stem, attempt));
         match move_file(&temporary, &target, MOVE_FILE_FLAGS(0)) {
             Ok(()) => return Ok(target),
             Err(error) if is_taken(error.code()) => {}

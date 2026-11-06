@@ -18,8 +18,23 @@
         />
         <button
           type="button"
+          data-section="general"
+          data-l10n-id="settings-section-general"
+        ></button>
+        <button
+          type="button"
+          data-section="shortcuts"
+          data-l10n-id="settings-section-shortcuts"
+        ></button>
+        <button
+          type="button"
           data-section="selecting"
           data-l10n-id="settings-section-selecting"
+        ></button>
+        <button
+          type="button"
+          data-section="saving"
+          data-l10n-id="settings-section-saving"
         ></button>
         <button
           type="button"
@@ -28,6 +43,108 @@
         ></button>
       </nav>
       <form class="pane" id="pane">
+        <section class="group" id="general">
+          <h2 data-l10n-id="settings-section-general"></h2>
+          <div class="card">
+            <div class="row" data-search="settings-start-with-windows">
+              <div class="row-text">
+                <label
+                  for="start-with-windows"
+                  data-l10n-id="settings-start-with-windows"
+                ></label>
+                <p data-l10n-id="settings-start-with-windows-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="start-with-windows"
+                  name="startWithWindows"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+              <p class="row-error" id="start-error" role="alert" hidden></p>
+            </div>
+          </div>
+        </section>
+        <section class="group" id="shortcuts">
+          <h2 data-l10n-id="settings-section-shortcuts"></h2>
+          <div class="card">
+            <div class="row status" id="hotkey-status" hidden>
+              <div class="row-text">
+                <span class="chip" id="hotkey-chip"></span>
+                <p id="hotkey-detail"></p>
+              </div>
+              <button
+                type="button"
+                class="button primary"
+                id="take-print-screen"
+                data-l10n-id="settings-hotkey-take"
+                hidden
+              ></button>
+              <button
+                type="button"
+                class="button"
+                id="retry-hotkey"
+                data-l10n-id="settings-hotkey-retry"
+                hidden
+              ></button>
+            </div>
+            <div class="row" data-search="settings-hotkey-region">
+              <div class="row-text">
+                <span data-l10n-id="settings-hotkey-region"></span>
+                <p data-l10n-id="settings-hotkey-region-detail"></p>
+              </div>
+              <div class="hotkey">
+                <span class="keys" id="hotkey-keys" aria-live="polite"></span>
+                <button
+                  type="button"
+                  class="button"
+                  id="record-hotkey"
+                  data-l10n-id="settings-hotkey-change"
+                ></button>
+              </div>
+              <input type="hidden" name="hotkey" />
+              <p class="row-error" id="hotkey-error" role="alert" hidden></p>
+            </div>
+            <div class="row" data-search="settings-ask-about-hotkey">
+              <div class="row-text">
+                <label
+                  for="ask-about-hotkey"
+                  data-l10n-id="settings-ask-about-hotkey"
+                ></label>
+                <p data-l10n-id="settings-ask-about-hotkey-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="ask-about-hotkey"
+                  name="askAboutHotkey"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+            <div class="row note info">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" />
+                <path
+                  d="M8 7v4.5M8 4.5v.5"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <p data-l10n-id="settings-elevated-note"></p>
+            </div>
+          </div>
+        </section>
         <section class="group" id="selecting">
           <h2 data-l10n-id="settings-section-selecting"></h2>
           <div class="card">
@@ -66,6 +183,144 @@
                   role="switch"
                   id="success-labels"
                   name="successLabels"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+            <div class="row" data-search="settings-enter">
+              <div class="row-text">
+                <label for="enter" data-l10n-id="settings-enter"></label>
+                <p data-l10n-id="settings-enter-detail"></p>
+              </div>
+              <span class="select">
+                <select id="enter" name="enter">
+                  <option
+                    value="copyAndSave"
+                    data-l10n-id="settings-enter-copy-and-save"
+                  ></option>
+                  <option
+                    value="copy"
+                    data-l10n-id="settings-enter-copy"
+                  ></option>
+                  <option
+                    value="save"
+                    data-l10n-id="settings-enter-save"
+                  ></option>
+                </select>
+              </span>
+            </div>
+          </div>
+        </section>
+        <section class="group" id="saving">
+          <h2 data-l10n-id="settings-section-saving"></h2>
+          <div class="card">
+            <div class="row" data-search="settings-folder">
+              <div class="row-text">
+                <span data-l10n-id="settings-folder"></span>
+                <p class="path" id="folder-path"></p>
+              </div>
+              <div class="actions">
+                <button
+                  type="button"
+                  class="button"
+                  id="open-folder"
+                  data-l10n-id="settings-folder-open"
+                ></button>
+                <button
+                  type="button"
+                  class="button"
+                  id="change-folder"
+                  data-l10n-id="settings-folder-change"
+                ></button>
+                <button
+                  type="button"
+                  class="button"
+                  id="reset-folder"
+                  data-l10n-id="settings-folder-reset"
+                  hidden
+                ></button>
+              </div>
+              <input type="hidden" name="saveFolder" />
+              <p class="row-error" id="folder-error" role="alert" hidden></p>
+            </div>
+            <div class="row note warn" id="onedrive-note" hidden>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M8 1.5l7 12.5H1z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M8 6v4M8 11.8v.4"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <p data-l10n-id="settings-folder-onedrive"></p>
+            </div>
+            <div class="row stack" data-search="settings-file-name">
+              <div class="row-text">
+                <label
+                  for="file-name"
+                  data-l10n-id="settings-file-name"
+                ></label>
+                <p data-l10n-id="settings-file-name-detail"></p>
+              </div>
+              <div class="pattern">
+                <input
+                  type="text"
+                  id="file-name"
+                  name="fileName"
+                  spellcheck="false"
+                  autocomplete="off"
+                  aria-describedby="file-name-example"
+                />
+                <span class="extension">.png</span>
+              </div>
+              <div class="tokens">
+                <span data-l10n-id="settings-file-name-insert"></span>
+                <button
+                  type="button"
+                  data-token="{date}"
+                  data-l10n-id="settings-file-name-date"
+                ></button>
+                <button
+                  type="button"
+                  data-token="{time}"
+                  data-l10n-id="settings-file-name-time"
+                ></button>
+                <button
+                  type="button"
+                  data-token="{width}"
+                  data-l10n-id="settings-file-name-width"
+                ></button>
+                <button
+                  type="button"
+                  data-token="{height}"
+                  data-l10n-id="settings-file-name-height"
+                ></button>
+              </div>
+              <p class="example" id="file-name-example" aria-live="polite"></p>
+            </div>
+            <div class="row" data-search="settings-keep-out-of-history">
+              <div class="row-text">
+                <label
+                  for="keep-out-of-history"
+                  data-l10n-id="settings-keep-out-of-history"
+                ></label>
+                <p data-l10n-id="settings-keep-out-of-history-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="keep-out-of-history"
+                  name="keepOutOfHistory"
                 />
                 <span class="switch-text" aria-hidden="true">
                   <span class="on" data-l10n-id="settings-on"></span>

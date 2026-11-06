@@ -1,15 +1,20 @@
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Mutex, PoisonError};
 
 use bediz_core::geometry::Rect;
 use bediz_core::notice::{self, Notice};
+use bediz_core::settings::Settings;
 use bediz_platform::{Command, Event, HotkeyState, Label, Platform};
 use tauri::{AppHandle, Manager};
 
 use crate::i18n::Texts;
 use crate::log::Log;
-use crate::settings::Store;
+use crate::question;
+use crate::settings::{self, Store};
 use crate::settings_window;
+use crate::startup::StartupStatus;
 use crate::tray::Tray;
+use crate::update;
 
 pub enum Message {
     Platform(Event),
@@ -20,6 +25,19 @@ pub enum Message {
 pub struct Events {
     pub receiver: Receiver<Message>,
     pub sender: Sender<Message>,
+}
+
+#[derive(Default)]
+pub struct HotkeyStatus(Mutex<Option<HotkeyState>>);
+
+impl HotkeyStatus {
+    pub fn get(&self) -> Option<HotkeyState> {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn set(&self, state: HotkeyState) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(state);
+    }
 }
 
 pub fn spawn(
@@ -40,6 +58,7 @@ pub fn spawn(
                     log.write(&format!("failed to open the settings: {error}"));
                 }
             };
+            let mut started = false;
             for message in receiver {
                 let event = match message {
                     Message::Platform(event) => event,
@@ -53,9 +72,41 @@ pub fn spawn(
                     }
                 };
                 match &event {
-                    Event::Hotkey(state) => tray.show(*state),
+                    Event::Hotkey(state) => {
+                        let settings = current(&app);
+                        tray.show(*state, &texts, &settings.hotkey.to_string());
+                        if let Some(status) = app.try_state::<HotkeyStatus>() {
+                            status.set(*state);
+                        }
+                        update::hotkey_state(&app, *state);
+                        let first = !std::mem::replace(&mut started, true);
+                        if first && *state != HotkeyState::Registered && settings.ask_about_hotkey {
+                            question::ask_about_hotkey(
+                                &app,
+                                &texts,
+                                *state,
+                                settings.hotkey,
+                                &sender,
+                            );
+                        }
+                    }
+                    Event::PrintScreenYields => settings::change(&app, |current| Settings {
+                        print_screen_yields: true,
+                        ..current.clone()
+                    }),
+                    Event::HotkeyWhileRecording => update::hotkey_pressed(&app),
+                    Event::StartWithWindows {
+                        request, failure, ..
+                    } => {
+                        if app
+                            .try_state::<StartupStatus>()
+                            .is_some_and(|status| status.answered(*request, failure.clone()))
+                        {
+                            update::start_with_windows_problem(&app, failure.as_deref());
+                        }
+                    }
                     Event::Notice { notices, near }
-                        if notice::worth_a_label(notices, success_labels(&app)) =>
+                        if notice::worth_a_label(notices, current(&app).success_labels) =>
                     {
                         show_label(&app, &texts, notices, *near);
                     }
@@ -68,9 +119,10 @@ pub fn spawn(
     Ok(())
 }
 
-fn success_labels(app: &AppHandle) -> bool {
+fn current(app: &AppHandle) -> Settings {
     app.try_state::<Store>()
-        .is_some_and(|store| store.current().success_labels)
+        .map(|store| store.current())
+        .unwrap_or_default()
 }
 
 fn show_label(app: &AppHandle, texts: &Texts, notices: &[Notice], near: Rect) {
@@ -86,7 +138,18 @@ fn show_label(app: &AppHandle, texts: &Texts, notices: &[Notice], near: Rect) {
 
 fn line(event: &Event) -> String {
     match event {
-        Event::Hotkey(state) => format!("hotkey {}", hotkey_name(*state)),
+        Event::Hotkey(state) => format!("hotkey {}", update::state_name(*state)),
+        Event::PrintScreenYields => "print screen yields to Bediz; kept".to_owned(),
+        Event::HotkeyWhileRecording => "hotkey pressed while a new one was asked for".to_owned(),
+        Event::StartWithWindows { on, failure, .. } => {
+            let wanted = if *on { "on" } else { "off" };
+            match failure {
+                Some(reason) => {
+                    format!("start with Windows could not be turned {wanted}: {reason}")
+                }
+                None => format!("start with Windows {wanted}"),
+            }
+        }
         Event::Idle(memory) => format!("idle {}", memory.log_fields()),
         Event::Measured(measurement) => measurement.log_line(),
         Event::Notice { notices, near } => {
@@ -100,13 +163,5 @@ fn line(event: &Event) -> String {
         Event::Note(note) => format!("note {note}"),
         Event::Failed(failure) => format!("failed {failure}"),
         Event::SecondStart => "second start".to_owned(),
-    }
-}
-
-fn hotkey_name(state: HotkeyState) -> &'static str {
-    match state {
-        HotkeyState::Registered => "registered",
-        HotkeyState::SnippingTool => "snipping-tool",
-        HotkeyState::Taken => "taken",
     }
 }

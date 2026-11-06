@@ -69,7 +69,7 @@ pub enum SaveError {
     FolderMissing,
     #[error("another app is using the file")]
     InUse,
-    #[error("every file name for this second is taken")]
+    #[error("every numbered file name is taken")]
     NoFreeName,
     #[error("earlier screenshots are still being written")]
     Busy,

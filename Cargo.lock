@@ -232,6 +232,7 @@ dependencies = [
  "bediz-core",
  "bediz-platform",
  "fluent-bundle",
+ "serde",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",

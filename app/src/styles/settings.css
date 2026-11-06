@@ -25,9 +25,10 @@
 
 .card {
   display: grid;
+  gap: 1px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--layer);
+  background: var(--line);
   overflow: hidden;
 }
 
@@ -38,10 +39,115 @@
   gap: 8px 16px;
   min-height: 64px;
   padding: 12px 16px;
+  background: var(--layer);
 }
 
-.row:not([hidden]) ~ .row {
-  border-top: 1px solid var(--line);
+.row.stack {
+  display: grid;
+  align-items: stretch;
+}
+
+.row.note {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 0;
+  font-size: 13px;
+}
+
+.row.note svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.row.note p {
+  margin: 0;
+}
+
+.row.note.info {
+  background: var(--side);
+  color: var(--muted);
+}
+
+.row.note.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.searching .row:not([data-search]) {
+  display: none;
+}
+
+.row-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.button:hover {
+  background: var(--hover);
+}
+
+.button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.button.primary:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.select {
+  position: relative;
+  flex: none;
+}
+
+.select select {
+  appearance: none;
+  min-width: 190px;
+  padding: 5px 32px 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.select::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 12px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
 }
 
 .row-text {

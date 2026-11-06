@@ -34,6 +34,7 @@ struct Click {
 
 pub struct Session {
     previous: HWND,
+    enter: Delivery,
     selection: Option<Selection>,
     click: Option<Click>,
     pointer: Option<Point>,
@@ -41,7 +42,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(previous: HWND) -> Self {
+    pub fn new(previous: HWND, enter: Delivery) -> Self {
         show_cursor(IDC_CROSS);
         let mut cursor = POINT::default();
         let pointer = unsafe { GetCursorPos(&mut cursor) }
@@ -49,6 +50,7 @@ impl Session {
             .map(|()| Point::new(cursor.x, cursor.y));
         Self {
             previous,
+            enter,
             selection: None,
             click: None,
             pointer,
@@ -77,7 +79,7 @@ impl Session {
         }
         let changed = match message.message {
             WM_LBUTTONDBLCLK if self.inside_selection(scene, point) => {
-                return Ok(Action::Deliver(Delivery::COPY_AND_SAVE));
+                return Ok(Action::Deliver(self.enter));
             }
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
                 self.press(scene, windows, point);
@@ -193,7 +195,7 @@ impl Session {
         match key {
             VK_ESCAPE => Some(Action::Cancel),
             VK_F4 if message.message == WM_SYSKEYDOWN => Some(Action::Cancel),
-            VK_RETURN if selected => Some(Action::Deliver(Delivery::COPY_AND_SAVE)),
+            VK_RETURN if selected => Some(Action::Deliver(self.enter)),
             VK_C if control && selected => Some(Action::Deliver(Delivery::COPY)),
             VK_S if control && !shift && selected => Some(Action::Deliver(Delivery::SAVE)),
             VK_S if control && shift && selected => Some(Action::SaveAs),

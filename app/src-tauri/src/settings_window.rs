@@ -1,8 +1,8 @@
 use std::sync::mpsc::Sender;
 
-use bediz_platform::make_webview_an_app;
+use bediz_platform::{Command, Platform, make_webview_an_app};
 use tauri::webview::ScrollBarStyle;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 use crate::events::Message;
 
@@ -23,6 +23,14 @@ pub fn open(app: &AppHandle, title: &str, messages: &Sender<Message>) -> tauri::
         .general_autofill_enabled(false)
         .visible(false)
         .build()?;
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Destroyed)
+            && let Some(platform) = handle.try_state::<Platform>()
+        {
+            platform.send(Command::RecordHotkey(false));
+        }
+    });
     let messages = messages.clone();
     window.with_webview(move |webview| {
         if let Err(error) = make_webview_an_app(&webview.controller()) {

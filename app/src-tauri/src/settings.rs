@@ -6,9 +6,14 @@ use std::thread::JoinHandle;
 
 use bediz_core::settings::Settings;
 use bediz_platform::{Command, Platform};
+use tauri::{AppHandle, Manager};
+
+use crate::startup::{AT_START, StartupStatus};
+use crate::tray;
+use crate::update;
 
 type Persist = Box<dyn Fn(&Settings) -> io::Result<()> + Send + Sync>;
-type Reverted = Box<dyn Fn(&Settings, &str) + Send + Sync>;
+type Reverted = Box<dyn Fn(&Settings, &Settings, &str) + Send + Sync>;
 
 pub struct Store {
     shared: Arc<Shared>,
@@ -33,7 +38,7 @@ struct State {
 impl Store {
     pub fn start(
         path: PathBuf,
-        reverted: impl Fn(&Settings, &str) + Send + Sync + 'static,
+        reverted: impl Fn(&Settings, &Settings, &str) + Send + Sync + 'static,
     ) -> io::Result<(Self, Option<String>)> {
         let (settings, note) = loaded(fs::read_to_string(&path));
         let persist = move |settings: &Settings| {
@@ -76,9 +81,14 @@ impl Store {
         (state.current.clone(), state.revision)
     }
 
-    pub fn change(&self, settings: Settings, apply: impl FnOnce(&Settings)) {
+    pub fn change(
+        &self,
+        edit: impl FnOnce(&Settings) -> Settings,
+        apply: impl FnOnce(&Settings, &Settings),
+    ) {
         let mut state = lock(&self.shared.state);
-        apply(&settings);
+        let settings = edit(&state.current);
+        apply(&state.current, &settings);
         state.current = settings;
         state.revision += 1;
         state.pending = true;
@@ -122,10 +132,11 @@ impl Shared {
             match written {
                 Ok(()) => state.saved = wanted,
                 Err(error) => {
-                    state.current = state.saved.clone();
+                    let saved = state.saved.clone();
+                    let dropped = std::mem::replace(&mut state.current, saved);
                     state.revision += 1;
                     state.pending = false;
-                    (self.reverted)(&state.current, &error.to_string());
+                    (self.reverted)(&dropped, &state.current, &error.to_string());
                 }
             }
         }
@@ -136,9 +147,42 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-pub fn apply(platform: &Platform, settings: &Settings) {
+pub fn change(app: &AppHandle, edit: impl FnOnce(&Settings) -> Settings) {
+    if let Some(store) = app.try_state::<Store>() {
+        store.change(edit, |before, after| apply(app, before, after));
+        update::settings_changed(app);
+    }
+}
+
+pub fn apply(app: &AppHandle, before: &Settings, after: &Settings) {
+    if let Some(platform) = app.try_state::<Platform>() {
+        send(&platform, after);
+        if before.start_with_windows != after.start_with_windows {
+            let request = app
+                .try_state::<StartupStatus>()
+                .map_or(AT_START, |status| status.request());
+            platform.send(Command::SetStartWithWindows {
+                on: after.start_with_windows,
+                request,
+            });
+        }
+    }
+    tray::show_start_with_windows(app, after.start_with_windows);
+}
+
+pub fn send(platform: &Platform, settings: &Settings) {
+    platform.send(Command::SetHotkey {
+        hotkey: settings.hotkey,
+        yields: settings.print_screen_yields,
+    });
     platform.send(Command::SetAllocation(settings.allocation()));
     platform.send(Command::SetWindowDetection(settings.detect_windows));
+    platform.send(Command::SetEnter(settings.enter.delivery()));
+    platform.send(Command::SetSaving {
+        folder: settings.save_folder.clone(),
+        file_name: settings.file_name.clone(),
+    });
+    platform.send(Command::KeepOutOfHistory(settings.keep_out_of_history));
 }
 
 fn loaded(read: io::Result<String>) -> (Settings, Option<String>) {
@@ -187,7 +231,7 @@ mod tests {
         answers: Sender<io::Result<()>>,
         store: Store,
         writes: Receiver<Settings>,
-        reverts: Receiver<(Settings, String)>,
+        reverts: Receiver<(Settings, Settings, String)>,
     }
 
     fn harness() -> Harness {
@@ -199,8 +243,8 @@ mod tests {
             let _ = writes_sender.send(settings.clone());
             lock(&answers_receiver).recv().unwrap_or(Ok(()))
         };
-        let reverted = move |settings: &Settings, reason: &str| {
-            let _ = reverts_sender.send((settings.clone(), reason.to_owned()));
+        let reverted = move |dropped: &Settings, saved: &Settings, reason: &str| {
+            let _ = reverts_sender.send((dropped.clone(), saved.clone(), reason.to_owned()));
         };
         let store =
             Store::with(Settings::default(), Box::new(persist), Box::new(reverted)).unwrap();
@@ -230,10 +274,11 @@ mod tests {
     fn a_change_applies_at_once_and_reads_back_while_it_is_written() {
         let harness = harness();
         let mut applied = None;
-        harness
-            .store
-            .change(detecting(), |settings| applied = Some(settings.clone()));
-        assert_eq!(applied, Some(detecting()));
+        harness.store.change(
+            |_| detecting(),
+            |before, after| applied = Some((before.clone(), after.clone())),
+        );
+        assert_eq!(applied, Some((Settings::default(), detecting())));
         assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
         assert_eq!(harness.store.current(), detecting());
         harness.answers.send(Ok(())).unwrap();
@@ -242,10 +287,10 @@ mod tests {
     #[test]
     fn the_last_change_made_during_a_write_is_written_after_it() {
         let harness = harness();
-        harness.store.change(detecting(), |_| {});
+        harness.store.change(|_| detecting(), |_, _| {});
         assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
-        harness.store.change(Settings::default(), |_| {});
-        harness.store.change(labelling(), |_| {});
+        harness.store.change(|_| Settings::default(), |_, _| {});
+        harness.store.change(|_| labelling(), |_, _| {});
         harness.answers.send(Ok(())).unwrap();
         assert_eq!(harness.writes.recv_timeout(WAIT), Ok(labelling()));
         harness.answers.send(Ok(())).unwrap();
@@ -257,7 +302,7 @@ mod tests {
     #[test]
     fn shutting_down_waits_for_an_accepted_change() {
         let harness = harness();
-        harness.store.change(detecting(), |_| {});
+        harness.store.change(|_| detecting(), |_, _| {});
         assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
         let (done_sender, done) = mpsc::channel();
         std::thread::scope(|scope| {
@@ -274,7 +319,7 @@ mod tests {
     #[test]
     fn a_change_accepted_just_before_shutting_down_is_still_written() {
         let harness = harness();
-        harness.store.change(detecting(), |_| {});
+        harness.store.change(|_| detecting(), |_, _| {});
         harness.answers.send(Ok(())).unwrap();
         harness.store.shutdown();
         assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
@@ -283,14 +328,15 @@ mod tests {
     #[test]
     fn a_failed_write_brings_back_the_saved_settings_and_drops_later_changes() {
         let harness = harness();
-        harness.store.change(detecting(), |_| {});
+        harness.store.change(|_| detecting(), |_, _| {});
         assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
-        harness.store.change(labelling(), |_| {});
+        harness.store.change(|_| labelling(), |_, _| {});
         harness
             .answers
             .send(Err(io::Error::other("the disk is full")))
             .unwrap();
-        let (reverted, reason) = harness.reverts.recv_timeout(WAIT).unwrap();
+        let (dropped, reverted, reason) = harness.reverts.recv_timeout(WAIT).unwrap();
+        assert_eq!(dropped, labelling());
         assert_eq!(reverted, Settings::default());
         assert!(reason.contains("the disk is full"), "{reason}");
         assert_eq!(harness.store.revised(), (Settings::default(), 3));
@@ -302,10 +348,25 @@ mod tests {
     fn every_change_moves_the_revision_on() {
         let harness = harness();
         assert_eq!(harness.store.revised(), (Settings::default(), 0));
-        harness.store.change(detecting(), |_| {});
+        harness.store.change(|_| detecting(), |_, _| {});
         assert_eq!(harness.store.revised(), (detecting(), 1));
-        harness.store.change(detecting(), |_| {});
+        harness.store.change(|_| detecting(), |_, _| {});
         assert_eq!(harness.store.revised().1, 2);
+        harness.answers.send(Ok(())).unwrap();
+    }
+
+    #[test]
+    fn a_change_is_made_to_the_current_settings() {
+        let harness = harness();
+        harness.store.change(|_| detecting(), |_, _| {});
+        harness.store.change(
+            |current| Settings {
+                success_labels: true,
+                ..current.clone()
+            },
+            |_, _| {},
+        );
+        assert_eq!(harness.store.current(), labelling());
         harness.answers.send(Ok(())).unwrap();
     }
 

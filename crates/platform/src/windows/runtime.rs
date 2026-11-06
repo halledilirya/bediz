@@ -1,15 +1,18 @@
+mod commands;
 mod delivery;
 mod displays;
 mod save_as;
 mod screenshot;
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bediz_core::capture::Allocation;
-use bediz_core::delivery::CopyOrder;
+use bediz_core::delivery::{CopyOrder, Delivery};
+use bediz_core::file_name::Pattern;
 use windows::Win32::Foundation::{HINSTANCE, HWND, WAIT_FAILED, WAIT_OBJECT_0};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -18,11 +21,11 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, DispatchMessageW, HWND_MESSAGE, KillTimer, MSG,
-    MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
-    SetTimer, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_HOTKEY, WM_KEYDOWN,
-    WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WaitMessage,
+    CreateWindowExW, DestroyWindow, DispatchMessageW, HWND_MESSAGE, MSG, MWMO_INPUTAVAILABLE,
+    MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT, TranslateMessage,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_TIMER, WaitMessage,
 };
 use windows::core::{Result, w};
 
@@ -30,7 +33,7 @@ use bediz_core::geometry::Rect;
 
 use super::clock::{self, Clock};
 use super::desktop_switch::{self, DesktopSwitchHook};
-use super::hotkey::{self, Change, PrintScreen};
+use super::hotkey::{self, Change, Registration};
 use super::label_window::LabelWindow;
 use super::save_dialog::Answers;
 use super::scene::Scene;
@@ -39,7 +42,7 @@ use super::virtual_desktop::VirtualDesktops;
 use super::window_class::{self, MESSAGE_CLASS};
 use super::window_list::WindowList;
 use super::worker::Worker;
-use crate::event::{Command, Event, Label, MenuTexts};
+use crate::event::{Command, Event, MenuTexts};
 use delivery::{PendingCopy, Tracked};
 use save_as::{PendingSaveAs, Retry};
 
@@ -73,7 +76,8 @@ struct Runtime {
     scene: Option<Scene>,
     displays_changed: bool,
     menu_capture: bool,
-    print_screen: PrintScreen,
+    hotkey: Registration,
+    recording_hotkey: bool,
     desktop_switch: Option<DesktopSwitchHook>,
     desktops: Option<VirtualDesktops>,
     worker: Option<Worker>,
@@ -94,6 +98,10 @@ struct Runtime {
     allocation: Allocation,
     windows: WindowList,
     detect_windows: bool,
+    enter: Delivery,
+    save_folder: Option<PathBuf>,
+    file_name: Pattern,
+    keep_out_of_history: bool,
     last_region: Option<Rect>,
 }
 
@@ -142,7 +150,8 @@ impl Runtime {
             scene: None,
             displays_changed: false,
             menu_capture: false,
-            print_screen: PrintScreen::new(window),
+            hotkey: Registration::new(window),
+            recording_hotkey: false,
             desktop_switch: DesktopSwitchHook::install(),
             desktops: None,
             worker: None,
@@ -163,13 +172,17 @@ impl Runtime {
             allocation: Allocation::default(),
             windows: WindowList::new(),
             detect_windows: false,
+            enter: Delivery::COPY_AND_SAVE,
+            save_folder: None,
+            file_name: Pattern::default(),
+            keep_out_of_history: false,
             last_region: None,
         })
     }
 
     fn start(&mut self) {
         let mut notes = Vec::new();
-        self.print_screen.start_watching(&mut notes);
+        self.hotkey.start_watching(&mut notes);
         if self.desktop_switch.is_none() {
             notes.push(
                 "desktop switches are not watched; capture recovers on the next hotkey".to_owned(),
@@ -194,8 +207,6 @@ impl Runtime {
             )),
         }
         self.emit_notes(notes);
-        let change = self.print_screen.refresh();
-        self.report_hotkey(change);
         self.build_scene();
         let overlay = self
             .scene
@@ -209,14 +220,14 @@ impl Runtime {
 
     fn stop(&mut self) {
         self.hide();
-        self.print_screen.unregister();
+        self.hotkey.unregister();
         self.worker = None;
         self.scene = None;
     }
 
     fn pump(&mut self) {
         loop {
-            let event = self.print_screen.wake_event();
+            let event = self.hotkey.wake_event();
             let waited = unsafe {
                 MsgWaitForMultipleObjectsEx(
                     Some(event.as_slice()),
@@ -228,12 +239,12 @@ impl Runtime {
             match waited {
                 WAIT_OBJECT_0 if event.is_some() => {
                     let mut notes = Vec::new();
-                    let change = self.print_screen.setting_changed(&mut notes);
+                    let change = self.hotkey.setting_changed(&mut notes);
                     self.emit_notes(notes);
                     self.report_hotkey(change);
                 }
                 WAIT_FAILED if event.is_some() => {
-                    self.print_screen.stop_watching();
+                    self.hotkey.stop_watching();
                     self.emit_notes(vec![
                         "waiting on the Print Screen setting failed; it is no longer watched"
                             .to_owned(),
@@ -265,10 +276,19 @@ impl Runtime {
         let own = message.hwnd == self.window.0;
         match message.message {
             WM_STOP if own => return false,
-            WM_HOTKEY if own && message.wParam.0 == hotkey::PRINT_SCREEN as usize => {
-                self.open(clock::message_age(message.time));
-                let change = self.print_screen.arrived();
+            WM_HOTKEY if own && message.wParam.0 == hotkey::HOTKEY as usize => {
+                if self.recording_hotkey {
+                    (self.sink)(Event::HotkeyWhileRecording);
+                } else if self.session.is_some() {
+                    self.press_in_overlay(message.lParam);
+                } else {
+                    self.open(clock::message_age(message.time));
+                }
+                let (change, proves_yielding) = self.hotkey.arrived();
                 self.report_hotkey(change);
+                if proves_yielding {
+                    (self.sink)(Event::PrintScreenYields);
+                }
             }
             WM_TIMER if own && message.wParam.0 == MENU_FADE_TIMER => {
                 if self.menu_capture {
@@ -304,56 +324,6 @@ impl Runtime {
         self.scene.as_ref().is_some_and(|scene| scene.owns(window))
     }
 
-    fn on_commands(&mut self) {
-        let commands =
-            std::mem::take(&mut *self.commands.lock().unwrap_or_else(PoisonError::into_inner));
-        for command in commands {
-            match command {
-                Command::Capture => self.open(Duration::ZERO),
-                Command::CaptureAfterMenu => self.open_after_menu(),
-                Command::RetryHotkey => {
-                    let change = self.print_screen.refresh();
-                    self.report_hotkey(change);
-                }
-                Command::TakePrintScreen => {
-                    let mut notes = Vec::new();
-                    let change = self.print_screen.take_from_snipping_tool(&mut notes);
-                    self.emit_notes(notes);
-                    self.report_hotkey(change);
-                }
-                Command::SetAllocation(allocation) => self.set_allocation(allocation),
-                Command::SetWindowDetection(detect) => self.detect_windows = detect,
-                Command::ShowLabel(label) => self.show_label(&label),
-                Command::SetMenuTexts(texts) => self.menu_texts = Some(texts),
-            }
-        }
-    }
-
-    fn show_label(&mut self, label: &Label) {
-        let Some(window) = &self.label else {
-            return;
-        };
-        if let Err(error) = window.show(label) {
-            self.emit_notes(vec![format!(
-                "the confirmation could not be shown: {error}"
-            )]);
-            return;
-        }
-        let shown_for = if label.warning {
-            WARNING_MILLISECONDS
-        } else {
-            LABEL_MILLISECONDS
-        };
-        let _ = unsafe { SetTimer(Some(self.window.0), LABEL_TIMER, shown_for, None) };
-    }
-
-    fn hide_label(&mut self) {
-        let _ = unsafe { KillTimer(Some(self.window.0), LABEL_TIMER) };
-        if let Some(window) = &self.label {
-            window.hide();
-        }
-    }
-
     fn after_message(&mut self) -> bool {
         if window_class::take_close_requested() {
             self.hide();
@@ -366,7 +336,7 @@ impl Runtime {
             if let Some(scene) = self.scene.as_mut() {
                 scene.reopen_capture();
             }
-            let change = self.print_screen.refresh();
+            let change = self.hotkey.refresh();
             self.report_hotkey(change);
         }
         let own = self.window.0;

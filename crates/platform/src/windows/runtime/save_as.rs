@@ -52,9 +52,11 @@ impl Runtime {
             }
         };
         let time = clock::local_time();
+        let stem = self.file_name.stem(&time, rect.width(), rect.height());
         let suggestion = Suggestion {
-            name: file_name::screenshot(&time, 1),
+            name: file_name::png(&stem, 1),
             folder: None,
+            usual_folder: self.save_folder.clone(),
         };
         let pending = PendingSaveAs {
             dialog: 0,
@@ -86,6 +88,7 @@ impl Runtime {
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             folder: path.parent().map(Path::to_path_buf),
+            usual_folder: None,
         };
         let pending = PendingSaveAs {
             dialog: 0,

@@ -4,9 +4,11 @@ mod commands;
 mod events;
 mod i18n;
 mod log;
+mod question;
 mod settings;
 mod settings_window;
 mod setup;
+mod startup;
 mod tray;
 mod update;
 
@@ -21,6 +23,14 @@ fn main() {
             commands::settings,
             commands::set_settings,
             commands::settings_ready,
+            commands::start_with_windows_problem,
+            commands::hotkey_state,
+            commands::record_hotkey,
+            commands::take_print_screen,
+            commands::retry_hotkey,
+            commands::save_folder,
+            commands::open_save_folder,
+            commands::choose_save_folder,
         ])
         .setup(setup::setup)
         .build(tauri::generate_context!());

@@ -38,6 +38,7 @@ pub type Answers = Arc<Mutex<Option<Answer>>>;
 pub struct Suggestion {
     pub name: String,
     pub folder: Option<PathBuf>,
+    pub usual_folder: Option<PathBuf>,
 }
 
 // The common dialogs need a single-threaded apartment; the platform thread is multithreaded.
@@ -84,7 +85,7 @@ fn show(suggestion: &Suggestion) -> Result<Option<Chosen>> {
             }
         }
         None => {
-            if let Some(item) = save::screenshots_folder()
+            if let Some(item) = save::folder(suggestion.usual_folder.as_deref())
                 .ok()
                 .and_then(|folder| shell_item(&folder))
             {
@@ -170,14 +171,14 @@ impl IFileDialogEvents_Impl for OverwriteWatch_Impl {
     }
 }
 
-fn file_path(item: &IShellItem) -> Result<PathBuf> {
+pub(super) fn file_path(item: &IShellItem) -> Result<PathBuf> {
     let path = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
     let chosen = PathBuf::from(OsString::from_wide(unsafe { path.as_wide() }));
     unsafe { CoTaskMemFree(Some(path.0.cast())) };
     Ok(chosen)
 }
 
-fn shell_item(folder: &Path) -> Option<IShellItem> {
+pub(super) fn shell_item(folder: &Path) -> Option<IShellItem> {
     unsafe {
         SHCreateItemFromParsingName::<_, _, IShellItem>(
             &HSTRING::from(folder.as_os_str()),

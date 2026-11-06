@@ -27,7 +27,10 @@ pub struct Job {
 }
 
 pub enum Target {
-    Screenshots,
+    Folder {
+        folder: Option<PathBuf>,
+        stem: String,
+    },
     Chosen {
         path: PathBuf,
         replace: Option<FileId>,
@@ -225,8 +228,8 @@ fn save_one(save: Save, reply: &Reply) {
         time,
     } = save;
     let saved = match &target {
-        Target::Screenshots => save::screenshots_folder()
-            .and_then(|folder| save::save_screenshot(&folder, &time, &png)),
+        Target::Folder { folder, stem } => save::folder(folder.as_deref())
+            .and_then(|folder| save::save_screenshot(&folder, stem, &png)),
         Target::Chosen { path, replace } => save::save_chosen(path, &png, *replace),
     };
     reply.send(match (saved, target) {

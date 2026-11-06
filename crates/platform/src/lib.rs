@@ -8,6 +8,7 @@ mod windows;
 
 #[cfg(windows)]
 pub use windows::{
-    FileId, FirstInstance, Platform, StartError, file_id, first_instance, make_webview_an_app,
-    preferred_languages, save_chosen, save_screenshot,
+    FileId, FirstInstance, Platform, Question, Reply, StartError, ask_question, file_id,
+    first_instance, make_webview_an_app, pick_folder, preferred_languages, save_chosen,
+    save_folder, save_screenshot, synced_by_onedrive,
 };

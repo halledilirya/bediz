@@ -1,19 +1,22 @@
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
+use bediz_core::settings::Settings;
 use bediz_platform::{Command, HotkeyState, Platform};
-use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, Wry};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::events::Message;
 use crate::i18n::Texts;
+use crate::settings;
 
 const ID: &str = "main";
 const TAKE_SCREENSHOT: &str = "tray-take-screenshot";
 const RETRY: &str = "tray-retry";
 const TAKE_PRINT_SCREEN: &str = "tray-take-print-screen";
+const START_WITH_WINDOWS: &str = "tray-start-with-windows";
 const SETTINGS: &str = "tray-settings";
 const OPEN_LOGS: &str = "tray-open-logs";
 const QUIT: &str = "tray-quit";
@@ -26,16 +29,9 @@ pub struct Tray {
     retry: MenuItem<Wry>,
     take_print_screen: MenuItem<Wry>,
     separator: PredefinedMenuItem<Wry>,
-    texts: StateTexts,
 }
 
-struct StateTexts {
-    tooltip: String,
-    tooltip_taken: String,
-    tooltip_snipping_tool: String,
-    taken: String,
-    snipping_tool: String,
-}
+pub struct StartupItem(CheckMenuItem<Wry>);
 
 impl Tray {
     pub fn create(
@@ -43,11 +39,20 @@ impl Tray {
         texts: &Texts,
         logs: PathBuf,
         messages: Sender<Message>,
+        start_with_windows: bool,
     ) -> tauri::Result<Self> {
         let item = |id: &str| MenuItem::with_id(app, id, texts.get(id), true, None::<&str>);
         let take = item(TAKE_SCREENSHOT)?;
         let retry = item(RETRY)?;
         let take_print_screen = item(TAKE_PRINT_SCREEN)?;
+        let startup = CheckMenuItem::with_id(
+            app,
+            START_WITH_WINDOWS,
+            texts.get(START_WITH_WINDOWS),
+            true,
+            start_with_windows,
+            None::<&str>,
+        )?;
         let settings = item(SETTINGS)?;
         let open_logs = item(OPEN_LOGS)?;
         let quit = item(QUIT)?;
@@ -58,11 +63,13 @@ impl Tray {
             &[
                 &take,
                 &PredefinedMenuItem::separator(app)?,
+                &startup,
                 &settings,
                 &open_logs,
                 &quit,
             ],
         )?;
+        app.manage(StartupItem(startup));
         let mut builder = TrayIconBuilder::with_id(ID)
             .menu(&menu)
             .show_menu_on_left_click(false)
@@ -75,6 +82,10 @@ impl Tray {
                 TAKE_SCREENSHOT => send(app, Command::CaptureAfterMenu),
                 RETRY => send(app, Command::RetryHotkey),
                 TAKE_PRINT_SCREEN => send(app, Command::TakePrintScreen),
+                START_WITH_WINDOWS => settings::change(app, |current| Settings {
+                    start_with_windows: !current.start_with_windows,
+                    ..current.clone()
+                }),
                 SETTINGS => {
                     let _ = messages.send(Message::OpenSettings);
                 }
@@ -101,17 +112,10 @@ impl Tray {
             retry,
             take_print_screen,
             separator,
-            texts: StateTexts {
-                tooltip: texts.get("tray-tooltip"),
-                tooltip_taken: texts.get("tray-tooltip-hotkey-taken"),
-                tooltip_snipping_tool: texts.get("tray-tooltip-snipping-tool"),
-                taken: texts.get("tray-hotkey-taken"),
-                snipping_tool: texts.get("tray-hotkey-snipping-tool"),
-            },
         })
     }
 
-    pub fn show(&self, state: HotkeyState) {
+    pub fn show(&self, state: HotkeyState, texts: &Texts, key: &str) {
         let optional: [&dyn IsMenuItem<Wry>; 4] = [
             &self.status,
             &self.retry,
@@ -122,14 +126,17 @@ impl Tray {
             let _ = self.menu.remove(item);
         }
         let (tooltip, problem) = match state {
-            HotkeyState::Registered => (&self.texts.tooltip, None),
+            HotkeyState::Registered => (texts.get("tray-tooltip"), None),
             HotkeyState::Taken => (
-                &self.texts.tooltip_taken,
-                Some((&self.texts.taken, &self.retry)),
+                texts.get_with("tray-tooltip-hotkey-taken", "key", key),
+                Some((texts.get_with("tray-hotkey-taken", "key", key), &self.retry)),
             ),
             HotkeyState::SnippingTool => (
-                &self.texts.tooltip_snipping_tool,
-                Some((&self.texts.snipping_tool, &self.take_print_screen)),
+                texts.get("tray-tooltip-snipping-tool"),
+                Some((
+                    texts.get("tray-hotkey-snipping-tool"),
+                    &self.take_print_screen,
+                )),
             ),
         };
         let _ = self.icon.set_tooltip(Some(tooltip));
@@ -139,6 +146,16 @@ impl Tray {
                 .menu
                 .insert_items(&[&self.status, action, &self.separator], STATUS_POSITION);
         }
+    }
+}
+
+// Waiting for the main thread here could deadlock with a command that waits for the settings.
+pub fn show_start_with_windows(app: &AppHandle, on: bool) {
+    if let Some(startup) = app.try_state::<StartupItem>() {
+        let item = startup.0.clone();
+        let _ = app.run_on_main_thread(move || {
+            let _ = item.set_checked(on);
+        });
     }
 }
 

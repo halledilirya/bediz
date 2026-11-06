@@ -39,8 +39,12 @@ impl Runtime {
             return;
         };
         self.hide();
-        let target = delivery.save.then_some(Target::Screenshots);
-        self.send_job(rect, read, delivery, target, clock::local_time());
+        let time = clock::local_time();
+        let target = delivery.save.then(|| Target::Folder {
+            folder: self.save_folder.clone(),
+            stem: self.file_name.stem(&time, rect.width(), rect.height()),
+        });
+        self.send_job(rect, read, delivery, target, time);
     }
 
     pub(super) fn forget(&mut self, job: u64) {
@@ -159,7 +163,7 @@ impl Runtime {
             return;
         }
         pending.attempts += 1;
-        match clipboard::place(self.window.0, &pending.contents) {
+        match clipboard::place(self.window.0, &pending.contents, self.keep_out_of_history) {
             Ok(Placed::Done) => {
                 self.stop_clipboard_timer();
                 self.copy_settled(pending.copied, Ok(()));

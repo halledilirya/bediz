@@ -1,0 +1,72 @@
+.pattern {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line-strong);
+  border-bottom: 2px solid var(--accent);
+  border-radius: 4px;
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.pattern:focus-within {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 1px;
+}
+
+.pattern input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.pattern input:focus {
+  outline: none;
+}
+
+.extension {
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  border-inline-start: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.tokens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tokens button {
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--side);
+  color: var(--text);
+  font: inherit;
+}
+
+.tokens button:hover {
+  background: var(--hover);
+}
+
+.example {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.example.bad {
+  color: var(--danger);
+}

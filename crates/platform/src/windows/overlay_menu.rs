@@ -31,6 +31,7 @@ pub enum Choice {
 pub struct Offer {
     pub selected: bool,
     pub last_region: bool,
+    pub enter: Delivery,
 }
 
 struct OwnedMenu(HMENU);
@@ -43,7 +44,7 @@ impl Drop for OwnedMenu {
 
 impl OwnedMenu {
     fn item(&self, id: usize, text: &str, key: &str, enabled: bool) -> Result<()> {
-        let label: Vec<u16> = format!("{text}\t{key}")
+        let label: Vec<u16> = label(text, key)
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
@@ -63,12 +64,24 @@ impl OwnedMenu {
 pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Result<Option<Choice>> {
     let menu = OwnedMenu(unsafe { CreatePopupMenu() }?);
     if offer.selected {
-        menu.item(COPY_AND_SAVE, &texts.copy_and_save, "Enter", true)?;
-        menu.item(COPY, &texts.copy, "Ctrl+C", true)?;
-        menu.item(SAVE, &texts.save, "Ctrl+S", true)?;
+        let key = |delivery: Delivery, own: &'static str| {
+            if delivery == offer.enter {
+                "Enter"
+            } else {
+                own
+            }
+        };
+        menu.item(
+            COPY_AND_SAVE,
+            &texts.copy_and_save,
+            key(Delivery::COPY_AND_SAVE, ""),
+            true,
+        )?;
+        menu.item(COPY, &texts.copy, key(Delivery::COPY, "Ctrl+C"), true)?;
+        menu.item(SAVE, &texts.save, key(Delivery::SAVE, "Ctrl+S"), true)?;
         menu.item(SAVE_AS, &texts.save_as, "Ctrl+Shift+S", true)?;
         menu.separator()?;
-        unsafe { SetMenuDefaultItem(menu.0, COPY_AND_SAVE as u32, 0) }?;
+        unsafe { SetMenuDefaultItem(menu.0, item_for(offer.enter) as u32, 0) }?;
     }
     menu.item(COPY_COLOUR, &texts.copy_colour, "C", true)?;
     menu.item(WHOLE_MONITOR, &texts.whole_monitor, "Ctrl+A", true)?;
@@ -78,6 +91,22 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
     let flags = TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY;
     let chosen = unsafe { TrackPopupMenuEx(menu.0, flags.0, at.x, at.y, owner, None) };
     Ok(choice(chosen.0))
+}
+
+fn label(text: &str, key: &str) -> String {
+    if key.is_empty() {
+        text.to_owned()
+    } else {
+        format!("{text}\t{key}")
+    }
+}
+
+fn item_for(delivery: Delivery) -> usize {
+    match delivery {
+        Delivery::COPY => COPY,
+        Delivery::SAVE => SAVE,
+        _ => COPY_AND_SAVE,
+    }
 }
 
 fn choice(id: i32) -> Option<Choice> {
@@ -102,6 +131,19 @@ mod tests {
     fn a_closed_menu_chooses_nothing() {
         assert_eq!(choice(0), None);
         assert_eq!(choice(-1), None);
+    }
+
+    #[test]
+    fn the_item_enter_does_is_the_default() {
+        assert_eq!(item_for(Delivery::COPY_AND_SAVE), COPY_AND_SAVE);
+        assert_eq!(item_for(Delivery::COPY), COPY);
+        assert_eq!(item_for(Delivery::SAVE), SAVE);
+    }
+
+    #[test]
+    fn an_item_without_a_key_shows_no_tab() {
+        assert_eq!(label("Copy", "Ctrl+C"), "Copy\tCtrl+C");
+        assert_eq!(label("Copy and save", ""), "Copy and save");
     }
 
     #[test]
