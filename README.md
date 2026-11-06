@@ -9,7 +9,7 @@ Bediz is in early development and has no release yet.
 
 ## Download
 
-There is no release yet. To try Bediz now, install [Rust](https://rustup.rs) and run `cargo run --release -p bediz` in a copy of this repository.
+There is no release yet. To try Bediz now, install [Rust](https://rustup.rs) and [Node.js](https://nodejs.org), run `npm ci` and `npm run build` in the `app` folder of a copy of this repository, then `cargo run --release -p bediz` in the copy itself.
 
 ## Usage
 
@@ -31,6 +31,8 @@ Press **Print Screen** or click the tray icon. The screen freezes on every monit
 | Ctrl+Shift+S | Save the selection where you choose |
 | Right-click, the menu key or Shift+F10 | Open a menu with these actions |
 | Esc | Cancel |
+
+**Settings** in the tray menu, or starting Bediz again while it runs, opens the settings: highlighting the window under the pointer so a click selects it, the “Copied” and “Saved” notices, and releasing graphics memory while idle. All three are off at first.
 
 If Print Screen opens the Snipping Tool, choose **Let Bediz use Print Screen** in the tray menu. When another app holds the key, the tray menu says so; the tray icon still takes a screenshot. Windows does not send Print Screen to Bediz while a window running as administrator is in front.
 

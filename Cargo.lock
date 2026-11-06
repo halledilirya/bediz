@@ -243,6 +243,8 @@ name = "bediz-core"
 version = "0.1.0"
 dependencies = [
  "png",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -252,6 +254,7 @@ version = "0.1.0"
 dependencies = [
  "bediz-core",
  "thiserror 2.0.21",
+ "webview2-com",
  "windows",
  "windows-core",
 ]

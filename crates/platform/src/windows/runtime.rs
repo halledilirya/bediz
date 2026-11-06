@@ -47,6 +47,7 @@ pub const WM_COMMANDS: u32 = WM_APP + 1;
 pub const WM_STOP: u32 = WM_APP + 2;
 pub const WM_OUTCOMES: u32 = WM_APP + 3;
 pub const WM_SAVE_AS: u32 = WM_APP + 4;
+pub const WM_SECOND_START: u32 = WM_APP + 5;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -284,6 +285,7 @@ impl Runtime {
             WM_COMMANDS if own => self.on_commands(),
             WM_OUTCOMES if own => self.on_outcomes(),
             WM_SAVE_AS if own => self.on_save_as_answer(),
+            WM_SECOND_START if own => (self.sink)(Event::SecondStart),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
             | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.is_overlay(message.hwnd) =>
@@ -320,6 +322,7 @@ impl Runtime {
                     self.report_hotkey(change);
                 }
                 Command::SetAllocation(allocation) => self.set_allocation(allocation),
+                Command::SetWindowDetection(detect) => self.detect_windows = detect,
                 Command::ShowLabel(label) => self.show_label(&label),
                 Command::SetMenuTexts(texts) => self.menu_texts = Some(texts),
             }

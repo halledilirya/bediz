@@ -11,6 +11,7 @@ pub enum Command {
     RetryHotkey,
     TakePrintScreen,
     SetAllocation(Allocation),
+    SetWindowDetection(bool),
     ShowLabel(Label),
     SetMenuTexts(MenuTexts),
 }
@@ -57,4 +58,5 @@ pub enum Event {
     Notice { notices: Vec<Notice>, near: Rect },
     Note(String),
     Failed(Failure),
+    SecondStart,
 }

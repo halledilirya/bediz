@@ -8,7 +8,10 @@ const LOCALES: [(&str, &str); 2] = [
     ("tr", include_str!("../../../locales/tr/bediz.ftl")),
 ];
 
+pub struct Language(pub &'static str);
+
 pub struct Texts {
+    language: &'static str,
     bundle: FluentBundle<FluentResource>,
 }
 
@@ -29,7 +32,14 @@ impl Texts {
         let resource =
             FluentResource::try_new(source.to_owned()).unwrap_or_else(|(resource, _)| resource);
         let _ = bundle.add_resource(resource);
-        Self { bundle }
+        Self {
+            language: code,
+            bundle,
+        }
+    }
+
+    pub const fn language(&self) -> &'static str {
+        self.language
     }
 
     pub fn get(&self, id: &str) -> String {
@@ -67,7 +77,15 @@ mod tests {
 
     use super::*;
 
-    const USED: [&str; 18] = [
+    const SETTINGS_PAGE: &str = include_str!("../../index.html");
+    const SETTINGS_SCRIPTS: [&str; 2] = [
+        include_str!("../../src/settings.ts"),
+        include_str!("../../src/search.ts"),
+    ];
+
+    const USED: [&str; 20] = [
+        "settings-title",
+        "tray-settings",
         "tray-tooltip",
         "tray-tooltip-hotkey-taken",
         "tray-tooltip-snipping-tool",
@@ -235,6 +253,39 @@ price = Costs $5
         }
     }
 
+    fn quoted_after<'a>(source: &'a str, marker: &'a str) -> impl Iterator<Item = &'a str> {
+        source
+            .split(marker)
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+    }
+
+    #[test]
+    fn the_settings_page_uses_only_english_messages() {
+        let english = messages(ENGLISH.1);
+        let page: Vec<&str> = quoted_after(SETTINGS_PAGE, "data-l10n-id=\"").collect();
+        let scripts: Vec<&str> = SETTINGS_SCRIPTS
+            .iter()
+            .flat_map(|script| quoted_after(script, "text(\""))
+            .collect();
+        assert!(page.len() > 5 && scripts.len() >= 3, "{page:?} {scripts:?}");
+        for id in page.into_iter().chain(scripts) {
+            assert!(english.contains_key(id), "en is missing {id}");
+        }
+    }
+
+    #[test]
+    fn every_searchable_setting_has_english_keywords() {
+        let english = messages(ENGLISH.1);
+        let searchable: Vec<&str> = quoted_after(SETTINGS_PAGE, "data-search=\"").collect();
+        assert!(!searchable.is_empty());
+        for id in searchable {
+            assert!(english.contains_key(id), "en is missing {id}");
+            let keywords = format!("{id}.keywords");
+            assert!(english.contains_key(&keywords), "en is missing {keywords}");
+        }
+    }
+
     fn every_notice() -> Vec<Notice> {
         let reason = || "reason".to_owned();
         let copy_errors = [CopyError::Busy, CopyError::Other(reason())];
@@ -297,7 +348,7 @@ price = Costs $5
     #[test]
     fn picks_the_first_supported_language() {
         let texts = Texts::for_languages(&["de-DE".to_owned(), "tr-TR".to_owned()]);
-        assert_eq!(texts.get("tray-open-logs"), "Kayıt klasörünü aç");
+        assert_eq!(texts.get("tray-open-logs"), "Günlük klasörünü aç");
     }
 
     #[test]

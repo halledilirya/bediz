@@ -1,0 +1,17 @@
+body {
+  cursor: default;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+input[type="search"],
+input[type="text"] {
+  cursor: text;
+  user-select: text;
+}
+
+button,
+label,
+input[type="checkbox"] {
+  cursor: default;
+}

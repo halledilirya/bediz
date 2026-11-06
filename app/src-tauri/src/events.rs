@@ -1,4 +1,4 @@
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 
 use bediz_core::geometry::Rect;
 use bediz_core::notice::{self, Notice};
@@ -7,34 +7,70 @@ use tauri::{AppHandle, Manager};
 
 use crate::i18n::Texts;
 use crate::log::Log;
+use crate::settings::Store;
+use crate::settings_window;
 use crate::tray::Tray;
 
+pub enum Message {
+    Platform(Event),
+    OpenSettings,
+    Note(String),
+}
+
+pub struct Events {
+    pub receiver: Receiver<Message>,
+    pub sender: Sender<Message>,
+}
+
 pub fn spawn(
-    events: Receiver<Event>,
+    events: Events,
     log: Log,
     tray: Tray,
     app: AppHandle,
     languages: Vec<String>,
 ) -> std::io::Result<()> {
+    let Events { receiver, sender } = events;
     std::thread::Builder::new()
         .name("bediz-events".to_owned())
         .spawn(move || {
             let texts = Texts::for_languages(&languages);
-            let confirmations = false;
-            for event in events {
+            let open_settings = || {
+                let title = texts.get("settings-title");
+                if let Err(error) = settings_window::open(&app, &title, &sender) {
+                    log.write(&format!("failed to open the settings: {error}"));
+                }
+            };
+            for message in receiver {
+                let event = match message {
+                    Message::Platform(event) => event,
+                    Message::OpenSettings => {
+                        open_settings();
+                        continue;
+                    }
+                    Message::Note(note) => {
+                        log.write(&format!("note {note}"));
+                        continue;
+                    }
+                };
                 match &event {
                     Event::Hotkey(state) => tray.show(*state),
                     Event::Notice { notices, near }
-                        if notice::worth_a_label(notices, confirmations) =>
+                        if notice::worth_a_label(notices, success_labels(&app)) =>
                     {
                         show_label(&app, &texts, notices, *near);
                     }
+                    Event::SecondStart => open_settings(),
                     _ => {}
                 }
                 log.write(&line(&event));
             }
         })?;
     Ok(())
+}
+
+fn success_labels(app: &AppHandle) -> bool {
+    app.try_state::<Store>()
+        .is_some_and(|store| store.current().success_labels)
 }
 
 fn show_label(app: &AppHandle, texts: &Texts, notices: &[Notice], near: Rect) {
@@ -63,6 +99,7 @@ fn line(event: &Event) -> String {
         }
         Event::Note(note) => format!("note {note}"),
         Event::Failed(failure) => format!("failed {failure}"),
+        Event::SecondStart => "second start".to_owned(),
     }
 }
 

@@ -12,6 +12,9 @@ publish.workspace = true
 bediz-core.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(windows)'.dependencies.webview2-com]
+version = "0.39.1"
+
 [target.'cfg(windows)'.dependencies.windows-core]
 version = "0.62.2"
 

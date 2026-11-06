@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bediz</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div class="settings">
+      <nav class="rail">
+        <input
+          type="search"
+          id="search"
+          class="search"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button
+          type="button"
+          data-section="selecting"
+          data-l10n-id="settings-section-selecting"
+        ></button>
+        <button
+          type="button"
+          data-section="memory"
+          data-l10n-id="settings-section-memory"
+        ></button>
+      </nav>
+      <form class="pane" id="pane">
+        <section class="group" id="selecting">
+          <h2 data-l10n-id="settings-section-selecting"></h2>
+          <div class="card">
+            <div class="row" data-search="settings-detect-windows">
+              <div class="row-text">
+                <label
+                  for="detect-windows"
+                  data-l10n-id="settings-detect-windows"
+                ></label>
+                <p data-l10n-id="settings-detect-windows-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="detect-windows"
+                  name="detectWindows"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+            <div class="row" data-search="settings-success-labels">
+              <div class="row-text">
+                <label
+                  for="success-labels"
+                  data-l10n-id="settings-success-labels"
+                ></label>
+                <p data-l10n-id="settings-success-labels-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="success-labels"
+                  name="successLabels"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+          </div>
+        </section>
+        <section class="group" id="memory">
+          <h2 data-l10n-id="settings-section-memory"></h2>
+          <div class="card">
+            <div class="row" data-search="settings-release-gpu">
+              <div class="row-text">
+                <label
+                  for="release-gpu"
+                  data-l10n-id="settings-release-gpu"
+                ></label>
+                <p data-l10n-id="settings-release-gpu-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="release-gpu"
+                  name="releaseGpuWhileIdle"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+          </div>
+        </section>
+        <p class="empty" hidden></p>
+      </form>
+      <p class="save-error" role="alert" hidden></p>
+    </div>
+  </body>
+</html>

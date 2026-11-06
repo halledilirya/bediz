@@ -40,6 +40,9 @@ impl Runtime {
     }
 
     pub(super) fn set_allocation(&mut self, allocation: Allocation) {
+        if allocation == self.allocation {
+            return;
+        }
         self.hide();
         self.allocation = allocation;
         if let Some(scene) = self.scene.as_mut() {

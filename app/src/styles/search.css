@@ -1,0 +1,26 @@
+.search {
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.search:focus {
+  border-bottom-color: var(--accent);
+  outline: none;
+}
+
+.search::placeholder {
+  color: var(--faint);
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--muted);
+}

@@ -1,13 +1,15 @@
 use std::error::Error;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Sender};
 
 use bediz_platform::{Command, MenuTexts, Platform, preferred_languages};
 use tauri::{App, AppHandle, Manager, RunEvent};
 
-use crate::events;
-use crate::i18n::Texts;
+use crate::events::{self, Events, Message};
+use crate::i18n::{Language, Texts};
 use crate::log::Log;
+use crate::settings::{self, Store};
 use crate::tray::Tray;
+use crate::update;
 
 pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     let languages = preferred_languages();
@@ -18,19 +20,44 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
         env!("CARGO_PKG_VERSION"),
         languages.join(",")
     ));
-    let tray = Tray::create(app, &texts, log.directory().to_path_buf())?;
     let (sender, receiver) = mpsc::channel();
+    let store = start_store(app, &log, sender.clone())?;
+    let settings = store.current();
+    app.manage(store);
+    app.manage(Language(texts.language()));
+    let tray = Tray::create(app, &texts, log.directory().to_path_buf(), sender.clone())?;
+    let platform_events = sender.clone();
     match Platform::start(move |event| {
-        let _ = sender.send(event);
+        let _ = platform_events.send(Message::Platform(event));
     }) {
         Ok(platform) => {
             platform.send(Command::SetMenuTexts(menu_texts(&texts)));
+            settings::apply(&platform, &settings);
             app.manage(platform);
         }
         Err(error) => log.write(&format!("failed {error}")),
     }
-    events::spawn(receiver, log, tray, app.handle().clone(), languages)?;
+    let events = Events { receiver, sender };
+    events::spawn(events, log, tray, app.handle().clone(), languages)?;
     Ok(())
+}
+
+fn start_store(app: &App, log: &Log, notes: Sender<Message>) -> Result<Store, Box<dyn Error>> {
+    let handle = app.handle().clone();
+    let path = app.path().app_config_dir()?.join("settings.json");
+    let (store, note) = Store::start(path, move |saved, reason| {
+        if let Some(platform) = handle.try_state::<Platform>() {
+            settings::apply(&platform, saved);
+        }
+        update::settings_not_saved(&handle, reason);
+        let _ = notes.send(Message::Note(format!(
+            "the settings could not be saved, so the saved ones are back: {reason}"
+        )));
+    })?;
+    if let Some(note) = note {
+        log.write(&format!("note {note}"));
+    }
+    Ok(store)
 }
 
 fn menu_texts(texts: &Texts) -> MenuTexts {
@@ -51,8 +78,11 @@ pub fn on_run_event(app: &AppHandle, event: RunEvent) {
         RunEvent::ExitRequested {
             code: None, api, ..
         } => api.prevent_exit(),
-        // Tauri ends the process without dropping managed state, so the queued saves finish here.
+        // Tauri ends the process without dropping managed state, so queued writes finish here.
         RunEvent::Exit => {
+            if let Some(store) = app.try_state::<Store>() {
+                store.shutdown();
+            }
             if let Some(platform) = app.try_state::<Platform>() {
                 platform.shutdown();
             }

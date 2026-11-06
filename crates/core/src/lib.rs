@@ -6,3 +6,4 @@ pub mod image;
 pub mod measurement;
 pub mod notice;
 pub mod selection;
+pub mod settings;

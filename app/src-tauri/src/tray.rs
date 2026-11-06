@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 
 use bediz_platform::{Command, HotkeyState, Platform};
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -6,12 +7,14 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, Tray
 use tauri::{App, AppHandle, Manager, Wry};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::events::Message;
 use crate::i18n::Texts;
 
 const ID: &str = "main";
 const TAKE_SCREENSHOT: &str = "tray-take-screenshot";
 const RETRY: &str = "tray-retry";
 const TAKE_PRINT_SCREEN: &str = "tray-take-print-screen";
+const SETTINGS: &str = "tray-settings";
 const OPEN_LOGS: &str = "tray-open-logs";
 const QUIT: &str = "tray-quit";
 const STATUS_POSITION: usize = 2;
@@ -35,11 +38,17 @@ struct StateTexts {
 }
 
 impl Tray {
-    pub fn create(app: &App, texts: &Texts, logs: PathBuf) -> tauri::Result<Self> {
+    pub fn create(
+        app: &App,
+        texts: &Texts,
+        logs: PathBuf,
+        messages: Sender<Message>,
+    ) -> tauri::Result<Self> {
         let item = |id: &str| MenuItem::with_id(app, id, texts.get(id), true, None::<&str>);
         let take = item(TAKE_SCREENSHOT)?;
         let retry = item(RETRY)?;
         let take_print_screen = item(TAKE_PRINT_SCREEN)?;
+        let settings = item(SETTINGS)?;
         let open_logs = item(OPEN_LOGS)?;
         let quit = item(QUIT)?;
         let status = MenuItem::new(app, "", false, None::<&str>)?;
@@ -49,6 +58,7 @@ impl Tray {
             &[
                 &take,
                 &PredefinedMenuItem::separator(app)?,
+                &settings,
                 &open_logs,
                 &quit,
             ],
@@ -65,6 +75,9 @@ impl Tray {
                 TAKE_SCREENSHOT => send(app, Command::CaptureAfterMenu),
                 RETRY => send(app, Command::RetryHotkey),
                 TAKE_PRINT_SCREEN => send(app, Command::TakePrintScreen),
+                SETTINGS => {
+                    let _ = messages.send(Message::OpenSettings);
+                }
                 OPEN_LOGS => {
                     let _ = app.opener().open_path(logs.to_string_lossy(), None::<&str>);
                 }
