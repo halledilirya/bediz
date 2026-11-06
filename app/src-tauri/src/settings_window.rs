@@ -1,4 +1,5 @@
 use std::sync::mpsc::Sender;
+use std::sync::{Mutex, PoisonError};
 
 use bediz_core::settings::Theme;
 use bediz_platform::{Command, Platform, make_webview_an_app};
@@ -7,14 +8,42 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 use crate::events::Message;
 use crate::settings::Store;
+use crate::update;
 
 pub const LABEL: &str = "settings";
+pub const UPDATES: &str = "updates";
 
-pub fn open(app: &AppHandle, title: &str, messages: &Sender<Message>) -> tauri::Result<()> {
+#[derive(Default)]
+pub struct Section(Mutex<Option<&'static str>>);
+
+impl Section {
+    pub fn take(&self) -> Option<&'static str> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+
+    fn set(&self, section: Option<&'static str>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = section;
+    }
+}
+
+pub fn open(
+    app: &AppHandle,
+    title: &str,
+    messages: &Sender<Message>,
+    section: Option<&'static str>,
+) -> tauri::Result<()> {
+    let pending = app.try_state::<Section>();
     if let Some(window) = app.get_webview_window(LABEL) {
+        if let (Some(section), Some(pending)) = (section, pending) {
+            pending.set(Some(section));
+            update::show_section(app);
+        }
         window.unminimize()?;
         window.show()?;
         return window.set_focus();
+    }
+    if let Some(pending) = pending {
+        pending.set(section);
     }
     let theme = app
         .try_state::<Store>()

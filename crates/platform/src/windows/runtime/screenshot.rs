@@ -29,7 +29,7 @@ impl Runtime {
         if std::mem::take(&mut self.menu_capture) {
             let _ = unsafe { KillTimer(Some(self.window.0), MENU_FADE_TIMER) };
         }
-        if self.session.is_some() {
+        if self.session.is_some() || self.held {
             return;
         }
         let mut notes = Vec::new();

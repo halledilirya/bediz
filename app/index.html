@@ -43,6 +43,11 @@
         ></button>
         <button
           type="button"
+          data-section="updates"
+          data-l10n-id="settings-section-updates"
+        ></button>
+        <button
+          type="button"
           data-section="about"
           data-l10n-id="settings-section-about"
         ></button>
@@ -459,6 +464,39 @@
                   role="switch"
                   id="release-gpu"
                   name="releaseGpuWhileIdle"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+          </div>
+        </section>
+        <section class="group" id="updates">
+          <h2 data-l10n-id="settings-section-updates"></h2>
+          <div class="card">
+            <div class="row" data-search="settings-update-version">
+              <div class="row-text">
+                <span id="update-name"></span>
+                <p id="update-said" aria-live="polite"></p>
+              </div>
+              <button type="button" class="button" id="update-action"></button>
+            </div>
+            <div class="row" data-search="settings-check-for-updates">
+              <div class="row-text">
+                <label
+                  for="check-for-updates"
+                  data-l10n-id="settings-check-for-updates"
+                ></label>
+                <p data-l10n-id="settings-check-for-updates-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="check-for-updates"
+                  name="checkForUpdates"
                 />
                 <span class="switch-text" aria-hidden="true">
                   <span class="on" data-l10n-id="settings-on"></span>

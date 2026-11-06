@@ -18,6 +18,8 @@ const RETRY: &str = "tray-retry";
 const TAKE_PRINT_SCREEN: &str = "tray-take-print-screen";
 const START_WITH_WINDOWS: &str = "tray-start-with-windows";
 const SETTINGS: &str = "tray-settings";
+const CHECK_UPDATES: &str = "tray-check-updates";
+const UPDATE_TO: &str = "tray-update-to";
 const OPEN_LOGS: &str = "tray-open-logs";
 const QUIT: &str = "tray-quit";
 const STATUS_POSITION: usize = 2;
@@ -31,6 +33,7 @@ pub struct Tray {
     take_print_screen: MenuItem<Wry>,
     startup: CheckMenuItem<Wry>,
     settings: MenuItem<Wry>,
+    updates: MenuItem<Wry>,
     open_logs: MenuItem<Wry>,
     quit: MenuItem<Wry>,
     separator: PredefinedMenuItem<Wry>,
@@ -59,6 +62,7 @@ impl Tray {
             None::<&str>,
         )?;
         let settings = item(SETTINGS)?;
+        let updates = item(CHECK_UPDATES)?;
         let open_logs = item(OPEN_LOGS)?;
         let quit = item(QUIT)?;
         let status = MenuItem::new(app, "", false, None::<&str>)?;
@@ -70,6 +74,7 @@ impl Tray {
                 &PredefinedMenuItem::separator(app)?,
                 &startup,
                 &settings,
+                &updates,
                 &open_logs,
                 &quit,
             ],
@@ -93,6 +98,9 @@ impl Tray {
                 }),
                 SETTINGS => {
                     let _ = messages.send(Message::OpenSettings);
+                }
+                CHECK_UPDATES => {
+                    let _ = messages.send(Message::ShowUpdates);
                 }
                 OPEN_LOGS => {
                     let _ = app.opener().open_path(logs.to_string_lossy(), None::<&str>);
@@ -119,6 +127,7 @@ impl Tray {
             take_print_screen,
             startup,
             settings,
+            updates,
             open_logs,
             quit,
             separator,
@@ -139,6 +148,14 @@ impl Tray {
         }
         let _ = self.startup.set_text(texts.get(START_WITH_WINDOWS));
         let _ = self.icon.set_tooltip(Some(texts.get("tray-tooltip")));
+    }
+
+    pub fn show_update(&self, texts: &Texts, available: Option<&str>) {
+        let text = match available {
+            Some(version) => texts.get_with(UPDATE_TO, "version", version),
+            None => texts.get(CHECK_UPDATES),
+        };
+        let _ = self.updates.set_text(text);
     }
 
     pub fn show(&self, state: HotkeyState, texts: &Texts, key: &str) {

@@ -22,6 +22,7 @@ export interface Settings {
   fileName: string;
   keepOutOfHistory: boolean;
   releaseGpuWhileIdle: boolean;
+  checkForUpdates: boolean;
   lastRegion: unknown;
 }
 
@@ -32,6 +33,7 @@ const SWITCHES = [
   "successLabels",
   "keepOutOfHistory",
   "releaseGpuWhileIdle",
+  "checkForUpdates",
 ] as const;
 
 const SAVED_WHILE_TYPING = "fileName";
@@ -127,6 +129,7 @@ export async function showSettings(
       fileName: fileName.valid(),
       keepOutOfHistory: checked("keepOutOfHistory"),
       releaseGpuWhileIdle: checked("releaseGpuWhileIdle"),
+      checkForUpdates: checked("checkForUpdates"),
     }),
     send: async (wanted) => {
       await invoke("set_settings", { settings: wanted });

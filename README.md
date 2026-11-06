@@ -40,7 +40,7 @@ If Print Screen opens the Snipping Tool, Bediz asks once as it starts whether it
 
 Bediz follows the Windows display language unless you pick one; it speaks English and Turkish so far. It follows Windows' high contrast themes.
 
-Bediz sends nothing anywhere: it has no telemetry and uploads nothing, and the screenshots it copies are kept out of the Windows cloud clipboard. Saved files are like any other file in their folder: if OneDrive or another service syncs the folder, it uploads them too; the settings say when OneDrive syncs it.
+Bediz sends nothing anywhere: it has no telemetry and uploads nothing, and the screenshots it copies are kept out of the Windows cloud clipboard. It goes online only to ask GitHub for the latest version, when you check for updates or turn on checking at start (off by default); an update is installed only when you choose to. Saved files are like any other file in their folder: if OneDrive or another service syncs the folder, it uploads them too; the settings say when OneDrive syncs it.
 
 ## License
 

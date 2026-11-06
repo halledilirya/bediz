@@ -121,18 +121,21 @@ mod tests {
     use super::*;
 
     const SETTINGS_PAGE: &str = include_str!("../../index.html");
-    const SETTINGS_SCRIPTS: [&str; 6] = [
+    const SETTINGS_SCRIPTS: [&str; 7] = [
         include_str!("../../src/settings.ts"),
         include_str!("../../src/search.ts"),
         include_str!("../../src/shortcuts.ts"),
         include_str!("../../src/folder.ts"),
         include_str!("../../src/file-name.ts"),
+        include_str!("../../src/updates.ts"),
         include_str!("../../src/about.ts"),
     ];
 
-    const USED: [&str; 30] = [
+    const USED: [&str; 32] = [
         "settings-title",
         "tray-settings",
+        "tray-check-updates",
+        "tray-update-to",
         "tray-tooltip",
         "tray-tooltip-hotkey-taken",
         "tray-tooltip-snipping-tool",

@@ -28,5 +28,17 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY4MjdDRENCOEE3NEUwQUIKUldTcjRIU0t5ODBuK0lVdG5TOUF3bklEbU81emlYYm9pQUl5aG1HWUxyUG83R1JxUHRFalZFb0cK",
+      "endpoints": [
+        "https://github.com/halledilirya/bediz/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

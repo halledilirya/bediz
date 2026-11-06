@@ -16,11 +16,14 @@ use crate::settings::{self, Store};
 use crate::settings_window;
 use crate::startup::StartupStatus;
 use crate::tray::Tray;
-use crate::update;
+use crate::update::{self, UpdateStatus};
+use crate::updater::{self, Updates};
 
 pub enum Message {
     Platform(Event),
     OpenSettings,
+    ShowUpdates,
+    Updates(UpdateStatus),
     Language,
     Note(String),
     Info(String),
@@ -54,6 +57,7 @@ struct Dispatcher {
     system_languages: Vec<String>,
     sender: Sender<Message>,
     started: bool,
+    available: Option<String>,
 }
 
 pub fn spawn(
@@ -76,6 +80,7 @@ pub fn spawn(
                 system_languages,
                 sender,
                 started: false,
+                available: None,
             };
             for message in receiver {
                 if catch_unwind(AssertUnwindSafe(|| dispatcher.handle(message))).is_err() {
@@ -95,7 +100,9 @@ impl Dispatcher {
                 self.on_event(&event);
                 record(&self.log, &event);
             }
-            Message::OpenSettings => self.open_settings(),
+            Message::OpenSettings => self.open_settings(None),
+            Message::ShowUpdates => self.show_updates(),
+            Message::Updates(status) => self.on_updates(&status),
             Message::Language => self.change_language(),
             Message::Note(note) => self.log.warn(&format!("note {note}")),
             Message::Info(line) => self.log.info(&line),
@@ -126,7 +133,7 @@ impl Dispatcher {
             {
                 self.show_label(notices, *near);
             }
-            Event::SecondStart => self.open_settings(),
+            Event::SecondStart => self.open_settings(None),
             _ => {}
         }
     }
@@ -151,11 +158,51 @@ impl Dispatcher {
         }
     }
 
-    fn open_settings(&self) {
+    fn open_settings(&self, section: Option<&'static str>) {
         let title = self.texts.get("settings-title");
-        if let Err(error) = settings_window::open(&self.app, &title, &self.sender) {
+        if let Err(error) = settings_window::open(&self.app, &title, &self.sender, section) {
             self.log
                 .warn(&format!("failed to open the settings: {error}"));
+        }
+    }
+
+    fn show_updates(&self) {
+        self.open_settings(Some(settings_window::UPDATES));
+        let offered = self
+            .app
+            .try_state::<Updates>()
+            .is_some_and(|updates| updates.status().available().is_some());
+        if !offered {
+            updater::check(&self.app);
+        }
+    }
+
+    fn on_updates(&mut self, status: &UpdateStatus) {
+        match status {
+            UpdateStatus::UpToDate => self.log.info("update check: this is the latest version"),
+            UpdateStatus::Available { version } => {
+                self.log.info(&format!("update {version} available"));
+            }
+            UpdateStatus::Installing { version } => {
+                self.log.info(&format!("installing update {version}"));
+            }
+            UpdateStatus::CheckFailed { reason, .. } => {
+                self.log.warn(&format!("the update check failed: {reason}"));
+            }
+            UpdateStatus::InstallFailed {
+                version, reason, ..
+            } => self.log.warn(&format!(
+                "update {version} could not be installed: {reason}"
+            )),
+            UpdateStatus::NotChecked
+            | UpdateStatus::Checking
+            | UpdateStatus::Downloading { .. } => {}
+        }
+        let available = status.available().map(str::to_owned);
+        if available != self.available {
+            self.available = available;
+            self.tray
+                .show_update(&self.texts, self.available.as_deref());
         }
     }
 
@@ -166,6 +213,8 @@ impl Dispatcher {
             language.set(self.texts.language());
         }
         self.tray.retext(&self.texts);
+        self.tray
+            .show_update(&self.texts, self.available.as_deref());
         if let Some(state) = self
             .app
             .try_state::<HotkeyStatus>()

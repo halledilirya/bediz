@@ -12,5 +12,6 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 - Screens with HDR on keep the colours you see.
 - A right-click menu on the selection with every action and its key.
 - Settings: the shortcut, what Enter does, the folder and the file name, starting with Windows, highlighting the window under the pointer, the "Copied" and "Saved" notices, releasing graphics memory while idle, language, look and accent colour, with a search.
+- Updates: check from the tray or the settings, or at every start if you turn that on (off by default). An update is installed only when you choose to, and only when its signature and version match.
 - English and Turkish.
 - High contrast themes are followed on the selection and in the settings.

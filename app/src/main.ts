@@ -8,6 +8,7 @@ import { followLanguage } from "./language";
 import { enableSearch } from "./search";
 import { enableSections } from "./sections";
 import { showSettings } from "./settings";
+import { enableUpdates } from "./updates";
 
 behaveLikeAnApp();
 
@@ -25,9 +26,30 @@ async function start(): Promise<void> {
     return;
   }
   await showSettings(pane, error);
+  await enableUpdates(pane);
   await enableAbout();
   const follow = enableSections(rail, pane);
   enableSearch(search, pane, rail, follow);
+  const jump = (section: string | null): void => {
+    const button = [
+      ...rail.querySelectorAll<HTMLButtonElement>("button[data-section]"),
+    ].find((candidate) => candidate.dataset.section === section);
+    if (!button) {
+      return;
+    }
+    if (search.value !== "") {
+      search.value = "";
+      search.dispatchEvent(new Event("input"));
+    }
+    button.click();
+  };
+  const jumpWhereAsked = async (): Promise<void> => {
+    jump(await invoke<string | null>("take_section").catch(() => null));
+  };
+  await listen("show-section", () => {
+    void jumpWhereAsked();
+  }).catch(() => undefined);
+  await jumpWhereAsked();
 }
 
 void start().finally(() => invoke("settings_ready"));

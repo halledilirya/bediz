@@ -10,8 +10,10 @@ use tauri_plugin_opener::OpenerExt;
 use crate::events::HotkeyStatus;
 use crate::i18n::Language;
 use crate::settings::{self, Store};
+use crate::settings_window::Section;
 use crate::startup::StartupStatus;
-use crate::update;
+use crate::update::{self, UpdateStatus};
+use crate::updater::{self, Updates};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,8 +49,28 @@ pub fn settings_ready(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn take_section(section: State<'_, Section>) -> Option<&'static str> {
+    section.take()
+}
+
+#[tauri::command]
 pub fn hotkey_state(status: State<'_, HotkeyStatus>) -> Option<&'static str> {
     status.get().map(update::state_name)
+}
+
+#[tauri::command]
+pub fn update_status(updates: State<'_, Updates>) -> UpdateStatus {
+    updates.status()
+}
+
+#[tauri::command]
+pub fn check_for_updates(app: AppHandle) {
+    updater::check(&app);
+}
+
+#[tauri::command]
+pub fn install_update(app: AppHandle) {
+    updater::install(&app);
 }
 
 #[tauri::command]

@@ -26,6 +26,7 @@ pub struct Settings {
     pub file_name: Pattern,
     pub keep_out_of_history: bool,
     pub release_gpu_while_idle: bool,
+    pub check_for_updates: bool,
     pub last_region: Option<Rect>,
 }
 
@@ -78,6 +79,7 @@ impl Default for Settings {
             file_name: Pattern::default(),
             keep_out_of_history: false,
             release_gpu_while_idle: false,
+            check_for_updates: false,
             last_region: None,
         }
     }
@@ -143,6 +145,7 @@ mod tests {
         assert_eq!(settings.file_name, Pattern::default());
         assert!(!settings.keep_out_of_history);
         assert_eq!(settings.allocation(), Allocation::Ahead);
+        assert!(!settings.check_for_updates);
     }
 
     #[test]
@@ -198,6 +201,7 @@ mod tests {
             file_name: Pattern::parse("Shot {width}x{height}").unwrap(),
             keep_out_of_history: true,
             release_gpu_while_idle: true,
+            check_for_updates: true,
             last_region: Some(Rect::new(-1920, 0, 640, 480)),
         };
         let json = settings.to_json().unwrap();
@@ -206,6 +210,7 @@ mod tests {
         assert!(json.contains(r#""hotkey": "Ctrl+Shift+A""#), "{json}");
         assert!(json.contains(r#""enter": "copy""#), "{json}");
         assert!(json.contains(r#""releaseGpuWhileIdle": true"#), "{json}");
+        assert!(json.contains(r#""checkForUpdates": true"#), "{json}");
         assert_eq!(Settings::parse(&json).unwrap(), settings);
     }
 

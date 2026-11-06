@@ -109,6 +109,11 @@
   background: var(--hover);
 }
 
+.button:disabled {
+  opacity: 0.6;
+  background: var(--raised);
+}
+
 .button.primary {
   border-color: var(--accent);
   background: var(--accent);

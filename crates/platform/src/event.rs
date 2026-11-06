@@ -35,6 +35,7 @@ pub enum Command {
     },
     ShowLabel(Label),
     SetMenuTexts(MenuTexts),
+    Resume,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

@@ -44,6 +44,7 @@ impl Runtime {
                 }
                 Command::ShowLabel(label) => self.show_label(&label),
                 Command::SetMenuTexts(texts) => self.menu_texts = Some(texts),
+                Command::Resume => self.resume(),
             }
         }
     }

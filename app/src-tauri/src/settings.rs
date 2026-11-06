@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use bediz_core::geometry::Rect;
 use bediz_core::settings::Settings;
@@ -35,6 +36,8 @@ struct State {
     revision: u64,
     saved: Settings,
     pending: bool,
+    writing: bool,
+    held: bool,
     stopping: bool,
 }
 
@@ -59,6 +62,8 @@ impl Store {
                 revision: 0,
                 saved: settings,
                 pending: false,
+                writing: false,
+                held: false,
                 stopping: false,
             }),
             changed: Condvar::new(),
@@ -90,19 +95,45 @@ impl Store {
         apply: impl FnOnce(&Settings, &Settings),
     ) {
         let mut state = lock(&self.shared.state);
+        while state.held {
+            state = self
+                .shared
+                .changed
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
         let settings = edit(&state.current);
         apply(&state.current, &settings);
         state.current = settings;
         state.revision += 1;
         state.pending = true;
-        self.shared.changed.notify_one();
+        self.shared.changed.notify_all();
+    }
+
+    pub fn hold(&self, at_most: Duration) -> bool {
+        let state = lock(&self.shared.state);
+        let (mut state, _) = self
+            .shared
+            .changed
+            .wait_timeout_while(state, at_most, |state| {
+                (state.pending || state.writing) && !state.stopping
+            })
+            .unwrap_or_else(PoisonError::into_inner);
+        let written = !state.pending && !state.writing;
+        state.held = written;
+        written
+    }
+
+    pub fn resume(&self) {
+        lock(&self.shared.state).held = false;
+        self.shared.changed.notify_all();
     }
 
     pub fn shutdown(&self) {
         let writer = lock(&self.writer).take();
         if let Some(writer) = writer {
             lock(&self.shared.state).stopping = true;
-            self.shared.changed.notify_one();
+            self.shared.changed.notify_all();
             let _ = writer.join();
         }
     }
@@ -129,9 +160,12 @@ impl Shared {
             }
             let wanted = state.current.clone();
             state.pending = false;
+            state.writing = true;
             drop(state);
             let written = (self.persist)(&wanted);
             state = lock(&self.state);
+            state.writing = false;
+            self.changed.notify_all();
             match written {
                 Ok(()) => state.saved = wanted,
                 Err(error) => {
@@ -350,6 +384,59 @@ mod tests {
         harness.answers.send(Ok(())).unwrap();
         harness.store.shutdown();
         assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
+    }
+
+    #[test]
+    fn holding_waits_for_the_last_change_then_keeps_new_ones_until_resumed() {
+        let harness = harness();
+        harness.store.change(|_| detecting(), |_, _| {});
+        assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
+        harness.store.change(|_| labelling(), |_, _| {});
+        let (held_sender, held) = mpsc::channel();
+        let (changed_sender, changed) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _ = held_sender.send(harness.store.hold(WAIT));
+            });
+            assert!(held.recv_timeout(BRIEFLY).is_err());
+            harness.answers.send(Ok(())).unwrap();
+            assert_eq!(harness.writes.recv_timeout(WAIT), Ok(labelling()));
+            assert!(held.recv_timeout(BRIEFLY).is_err());
+            harness.answers.send(Ok(())).unwrap();
+            assert_eq!(held.recv_timeout(WAIT), Ok(true));
+            scope.spawn(|| {
+                harness.store.change(|_| Settings::default(), |_, _| {});
+                let _ = changed_sender.send(());
+            });
+            assert!(changed.recv_timeout(BRIEFLY).is_err());
+            assert_eq!(harness.store.current(), labelling());
+            harness.store.resume();
+            assert_eq!(changed.recv_timeout(WAIT), Ok(()));
+        });
+        assert_eq!(harness.writes.recv_timeout(WAIT), Ok(Settings::default()));
+        harness.answers.send(Ok(())).unwrap();
+    }
+
+    #[test]
+    fn holding_gives_up_on_a_write_that_does_not_end_and_holds_nothing() {
+        let harness = harness();
+        harness.store.change(|_| detecting(), |_, _| {});
+        assert_eq!(harness.writes.recv_timeout(WAIT), Ok(detecting()));
+        assert!(!harness.store.hold(BRIEFLY));
+        harness.store.change(|_| labelling(), |_, _| {});
+        assert_eq!(harness.store.current(), labelling());
+        harness.answers.send(Ok(())).unwrap();
+        assert_eq!(harness.writes.recv_timeout(WAIT), Ok(labelling()));
+        harness.answers.send(Ok(())).unwrap();
+    }
+
+    #[test]
+    fn holding_with_nothing_to_write_holds_at_once() {
+        let harness = harness();
+        let started = std::time::Instant::now();
+        assert!(harness.store.hold(WAIT));
+        assert!(started.elapsed() < WAIT);
+        harness.store.resume();
     }
 
     #[test]

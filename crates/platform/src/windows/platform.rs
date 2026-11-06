@@ -7,7 +7,7 @@ use thiserror::Error;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-use super::runtime::{self, Commands, WM_COMMANDS, WM_FINISH_SAVES, WM_STOP};
+use super::runtime::{self, Commands, WM_COMMANDS, WM_FINISH_SAVES, WM_HOLD, WM_STOP};
 use crate::event::{Command, Event};
 
 #[derive(Debug, Error)]
@@ -21,7 +21,7 @@ pub enum StartError {
 pub struct Platform {
     window: isize,
     commands: Commands,
-    saves_finished: Mutex<Receiver<()>>,
+    saves_finished: Mutex<Receiver<bool>>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -71,12 +71,24 @@ impl Platform {
     }
 
     pub fn finish_saves(&self) {
-        let finished = self
+        let _ = self.ask(WM_FINISH_SAVES);
+    }
+
+    pub fn hold(&self) -> bool {
+        self.ask(WM_HOLD)
+    }
+
+    pub fn resume(&self) {
+        self.send(Command::Resume);
+    }
+
+    fn ask(&self, message: u32) -> bool {
+        let answers = self
             .saves_finished
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        self.post(WM_FINISH_SAVES);
-        let _ = finished.recv();
+        self.post(message);
+        answers.recv().unwrap_or(false)
     }
 
     pub fn shutdown(&self) {

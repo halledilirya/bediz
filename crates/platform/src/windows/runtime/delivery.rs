@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bediz_core::delivery::{CopyError, Delivery, DeliveryError, Report, SaveError};
 use bediz_core::file_name::LocalTime;
 use bediz_core::geometry::{Point, Rect};
@@ -133,6 +135,10 @@ impl Runtime {
             .as_ref()
             .map(Worker::take_outcomes)
             .unwrap_or_default();
+        self.handle_outcomes(outcomes);
+    }
+
+    fn handle_outcomes(&mut self, outcomes: Vec<Outcome>) {
         for outcome in outcomes {
             match outcome {
                 Outcome::Encoded {
@@ -149,6 +155,54 @@ impl Runtime {
                 } => self.ask_again(job, png, path, time),
                 Outcome::Failed { job, error } => self.update(job, |report| report.failed(error)),
             }
+        }
+    }
+
+    pub(super) fn start_worker(&mut self, notes: &mut Vec<String>) {
+        match Worker::start(self.window.0) {
+            Ok(worker) => self.worker = Some(worker),
+            Err(error) => notes.push(format!(
+                "the thread that encodes and saves could not start: {error}"
+            )),
+        }
+    }
+
+    pub(super) fn on_finish_saves(&mut self) {
+        self.finish_saves();
+        let _ = self.saves_finished.send(true);
+    }
+
+    // An update ends the app right after starting its installer, so every accepted job ends first.
+    pub(super) fn on_hold(&mut self) {
+        let held = self.hold();
+        let _ = self.saves_finished.send(held);
+    }
+
+    fn hold(&mut self) -> bool {
+        if self.session.is_some() || self.save_as.is_some() {
+            return false;
+        }
+        self.held = true;
+        let outcomes = self.worker.take().map(Worker::finish).unwrap_or_default();
+        self.handle_outcomes(outcomes);
+        while self.clipboard.is_some() {
+            std::thread::sleep(Duration::from_millis(u64::from(
+                CLIPBOARD_RETRY_MILLISECONDS,
+            )));
+            self.retry_clipboard();
+        }
+        if self.save_as.is_some() {
+            self.resume();
+            return false;
+        }
+        true
+    }
+
+    pub(super) fn resume(&mut self) {
+        if std::mem::take(&mut self.held) && self.worker.is_none() {
+            let mut notes = Vec::new();
+            self.start_worker(&mut notes);
+            self.emit_notes(notes);
         }
     }
 

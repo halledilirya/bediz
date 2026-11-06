@@ -8,9 +8,11 @@ use crate::events::{self, Events, HotkeyStatus, Message, Messages};
 use crate::i18n::{Language, Texts};
 use crate::log::Log;
 use crate::settings::{self, Store};
+use crate::settings_window::Section;
 use crate::startup::{self, StartupStatus};
 use crate::tray::Tray;
 use crate::update;
+use crate::updater::{self, Updates};
 
 pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     let languages = preferred_languages();
@@ -30,6 +32,8 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(Language::new(texts.language()));
     app.manage(HotkeyStatus::default());
     app.manage(StartupStatus::default());
+    app.manage(Updates::default());
+    app.manage(Section::default());
     app.manage(Messages(sender.clone()));
     let tray = Tray::create(
         app,
@@ -64,6 +68,9 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     }
     let events = Events { receiver, sender };
     events::spawn(events, log, tray, app.handle().clone(), languages)?;
+    if settings.check_for_updates {
+        updater::check(app.handle());
+    }
     Ok(())
 }
 

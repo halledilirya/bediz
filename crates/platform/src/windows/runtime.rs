@@ -54,6 +54,7 @@ pub const WM_OUTCOMES: u32 = WM_APP + 3;
 pub const WM_SAVE_AS: u32 = WM_APP + 4;
 pub const WM_SECOND_START: u32 = WM_APP + 5;
 pub const WM_FINISH_SAVES: u32 = WM_APP + 6;
+pub const WM_HOLD: u32 = WM_APP + 7;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -79,6 +80,7 @@ struct Runtime {
     scene: Option<Scene>,
     displays_changed: bool,
     menu_capture: bool,
+    held: bool,
     hotkey: Registration,
     recording_hotkey: bool,
     desktop_switch: Option<DesktopSwitchHook>,
@@ -97,7 +99,7 @@ struct Runtime {
     instance: HINSTANCE,
     commands: Commands,
     sink: Sink,
-    saves_finished: Sender<()>,
+    saves_finished: Sender<bool>,
     clock: Clock,
     allocation: Allocation,
     windows: WindowList,
@@ -114,7 +116,7 @@ pub fn run(
     commands: Commands,
     sink: Sink,
     ready: Sender<std::result::Result<isize, String>>,
-    saves_finished: Sender<()>,
+    saves_finished: Sender<bool>,
 ) {
     unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     if let Err(error) = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok() {
@@ -136,7 +138,7 @@ pub fn run(
 }
 
 impl Runtime {
-    fn create(commands: Commands, sink: Sink, saves_finished: Sender<()>) -> Result<Self> {
+    fn create(commands: Commands, sink: Sink, saves_finished: Sender<bool>) -> Result<Self> {
         let instance = HINSTANCE::from(unsafe { GetModuleHandleW(None) }?);
         window_class::register(instance)?;
         let window = unsafe {
@@ -160,6 +162,7 @@ impl Runtime {
             scene: None,
             displays_changed: false,
             menu_capture: false,
+            held: false,
             hotkey: Registration::new(window),
             recording_hotkey: false,
             desktop_switch: DesktopSwitchHook::install(),
@@ -206,12 +209,7 @@ impl Runtime {
                 "virtual desktops are not followed; the overlay stays where it was made: {error}"
             )),
         }
-        match Worker::start(self.window.0) {
-            Ok(worker) => self.worker = Some(worker),
-            Err(error) => notes.push(format!(
-                "the thread that encodes and saves could not start: {error}"
-            )),
-        }
+        self.start_worker(&mut notes);
         match LabelWindow::create(self.instance) {
             Ok(label) => self.label = Some(label),
             Err(error) => notes.push(format!(
@@ -317,10 +315,8 @@ impl Runtime {
             WM_OUTCOMES if own => self.on_outcomes(),
             WM_SAVE_AS if own => self.on_save_as_answer(),
             WM_SECOND_START if own => (self.sink)(Event::SecondStart),
-            WM_FINISH_SAVES if own => {
-                self.finish_saves();
-                let _ = self.saves_finished.send(());
-            }
+            WM_FINISH_SAVES if own => self.on_finish_saves(),
+            WM_HOLD if own => self.on_hold(),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
             | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.is_overlay(message.hwnd) =>

@@ -11,6 +11,7 @@ mod setup;
 mod startup;
 mod tray;
 mod update;
+mod updater;
 
 fn main() {
     let Some(_first) = bediz_platform::first_instance() else {
@@ -18,12 +19,17 @@ fn main() {
     };
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::language,
             commands::settings,
             commands::set_settings,
             commands::settings_ready,
+            commands::take_section,
             commands::version,
+            commands::update_status,
+            commands::check_for_updates,
+            commands::install_update,
             commands::open_logs,
             commands::open_source,
             commands::start_with_windows_problem,
