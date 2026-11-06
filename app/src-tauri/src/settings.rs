@@ -4,10 +4,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
+use bediz_core::geometry::Rect;
 use bediz_core::settings::Settings;
 use bediz_platform::{Command, Platform};
 use tauri::{AppHandle, Manager};
 
+use crate::events::{Message, Messages};
+use crate::settings_window;
 use crate::startup::{AT_START, StartupStatus};
 use crate::tray;
 use crate::update;
@@ -154,6 +157,22 @@ pub fn change(app: &AppHandle, edit: impl FnOnce(&Settings) -> Settings) {
     }
 }
 
+pub fn keep_last_region(app: &AppHandle, region: Rect) {
+    let kept = app
+        .try_state::<Store>()
+        .is_some_and(|store| !needs_keeping(&store.current(), region));
+    if !kept {
+        change(app, |current| Settings {
+            last_region: Some(region),
+            ..current.clone()
+        });
+    }
+}
+
+fn needs_keeping(current: &Settings, region: Rect) -> bool {
+    current.last_region != Some(region)
+}
+
 pub fn apply(app: &AppHandle, before: &Settings, after: &Settings) {
     if let Some(platform) = app.try_state::<Platform>() {
         send(&platform, after);
@@ -168,6 +187,14 @@ pub fn apply(app: &AppHandle, before: &Settings, after: &Settings) {
         }
     }
     tray::show_start_with_windows(app, after.start_with_windows);
+    if before.language != after.language
+        && let Some(messages) = app.try_state::<Messages>()
+    {
+        let _ = messages.0.send(Message::Language);
+    }
+    if before.theme != after.theme {
+        settings_window::show_theme(app, after.theme);
+    }
 }
 
 pub fn send(platform: &Platform, settings: &Settings) {
@@ -368,6 +395,39 @@ mod tests {
         );
         assert_eq!(harness.store.current(), labelling());
         harness.answers.send(Ok(())).unwrap();
+    }
+
+    #[test]
+    fn a_region_whose_write_failed_is_kept_again_when_it_comes_back() {
+        let before = Rect::new(0, 0, 10, 10);
+        let after = Rect::new(5, 5, 50, 50);
+        let harness = harness();
+        harness.store.change(
+            |current| Settings {
+                last_region: Some(before),
+                ..current.clone()
+            },
+            |_, _| {},
+        );
+        harness.writes.recv_timeout(WAIT).unwrap();
+        harness.answers.send(Ok(())).unwrap();
+        assert!(needs_keeping(&harness.store.current(), after));
+        harness.store.change(
+            |current| Settings {
+                last_region: Some(after),
+                ..current.clone()
+            },
+            |_, _| {},
+        );
+        assert!(!needs_keeping(&harness.store.current(), after));
+        harness.writes.recv_timeout(WAIT).unwrap();
+        harness
+            .answers
+            .send(Err(io::Error::other("the disk is full")))
+            .unwrap();
+        harness.reverts.recv_timeout(WAIT).unwrap();
+        assert_eq!(harness.store.current().last_region, Some(before));
+        assert!(needs_keeping(&harness.store.current(), after));
     }
 
     #[test]

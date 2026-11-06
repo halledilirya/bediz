@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { text } from "./i18n";
+import { onLanguage, text } from "./i18n";
 import "./styles/folder.css";
 
 interface Folder {
@@ -80,6 +80,9 @@ export function enableFolder(form: HTMLFormElement): FolderRow {
   });
   reset.addEventListener("click", () => {
     use(null);
+  });
+  onLanguage(() => {
+    void describe();
   });
 
   return {

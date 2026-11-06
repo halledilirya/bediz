@@ -243,6 +243,11 @@ impl Session {
         }
     }
 
+    pub fn redraw_all(&mut self, scene: &Scene, windows: Option<&WindowList>) -> Result<()> {
+        self.views.clear();
+        self.redraw(scene, windows)
+    }
+
     pub fn redraw(&mut self, scene: &Scene, windows: Option<&WindowList>) -> Result<()> {
         let monitors = scene.monitor_rects();
         self.views.resize(monitors.len(), View::default());

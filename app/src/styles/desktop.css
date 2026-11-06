@@ -10,8 +10,17 @@ input[type="text"] {
   user-select: text;
 }
 
+label {
+  cursor: default;
+}
+
 button,
-label,
-input[type="checkbox"] {
+select,
+input[type="checkbox"],
+input[type="radio"] + label {
+  cursor: pointer;
+}
+
+button:disabled {
   cursor: default;
 }

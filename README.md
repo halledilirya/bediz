@@ -9,7 +9,7 @@ Bediz is in early development and has no release yet.
 
 ## Download
 
-There is no release yet. To try Bediz now, install [Rust](https://rustup.rs) and [Node.js](https://nodejs.org), run `npm ci` and `npm run build` in the `app` folder of a copy of this repository, then `cargo run --release -p bediz` in the copy itself.
+There is no release yet. To try Bediz now, install [Rust](https://rustup.rs) and [Node.js](https://nodejs.org), then run `npm ci` and `npm run tauri dev` in the `app` folder of a copy of this repository.
 
 ## Usage
 
@@ -25,7 +25,7 @@ Bediz starts with Windows unless you turn that off in the settings or the tray m
 | Arrow keys | Move the selection by one pixel, ten with Shift |
 | Ctrl + arrow keys | Resize the selection from its right or bottom edge |
 | Ctrl+A | Select the whole monitor under the cursor |
-| R | Select the region copied or saved last since Bediz started |
+| R | Select the region copied or saved last |
 | C | Copy the colour under the cursor as #RRGGBB |
 | Enter or a double-click | Copy and save the selection, or what the settings say |
 | Ctrl+C | Only copy the selection |
@@ -34,11 +34,11 @@ Bediz starts with Windows unless you turn that off in the settings or the tray m
 | Right-click, the menu key or Shift+F10 | Open a menu with these actions |
 | Esc | Cancel |
 
-**Settings** in the tray menu, or starting Bediz again while it runs, opens the settings: another shortcut instead of Print Screen, what Enter and a double-click do, the folder and the file name screenshots are saved with, keeping screenshots out of the Win+V clipboard history, highlighting the window under the pointer so a click selects it, the “Copied” and “Saved” notices, and releasing graphics memory while idle.
+**Settings** in the tray menu, or starting Bediz again while it runs, opens the settings: another shortcut instead of Print Screen, what Enter and a double-click do, the folder and the file name screenshots are saved with, keeping screenshots out of the Win+V clipboard history, highlighting the window under the pointer so a click selects it, the “Copied” and “Saved” notices, releasing graphics memory while idle, the language, light or dark and the accent colour. About shows the version, the licence notices and the log folder.
 
 If Print Screen opens the Snipping Tool, Bediz asks once as it starts whether it may turn that off; **Let Bediz use Print Screen** in the tray menu and the settings does the same. When another app holds the shortcut, the tray menu and the settings say so; the tray icon still takes a screenshot. Windows does not send the shortcut to Bediz while a window running as administrator is in front.
 
-Bediz follows the Windows display language; it speaks English and Turkish so far.
+Bediz follows the Windows display language unless you pick one; it speaks English and Turkish so far. It follows Windows' high contrast themes.
 
 Bediz sends nothing anywhere: it has no telemetry and uploads nothing, and the screenshots it copies are kept out of the Windows cloud clipboard. Saved files are like any other file in their folder: if OneDrive or another service syncs the folder, it uploads them too; the settings say when OneDrive syncs it.
 

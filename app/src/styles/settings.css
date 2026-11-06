@@ -234,8 +234,118 @@
   font-size: 13px;
 }
 
+.segmented {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--side);
+}
+
+.segmented input,
+.swatches input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label {
+  padding: 4px 12px;
+  border-radius: 3px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.segmented input:checked + label {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+
+.segmented input:focus-visible + label,
+.swatches input:focus-visible + label {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 1px;
+}
+
+.swatches {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.swatches label {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--swatch) content-box;
+}
+
+.swatches label span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.swatches input:checked + label {
+  border-color: var(--text);
+}
+
+.swatches label[data-accent="blue"] {
+  --swatch: oklch(0.57 0.16 255);
+}
+
+.swatches label[data-accent="teal"] {
+  --swatch: oklch(0.57 0.09 200);
+}
+
+.swatches label[data-accent="purple"] {
+  --swatch: oklch(0.57 0.17 300);
+}
+
+.swatches label[data-accent="pink"] {
+  --swatch: oklch(0.57 0.17 355);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .switch input::before {
     transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .card {
+    background: CanvasText;
+  }
+
+  .switch input {
+    border-color: ButtonText;
+  }
+
+  .switch input::before {
+    background: ButtonText;
+  }
+
+  .switch input:checked {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .switch input:checked::before {
+    background: HighlightText;
+  }
+
+  .segmented input:checked + label,
+  .swatches input:checked + label {
+    outline: 2px solid Highlight;
+  }
+
+  .swatches label {
+    forced-color-adjust: none;
   }
 }

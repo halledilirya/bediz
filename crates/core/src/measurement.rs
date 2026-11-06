@@ -46,7 +46,13 @@ pub struct Measurement {
     pub memory: Memory,
 }
 
+pub const BUDGET: Duration = Duration::from_millis(50);
+
 impl Measurement {
+    pub fn over_budget(&self) -> bool {
+        self.queued.saturating_add(self.uncloaked) > BUDGET
+    }
+
     pub fn log_line(&self) -> String {
         let mut monitors = String::new();
         for (index, monitor) in self.monitors.iter().enumerate() {
@@ -101,6 +107,22 @@ fn mebibytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_budget_counts_the_wait_in_the_queue_too() {
+        let within = Measurement {
+            queued: Duration::from_millis(10),
+            uncloaked: Duration::from_millis(40),
+            ..Measurement::default()
+        };
+        assert!(!within.over_budget());
+        let over = Measurement {
+            queued: Duration::from_millis(16),
+            uncloaked: Duration::from_millis(35),
+            ..Measurement::default()
+        };
+        assert!(over.over_budget());
+    }
 
     #[test]
     fn ticks_convert_with_the_counter_frequency() {

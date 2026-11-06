@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -17,6 +18,7 @@ use super::save::{self, FileId};
 
 const WAITING_TO_ENCODE: usize = 2;
 const WAITING_TO_SAVE: usize = 4;
+const INTERNAL_ERROR: &str = "an internal error was caught";
 
 pub struct Job {
     pub id: u64,
@@ -88,8 +90,14 @@ impl Worker {
             .name("bediz-save".to_owned())
             .spawn(move || {
                 let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-                for job in waiting_saves {
-                    save_one(job, &save_reply);
+                for save in waiting_saves {
+                    let job = save.job;
+                    if catch_unwind(AssertUnwindSafe(|| save_one(save, &save_reply))).is_err() {
+                        save_reply.send(Outcome::Saved {
+                            job,
+                            result: Err(SaveError::Other(INTERNAL_ERROR.to_owned())),
+                        });
+                    }
                 }
                 if com {
                     unsafe { CoUninitialize() };
@@ -101,7 +109,13 @@ impl Worker {
             .name("bediz-encode".to_owned())
             .spawn(move || {
                 for job in waiting_jobs {
-                    encode(job, &reply, &saves);
+                    let id = job.id;
+                    if catch_unwind(AssertUnwindSafe(|| encode(job, &reply, &saves))).is_err() {
+                        reply.send(Outcome::Failed {
+                            job: id,
+                            error: DeliveryError::Other(INTERNAL_ERROR.to_owned()),
+                        });
+                    }
                 }
             })?;
         Ok(Self {
@@ -132,15 +146,24 @@ impl Worker {
     pub fn take_outcomes(&self) -> Vec<Outcome> {
         std::mem::take(&mut *self.outcomes.lock().unwrap_or_else(PoisonError::into_inner))
     }
-}
 
-impl Drop for Worker {
-    fn drop(&mut self) {
+    pub fn finish(mut self) -> Vec<Outcome> {
+        self.stop();
+        self.take_outcomes()
+    }
+
+    fn stop(&mut self) {
         self.jobs = None;
         self.saves = None;
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 

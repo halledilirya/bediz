@@ -1,4 +1,4 @@
-import { text } from "./i18n";
+import { onLanguage, text } from "./i18n";
 import { LONGEST, type Problem, problem, sampleAt, stem } from "./pattern";
 import "./styles/file-name.css";
 
@@ -47,6 +47,9 @@ export function enableFileName(
     return true;
   };
 
+  onLanguage(() => {
+    describe();
+  });
   input.addEventListener("input", () => {
     if (describe()) {
       valid = input.value;

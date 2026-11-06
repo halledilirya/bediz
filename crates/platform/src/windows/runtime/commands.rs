@@ -38,6 +38,7 @@ impl Runtime {
                     self.file_name = file_name;
                 }
                 Command::KeepOutOfHistory(keep_out) => self.keep_out_of_history = keep_out,
+                Command::SetLastRegion(region) => self.last_region = region,
                 Command::SetStartWithWindows { on, request } => {
                     self.start_with_windows(on, request);
                 }
@@ -62,7 +63,7 @@ impl Runtime {
         let Some(window) = &self.label else {
             return;
         };
-        if let Err(error) = window.show(label) {
+        if let Err(error) = window.show(label, self.colours.as_ref()) {
             self.emit_notes(vec![format!(
                 "the confirmation could not be shown: {error}"
             )]);

@@ -26,8 +26,13 @@ pub struct Tray {
     icon: TrayIcon<Wry>,
     menu: Menu<Wry>,
     status: MenuItem<Wry>,
+    take: MenuItem<Wry>,
     retry: MenuItem<Wry>,
     take_print_screen: MenuItem<Wry>,
+    startup: CheckMenuItem<Wry>,
+    settings: MenuItem<Wry>,
+    open_logs: MenuItem<Wry>,
+    quit: MenuItem<Wry>,
     separator: PredefinedMenuItem<Wry>,
 }
 
@@ -69,7 +74,7 @@ impl Tray {
                 &quit,
             ],
         )?;
-        app.manage(StartupItem(startup));
+        app.manage(StartupItem(startup.clone()));
         let mut builder = TrayIconBuilder::with_id(ID)
             .menu(&menu)
             .show_menu_on_left_click(false)
@@ -109,10 +114,31 @@ impl Tray {
             icon,
             menu,
             status,
+            take,
             retry,
             take_print_screen,
+            startup,
+            settings,
+            open_logs,
+            quit,
             separator,
         })
+    }
+
+    pub fn retext(&self, texts: &Texts) {
+        let items = [
+            (&self.take, TAKE_SCREENSHOT),
+            (&self.retry, RETRY),
+            (&self.take_print_screen, TAKE_PRINT_SCREEN),
+            (&self.settings, SETTINGS),
+            (&self.open_logs, OPEN_LOGS),
+            (&self.quit, QUIT),
+        ];
+        for (item, id) in items {
+            let _ = item.set_text(texts.get(id));
+        }
+        let _ = self.startup.set_text(texts.get(START_WITH_WINDOWS));
+        let _ = self.icon.set_tooltip(Some(texts.get("tray-tooltip")));
     }
 
     pub fn show(&self, state: HotkeyState, texts: &Texts, key: &str) {

@@ -3,6 +3,7 @@ use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
 use super::{DISPLAY_SETTLE_MILLISECONDS, DISPLAY_TIMER, Runtime};
 use crate::event::{Event, Failure};
+use crate::windows::contrast::contrast_colours;
 use crate::windows::scene::Scene;
 
 impl Runtime {
@@ -33,10 +34,27 @@ impl Runtime {
         self.scene = None;
         let mut notes = Vec::new();
         match Scene::new(self.instance, self.allocation, &mut notes) {
-            Ok(scene) => self.scene = Some(scene),
+            Ok(scene) => {
+                scene.use_colours(self.colours.as_ref());
+                self.scene = Some(scene);
+            }
             Err(error) => (self.sink)(Event::Failed(Failure::Displays(error.to_string()))),
         }
         self.emit_notes(notes);
+    }
+
+    pub(super) fn on_colours_change(&mut self) {
+        self.colours = contrast_colours();
+        let Some(scene) = &self.scene else {
+            return;
+        };
+        scene.use_colours(self.colours.as_ref());
+        let windows = self.detect_windows.then_some(&self.windows);
+        if let Some(session) = self.session.as_mut()
+            && let Err(error) = session.redraw_all(scene, windows)
+        {
+            (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+        }
     }
 
     pub(super) fn set_allocation(&mut self, allocation: Allocation) {

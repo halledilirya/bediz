@@ -1,7 +1,10 @@
 import "./styles/main.css";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { enableAbout } from "./about";
 import { behaveLikeAnApp } from "./desktop";
-import { localize, useLanguage } from "./i18n";
+import { relocalize } from "./i18n";
+import { followLanguage } from "./language";
 import { enableSearch } from "./search";
 import { enableSections } from "./sections";
 import { showSettings } from "./settings";
@@ -9,8 +12,11 @@ import { showSettings } from "./settings";
 behaveLikeAnApp();
 
 async function start(): Promise<void> {
-  useLanguage(await invoke<string>("language"));
-  localize(document.body);
+  const language = followLanguage(() => invoke<string>("language"), relocalize);
+  await listen("language-changed", () => {
+    void language.refresh().catch(() => undefined);
+  }).catch(() => undefined);
+  await language.refresh();
   const pane = document.querySelector<HTMLFormElement>("#pane");
   const rail = document.querySelector<HTMLElement>(".rail");
   const search = document.querySelector<HTMLInputElement>("#search");
@@ -19,6 +25,7 @@ async function start(): Promise<void> {
     return;
   }
   await showSettings(pane, error);
+  await enableAbout();
   const follow = enableSections(rail, pane);
   enableSearch(search, pane, rail, follow);
 }

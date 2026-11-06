@@ -2,13 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enableFileName } from "./file-name";
 import { enableFolder } from "./folder";
-import { text } from "./i18n";
+import { onLanguage, text } from "./i18n";
 import { saveChanges } from "./saving";
 import { enableShortcuts } from "./shortcuts";
 import "./styles/settings.css";
 
 export interface Settings {
   startWithWindows: boolean;
+  language: string | null;
+  theme: string;
+  accent: string;
   hotkey: string;
   askAboutHotkey: boolean;
   printScreenYields: boolean;
@@ -19,6 +22,7 @@ export interface Settings {
   fileName: string;
   keepOutOfHistory: boolean;
   releaseGpuWhileIdle: boolean;
+  lastRegion: unknown;
 }
 
 const SWITCHES = [
@@ -31,32 +35,59 @@ const SWITCHES = [
 ] as const;
 
 const SAVED_WHILE_TYPING = "fileName";
+const LOOK = new Set(["theme", "accent"]);
+
+function applyLook(theme: string, accent: string): void {
+  const root = document.documentElement;
+  if (theme === "light" || theme === "dark") {
+    root.dataset.theme = theme;
+  } else {
+    delete root.dataset.theme;
+  }
+  if (accent === "blue") {
+    delete root.dataset.accent;
+  } else {
+    root.dataset.accent = accent;
+  }
+}
 
 export async function showSettings(
   form: HTMLFormElement,
   error: HTMLElement,
 ): Promise<void> {
-  const control = (
-    name: string,
-  ): HTMLInputElement | HTMLSelectElement | null => {
-    const found = form.elements.namedItem(name);
-    return found instanceof HTMLInputElement ||
-      found instanceof HTMLSelectElement
-      ? found
-      : null;
-  };
+  const control = (name: string): Element | RadioNodeList | null =>
+    form.elements.namedItem(name);
   const checked = (name: string): boolean => {
     const found = control(name);
     return found instanceof HTMLInputElement && found.checked;
   };
-  const value = (name: string): string => control(name)?.value ?? "";
-  const warn = (message: string): void => {
-    error.textContent = message;
+  const value = (name: string): string => {
+    const found = control(name);
+    return found instanceof HTMLInputElement ||
+      found instanceof HTMLSelectElement ||
+      found instanceof RadioNodeList
+      ? found.value
+      : "";
+  };
+  const setValue = (name: string, wanted: string): void => {
+    const found = control(name);
+    if (found instanceof HTMLSelectElement || found instanceof RadioNodeList) {
+      found.value = wanted;
+    }
+  };
+  const warning: { said: (() => string) | null } = { said: null };
+  const warn = (said: () => string): void => {
+    warning.said = said;
+    error.textContent = said();
     error.hidden = false;
   };
   const startError = document.getElementById("start-error");
-  const startProblem: { heard: boolean } = { heard: false };
+  const startProblem: { heard: boolean; shown: string | null } = {
+    heard: false,
+    shown: null,
+  };
   const showStartProblem = (problem: string | null): void => {
+    startProblem.shown = problem;
     if (startError) {
       startError.textContent =
         problem === null
@@ -65,7 +96,16 @@ export async function showSettings(
       startError.hidden = problem === null;
     }
   };
-  let printScreenYields = false;
+  onLanguage(() => {
+    if (warning.said) {
+      error.textContent = warning.said();
+    }
+    showStartProblem(startProblem.shown);
+  });
+  const facts: Pick<Settings, "printScreenYields" | "lastRegion"> = {
+    printScreenYields: false,
+    lastRegion: null,
+  };
   const shortcuts = await enableShortcuts(form);
   const folder = enableFolder(form);
   const fileName = enableFileName(form, () => {
@@ -73,10 +113,13 @@ export async function showSettings(
   });
   const saver = saveChanges<Settings>({
     read: () => ({
+      ...facts,
       startWithWindows: checked("startWithWindows"),
+      language: value("language") || null,
+      theme: value("theme"),
+      accent: value("accent"),
       hotkey: value("hotkey"),
       askAboutHotkey: checked("askAboutHotkey"),
-      printScreenYields,
       detectWindows: checked("detectWindows"),
       successLabels: checked("successLabels"),
       enter: value("enter"),
@@ -96,19 +139,22 @@ export async function showSettings(
           found.checked = settings[name];
         }
       }
-      const enter = control("enter");
-      if (enter) {
-        enter.value = settings.enter;
-      }
-      printScreenYields = settings.printScreenYields;
+      setValue("language", settings.language ?? "");
+      setValue("theme", settings.theme);
+      setValue("accent", settings.accent);
+      setValue("enter", settings.enter);
+      applyLook(settings.theme, settings.accent);
+      facts.printScreenYields = settings.printScreenYields;
+      facts.lastRegion = settings.lastRegion;
       shortcuts.show(settings.hotkey);
       folder.show(settings.saveFolder);
       fileName.show(settings.fileName);
     },
     failed: (reason) => {
-      warn(text("settings-save-failed", { reason: String(reason) }));
+      warn(() => text("settings-save-failed", { reason: String(reason) }));
     },
     cleared: () => {
+      warning.said = null;
       error.hidden = true;
     },
   });
@@ -124,7 +170,7 @@ export async function showSettings(
       showStartProblem(event.payload);
     });
   } catch (reason) {
-    warn(text("settings-watch-failed", { reason: String(reason) }));
+    warn(() => text("settings-watch-failed", { reason: String(reason) }));
   }
   await saver.load();
   const problem = await invoke<string | null>(
@@ -142,6 +188,9 @@ export async function showSettings(
       target.name !== SAVED_WHILE_TYPING
     ) {
       saver.changed();
+      if (LOOK.has(target.name)) {
+        applyLook(value("theme"), value("accent"));
+      }
     }
   });
   form.addEventListener("submit", (event) => {

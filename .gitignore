@@ -6,6 +6,7 @@ node_modules/
 
 # Tauri
 /app/dist/
+/app/public/licences/
 /app/src-tauri/gen/schemas/
 
 # Editors and operating systems

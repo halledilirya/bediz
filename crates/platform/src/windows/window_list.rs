@@ -8,6 +8,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::BOOL;
 
+use super::window_class::guarded;
+
 pub struct WindowList {
     rects: Vec<Rect>,
 }
@@ -33,10 +35,13 @@ impl WindowList {
 
 unsafe extern "system" fn collect(window: HWND, target: LPARAM) -> BOOL {
     let rects = unsafe { &mut *(target.0 as *mut Vec<Rect>) };
-    if let Some(rect) = selectable_bounds(window) {
-        rects.push(rect);
-    }
-    true.into()
+    guarded(false, || {
+        if let Some(rect) = selectable_bounds(window) {
+            rects.push(rect);
+        }
+        true
+    })
+    .into()
 }
 
 fn selectable_bounds(window: HWND) -> Option<Rect> {

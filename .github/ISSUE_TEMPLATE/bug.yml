@@ -1,0 +1,47 @@
+name: Bug
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Bediz version
+      description: Shown under About in the settings.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows build
+      description: Run `winver` and copy the version and build, for example 24H2 (26100.4061).
+    validations:
+      required: true
+  - type: input
+    id: monitors
+    attributes:
+      label: Monitors and scaling
+      description: How many monitors, and each one's resolution and display scaling, for example 2560×1440 at 125 % and 1920×1080 at 100 %.
+    validations:
+      required: true
+  - type: dropdown
+    id: hdr
+    attributes:
+      label: HDR
+      options:
+        - "Off"
+        - On, on at least one monitor
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Settings, About, Open log folder. The log keeps warnings and errors only, with your user folder hidden; look it over before you paste it.
+      render: text

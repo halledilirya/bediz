@@ -29,6 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, Result, w};
 
+use super::contrast::Colours;
 use super::window_class::LABEL_CLASS;
 use crate::event::Label;
 
@@ -160,7 +161,7 @@ impl LabelWindow {
         })
     }
 
-    pub fn show(&self, label: &Label) -> Result<()> {
+    pub fn show(&self, label: &Label, colours: Option<&Colours>) -> Result<()> {
         let center = POINT {
             x: label.near.left + i32::try_from(label.near.width() / 2).unwrap_or(0),
             y: label.near.top + i32::try_from(label.near.height() / 2).unwrap_or(0),
@@ -240,9 +241,13 @@ impl LabelWindow {
             bottom: height,
         };
         unsafe { target.BindDC(canvas.dc, &bounds) }?;
-        let background = if label.warning { WARNING } else { BACKGROUND };
+        let (background, text) = match colours {
+            Some(colours) => (colours.ground, colours.ink),
+            None if label.warning => (WARNING, TEXT),
+            None => (BACKGROUND, TEXT),
+        };
         let fill = unsafe { target.CreateSolidColorBrush(&background, None) }?;
-        let ink = unsafe { target.CreateSolidColorBrush(&TEXT, None) }?;
+        let ink = unsafe { target.CreateSolidColorBrush(&text, None) }?;
         let radius = RADIUS * scale;
         let whole = D2D_RECT_F {
             left: 0.0,

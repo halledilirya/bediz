@@ -5,6 +5,7 @@ mod save_as;
 mod screenshot;
 
 use std::collections::VecDeque;
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -31,7 +32,8 @@ use windows::core::{Result, w};
 
 use bediz_core::geometry::Rect;
 
-use super::clock::{self, Clock};
+use super::clock::Clock;
+use super::contrast::{Colours, contrast_colours};
 use super::desktop_switch::{self, DesktopSwitchHook};
 use super::hotkey::{self, Change, Registration};
 use super::label_window::LabelWindow;
@@ -42,7 +44,7 @@ use super::virtual_desktop::VirtualDesktops;
 use super::window_class::{self, MESSAGE_CLASS};
 use super::window_list::WindowList;
 use super::worker::Worker;
-use crate::event::{Command, Event, MenuTexts};
+use crate::event::{Command, Event, Failure, HotkeyState, MenuTexts};
 use delivery::{PendingCopy, Tracked};
 use save_as::{PendingSaveAs, Retry};
 
@@ -51,6 +53,7 @@ pub const WM_STOP: u32 = WM_APP + 2;
 pub const WM_OUTCOMES: u32 = WM_APP + 3;
 pub const WM_SAVE_AS: u32 = WM_APP + 4;
 pub const WM_SECOND_START: u32 = WM_APP + 5;
+pub const WM_FINISH_SAVES: u32 = WM_APP + 6;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -94,6 +97,7 @@ struct Runtime {
     instance: HINSTANCE,
     commands: Commands,
     sink: Sink,
+    saves_finished: Sender<()>,
     clock: Clock,
     allocation: Allocation,
     windows: WindowList,
@@ -102,16 +106,22 @@ struct Runtime {
     save_folder: Option<PathBuf>,
     file_name: Pattern,
     keep_out_of_history: bool,
+    colours: Option<Colours>,
     last_region: Option<Rect>,
 }
 
-pub fn run(commands: Commands, sink: Sink, ready: Sender<std::result::Result<isize, String>>) {
+pub fn run(
+    commands: Commands,
+    sink: Sink,
+    ready: Sender<std::result::Result<isize, String>>,
+    saves_finished: Sender<()>,
+) {
     unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     if let Err(error) = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok() {
         let _ = ready.send(Err(error.to_string()));
         return;
     }
-    match Runtime::create(commands, sink) {
+    match Runtime::create(commands, sink, saves_finished) {
         Ok(mut runtime) => {
             let _ = ready.send(Ok(runtime.window.0.0 as isize));
             runtime.start();
@@ -126,7 +136,7 @@ pub fn run(commands: Commands, sink: Sink, ready: Sender<std::result::Result<isi
 }
 
 impl Runtime {
-    fn create(commands: Commands, sink: Sink) -> Result<Self> {
+    fn create(commands: Commands, sink: Sink, saves_finished: Sender<()>) -> Result<Self> {
         let instance = HINSTANCE::from(unsafe { GetModuleHandleW(None) }?);
         window_class::register(instance)?;
         let window = unsafe {
@@ -168,6 +178,7 @@ impl Runtime {
             instance,
             commands,
             sink,
+            saves_finished,
             clock: Clock::new(),
             allocation: Allocation::default(),
             windows: WindowList::new(),
@@ -176,6 +187,7 @@ impl Runtime {
             save_folder: None,
             file_name: Pattern::default(),
             keep_out_of_history: false,
+            colours: contrast_colours(),
             last_region: None,
         })
     }
@@ -221,7 +233,7 @@ impl Runtime {
     fn stop(&mut self) {
         self.hide();
         self.hotkey.unregister();
-        self.worker = None;
+        self.finish_saves();
         self.scene = None;
     }
 
@@ -255,10 +267,20 @@ impl Runtime {
                 }
                 _ => {}
             }
-            if !self.drain() {
-                break;
+            match std::panic::catch_unwind(AssertUnwindSafe(|| self.drain())) {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(_) => self.recover(),
             }
         }
+    }
+
+    // A panic must not end this thread: the hotkey and every overlay live on it.
+    fn recover(&mut self) {
+        (self.sink)(Event::Failed(Failure::Overlay(
+            "an internal error was caught; the overlay was closed".to_owned(),
+        )));
+        window_class::guarded((), || self.hide());
     }
 
     fn drain(&mut self) -> bool {
@@ -277,18 +299,7 @@ impl Runtime {
         match message.message {
             WM_STOP if own => return false,
             WM_HOTKEY if own && message.wParam.0 == hotkey::HOTKEY as usize => {
-                if self.recording_hotkey {
-                    (self.sink)(Event::HotkeyWhileRecording);
-                } else if self.session.is_some() {
-                    self.press_in_overlay(message.lParam);
-                } else {
-                    self.open(clock::message_age(message.time));
-                }
-                let (change, proves_yielding) = self.hotkey.arrived();
-                self.report_hotkey(change);
-                if proves_yielding {
-                    (self.sink)(Event::PrintScreenYields);
-                }
+                self.on_hotkey(message);
             }
             WM_TIMER if own && message.wParam.0 == MENU_FADE_TIMER => {
                 if self.menu_capture {
@@ -306,6 +317,10 @@ impl Runtime {
             WM_OUTCOMES if own => self.on_outcomes(),
             WM_SAVE_AS if own => self.on_save_as_answer(),
             WM_SECOND_START if own => (self.sink)(Event::SecondStart),
+            WM_FINISH_SAVES if own => {
+                self.finish_saves();
+                let _ = self.saves_finished.send(());
+            }
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
             | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.is_overlay(message.hwnd) =>
@@ -331,6 +346,9 @@ impl Runtime {
         if window_class::take_display_changed() {
             self.on_display_change();
         }
+        if window_class::take_colours_changed() {
+            self.on_colours_change();
+        }
         if desktop_switch::take_switched() {
             self.hide();
             if let Some(scene) = self.scene.as_mut() {
@@ -351,7 +369,9 @@ impl Runtime {
 
     fn report_hotkey(&self, change: Option<Change>) {
         if let Some(change) = change {
-            (self.sink)(Event::Note(change.note));
+            if change.state != HotkeyState::Registered {
+                (self.sink)(Event::Note(change.note));
+            }
             (self.sink)(Event::Hotkey(change.state));
         }
     }

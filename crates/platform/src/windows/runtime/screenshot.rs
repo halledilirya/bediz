@@ -14,6 +14,7 @@ use windows::core::BOOL;
 
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
+use crate::windows::clock;
 use crate::windows::foreground::{self, Foreground};
 use crate::windows::hotkey;
 use crate::windows::overlay_menu::{self, Choice, Offer};
@@ -176,8 +177,23 @@ impl Runtime {
         }
     }
 
+    pub(super) fn on_hotkey(&mut self, message: &MSG) {
+        if self.recording_hotkey {
+            (self.sink)(Event::HotkeyWhileRecording);
+        } else if self.session.is_some() {
+            self.press_in_overlay(message.lParam);
+        } else {
+            self.open(clock::message_age(message.time));
+        }
+        let (change, proves_yielding) = self.hotkey.arrived();
+        self.report_hotkey(change);
+        if proves_yielding {
+            (self.sink)(Event::PrintScreenYields);
+        }
+    }
+
     // The shortcut is taken from every window, the overlay too, so there it acts as the key it is.
-    pub(super) fn press_in_overlay(&mut self, keys: LPARAM) {
+    fn press_in_overlay(&mut self, keys: LPARAM) {
         let (message, key) = hotkey::as_key_press(keys);
         let mut cursor = POINT::default();
         let _ = unsafe { GetCursorPos(&mut cursor) };

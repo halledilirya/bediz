@@ -1,10 +1,12 @@
 use std::sync::mpsc::Sender;
 
+use bediz_core::settings::Theme;
 use bediz_platform::{Command, Platform, make_webview_an_app};
 use tauri::webview::ScrollBarStyle;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 use crate::events::Message;
+use crate::settings::Store;
 
 pub const LABEL: &str = "settings";
 
@@ -14,8 +16,12 @@ pub fn open(app: &AppHandle, title: &str, messages: &Sender<Message>) -> tauri::
         window.show()?;
         return window.set_focus();
     }
+    let theme = app
+        .try_state::<Store>()
+        .and_then(|store| window_theme(store.current().theme));
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title(title)
+        .theme(theme)
         .inner_size(880.0, 640.0)
         .min_inner_size(640.0, 420.0)
         .center()
@@ -39,4 +45,28 @@ pub fn open(app: &AppHandle, title: &str, messages: &Sender<Message>) -> tauri::
             )));
         }
     })
+}
+
+pub fn retitle(app: &AppHandle, title: &str) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.set_title(title);
+    }
+}
+
+// set_theme waits for the main thread, and this runs while the settings are locked.
+pub fn show_theme(app: &AppHandle, theme: Theme) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window(LABEL) {
+            let _ = window.set_theme(window_theme(theme));
+        }
+    });
+}
+
+fn window_theme(theme: Theme) -> Option<tauri::Theme> {
+    match theme {
+        Theme::System => None,
+        Theme::Light => Some(tauri::Theme::Light),
+        Theme::Dark => Some(tauri::Theme::Dark),
+    }
 }

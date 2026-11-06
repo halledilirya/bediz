@@ -1,10 +1,10 @@
 use std::error::Error;
 use std::sync::mpsc::{self, Sender};
 
-use bediz_platform::{Command, MenuTexts, Platform, preferred_languages};
+use bediz_platform::{Command, Event, Platform, preferred_languages};
 use tauri::{App, AppHandle, Manager, RunEvent};
 
-use crate::events::{self, Events, HotkeyStatus, Message};
+use crate::events::{self, Events, HotkeyStatus, Message, Messages};
 use crate::i18n::{Language, Texts};
 use crate::log::Log;
 use crate::settings::{self, Store};
@@ -14,20 +14,23 @@ use crate::update;
 
 pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     let languages = preferred_languages();
-    let texts = Texts::for_languages(&languages);
-    let log = Log::open(app.path().app_local_data_dir()?.join("logs"))?;
-    log.write(&format!(
+    let header = format!(
         "start version={} languages={}",
         env!("CARGO_PKG_VERSION"),
         languages.join(",")
-    ));
+    );
+    let log = Log::open(app.path().app_local_data_dir()?.join("logs"), header)?;
+    log.catch_panics();
+    log.info("started");
     let (sender, receiver) = mpsc::channel();
     let store = start_store(app, &log, sender.clone())?;
     let settings = store.current();
+    let texts = Texts::for_choice(settings.language.as_deref(), &languages);
     app.manage(store);
-    app.manage(Language(texts.language()));
+    app.manage(Language::new(texts.language()));
     app.manage(HotkeyStatus::default());
     app.manage(StartupStatus::default());
+    app.manage(Messages(sender.clone()));
     let tray = Tray::create(
         app,
         &texts,
@@ -36,11 +39,17 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
         settings.start_with_windows,
     )?;
     let platform_events = sender.clone();
-    match Platform::start(move |event| {
-        let _ = platform_events.send(Message::Platform(event));
+    let handle = app.handle().clone();
+    match Platform::start(move |event| match event {
+        // Kept at once, not through the events thread, so a save finishing on quit still counts.
+        Event::LastRegion(region) => settings::keep_last_region(&handle, region),
+        event => {
+            let _ = platform_events.send(Message::Platform(event));
+        }
     }) {
         Ok(platform) => {
-            platform.send(Command::SetMenuTexts(menu_texts(&texts)));
+            platform.send(Command::SetMenuTexts(texts.menu_texts()));
+            platform.send(Command::SetLastRegion(settings.last_region));
             settings::send(&platform, &settings);
             // A development build would otherwise make itself start at every sign-in.
             if !cfg!(debug_assertions) {
@@ -51,7 +60,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
             }
             app.manage(platform);
         }
-        Err(error) => log.write(&format!("failed {error}")),
+        Err(error) => log.warn(&format!("failed {error}")),
     }
     let events = Events { receiver, sender };
     events::spawn(events, log, tray, app.handle().clone(), languages)?;
@@ -69,22 +78,9 @@ fn start_store(app: &App, log: &Log, notes: Sender<Message>) -> Result<Store, Bo
         )));
     })?;
     if let Some(note) = note {
-        log.write(&format!("note {note}"));
+        log.warn(&format!("note {note}"));
     }
     Ok(store)
-}
-
-fn menu_texts(texts: &Texts) -> MenuTexts {
-    MenuTexts {
-        copy_and_save: texts.get("overlay-menu-copy-and-save"),
-        copy: texts.get("overlay-menu-copy"),
-        save: texts.get("overlay-menu-save"),
-        save_as: texts.get("overlay-menu-save-as"),
-        copy_colour: texts.get("overlay-menu-copy-colour"),
-        whole_monitor: texts.get("overlay-menu-whole-monitor"),
-        last_region: texts.get("overlay-menu-last-region"),
-        cancel: texts.get("overlay-menu-cancel"),
-    }
 }
 
 pub fn on_run_event(app: &AppHandle, event: RunEvent) {
@@ -93,11 +89,16 @@ pub fn on_run_event(app: &AppHandle, event: RunEvent) {
             code: None, api, ..
         } => api.prevent_exit(),
         // Tauri ends the process without dropping managed state, so queued writes finish here.
+        // Saves finish before the last settings write, which may still need the platform.
         RunEvent::Exit => {
+            let platform = app.try_state::<Platform>();
+            if let Some(platform) = &platform {
+                platform.finish_saves();
+            }
             if let Some(store) = app.try_state::<Store>() {
                 store.shutdown();
             }
-            if let Some(platform) = app.try_state::<Platform>() {
+            if let Some(platform) = platform {
                 platform.shutdown();
             }
         }

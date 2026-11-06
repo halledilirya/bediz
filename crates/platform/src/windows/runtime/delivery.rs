@@ -152,6 +152,18 @@ impl Runtime {
         }
     }
 
+    // On quit, copies not yet on the clipboard are dropped, but finished saves still count.
+    pub(super) fn finish_saves(&mut self) {
+        let Some(worker) = self.worker.take() else {
+            return;
+        };
+        for outcome in worker.finish() {
+            if let Outcome::Saved { job, result } = outcome {
+                self.save_settled(job, result);
+            }
+        }
+    }
+
     pub(super) fn retry_clipboard(&mut self) {
         let Some(mut pending) = self.clipboard.take() else {
             self.stop_clipboard_timer();
@@ -241,9 +253,16 @@ impl Runtime {
     }
 
     fn remember(&mut self, job: u64) {
-        if let Some(tracked) = self.reports.iter().find(|tracked| tracked.job == job) {
-            self.last_region = Some(tracked.near);
-        }
+        let Some(region) = self
+            .reports
+            .iter()
+            .find(|tracked| tracked.job == job)
+            .map(|tracked| tracked.near)
+        else {
+            return;
+        };
+        self.last_region = Some(region);
+        (self.sink)(Event::LastRegion(region));
     }
 
     pub(super) fn update(&mut self, job: u64, change: impl FnOnce(&mut Report)) {

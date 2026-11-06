@@ -7,6 +7,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::core::{Error, Result};
 
 use super::capture::Capturer;
+use super::contrast::Colours;
 use super::displays::Displays;
 use super::foreground::{self, Foreground};
 use super::gpu::Gpu;
@@ -100,6 +101,12 @@ impl Scene {
             gpu.free_released()?;
         }
         Ok(())
+    }
+
+    pub fn use_colours(&self, colours: Option<&Colours>) {
+        for gpu in &self.displays.gpus {
+            gpu.use_colours(colours);
+        }
     }
 
     pub fn capture(&mut self, notes: &mut Vec<String>) -> Result<Vec<MonitorCapture>> {

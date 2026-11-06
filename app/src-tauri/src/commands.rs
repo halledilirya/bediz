@@ -22,7 +22,7 @@ pub struct Folder {
 
 #[tauri::command]
 pub fn language(language: State<'_, Language>) -> &'static str {
-    language.0
+    language.get()
 }
 
 #[tauri::command]
@@ -49,6 +49,33 @@ pub fn settings_ready(window: WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 pub fn hotkey_state(status: State<'_, HotkeyStatus>) -> Option<&'static str> {
     status.get().map(update::state_name)
+}
+
+#[tauri::command]
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[tauri::command]
+pub async fn open_logs(app: AppHandle) -> Result<(), String> {
+    let logs = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("logs");
+    in_background(move || {
+        app.opener()
+            .open_path(logs.to_string_lossy(), None::<&str>)
+            .map_err(|error| error.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn open_source(app: AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url(env!("CARGO_PKG_REPOSITORY"), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

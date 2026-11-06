@@ -1,0 +1,56 @@
+.row.about > svg {
+  flex: none;
+  width: 48px;
+  height: 48px;
+}
+
+.about-name {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.licences {
+  width: min(720px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  padding: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text);
+}
+
+.licences[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.licences::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.licences h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.licences pre {
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--layer);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.licences form {
+  display: flex;
+  justify-content: flex-end;
+}

@@ -33,19 +33,31 @@ export function enableSections(
     }
     mark(current);
   };
+  let jumping = false;
+  const stopJumping = (): void => {
+    jumping = false;
+  };
   for (const button of buttons) {
     button.addEventListener("click", () => {
-      const target = section(button);
-      if (target) {
-        const gap = parseFloat(getComputedStyle(pane).paddingTop);
-        pane.scrollTo({ top: target.offsetTop - gap });
-      }
       mark(button);
+      const target = section(button);
+      if (!target) {
+        return;
+      }
+      const gap = parseFloat(getComputedStyle(pane).paddingTop);
+      const furthest = pane.scrollHeight - pane.clientHeight;
+      const top = Math.min(Math.max(target.offsetTop - gap, 0), furthest);
+      jumping = Math.abs(top - pane.scrollTop) >= 1;
+      pane.scrollTo({ top });
     });
+  }
+  pane.addEventListener("scrollend", stopJumping);
+  for (const input of ["wheel", "pointerdown", "keydown"]) {
+    pane.addEventListener(input, stopJumping, { passive: true });
   }
   let queued = false;
   pane.addEventListener("scroll", () => {
-    if (queued) {
+    if (jumping || queued) {
       return;
     }
     queued = true;

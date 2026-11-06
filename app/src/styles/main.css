@@ -38,7 +38,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1c1c1c;
     --side: #242424;
     --layer: #262626;
@@ -61,6 +61,45 @@
     --accent-soft: oklch(0.29 0.04 var(--accent-h));
     color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #1c1c1c;
+  --side: #242424;
+  --layer: #262626;
+  --raised: #2d2d2d;
+  --hover: #323232;
+  --line: #313131;
+  --line-strong: #434343;
+  --text: #f0f0f0;
+  --muted: #a6a6a6;
+  --faint: #7a7a7a;
+  --danger: #ff7a70;
+  --danger-soft: #3b1f1d;
+  --ok: #58c98e;
+  --ok-soft: #173022;
+  --warn: #f0b456;
+  --warn-soft: #362a15;
+  --accent: oklch(0.62 var(--accent-c) var(--accent-h));
+  --accent-hover: oklch(0.68 var(--accent-c) var(--accent-h));
+  --accent-ink: oklch(0.77 calc(var(--accent-c) * 0.65) var(--accent-h));
+  --accent-soft: oklch(0.29 0.04 var(--accent-h));
+  color-scheme: dark;
+}
+
+:root[data-accent="teal"] {
+  --accent-h: 200;
+  --accent-c: 0.09;
+}
+
+:root[data-accent="purple"] {
+  --accent-h: 300;
+  --accent-c: 0.17;
+}
+
+:root[data-accent="pink"] {
+  --accent-h: 355;
+  --accent-c: 0.17;
 }
 
 *,

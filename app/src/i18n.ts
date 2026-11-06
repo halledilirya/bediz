@@ -47,3 +47,17 @@ export function localize(root: ParentNode): void {
     }
   }
 }
+
+const redraws: (() => void)[] = [];
+
+export function onLanguage(redraw: () => void): void {
+  redraws.push(redraw);
+}
+
+export function relocalize(language: string): void {
+  useLanguage(language);
+  localize(document.body);
+  for (const redraw of redraws) {
+    redraw();
+  }
+}

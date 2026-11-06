@@ -22,6 +22,7 @@ use windows_core::{ComObject, Ref, implement};
 
 use super::runtime::WM_SAVE_AS;
 use super::save::{self, FileId};
+use super::window_class::guarded;
 
 pub struct Answer {
     pub job: u64,
@@ -161,12 +162,14 @@ impl IFileDialogEvents_Impl for OverwriteWatch_Impl {
         _: Ref<IFileDialog>,
         item: Ref<IShellItem>,
     ) -> Result<FDE_OVERWRITE_RESPONSE> {
-        let asked = item
-            .ok()
-            .ok()
-            .and_then(|item| file_path(item).ok())
-            .and_then(|path| save::file_id(&path).ok().map(|file| (path, file)));
-        self.asked.set(asked);
+        guarded((), || {
+            let asked = item
+                .ok()
+                .ok()
+                .and_then(|item| file_path(item).ok())
+                .and_then(|path| save::file_id(&path).ok().map(|file| (path, file)));
+            self.asked.set(asked);
+        });
         Ok(FDEOR_DEFAULT)
     }
 }

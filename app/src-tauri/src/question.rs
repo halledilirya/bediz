@@ -51,7 +51,7 @@ pub fn ask_about_hotkey(
                     return;
                 }
             };
-            let _ = replies.send(Message::Note(format!(
+            let _ = replies.send(Message::Info(format!(
                 "asked about the shortcut accepted={} never_again={}",
                 reply.accepted, reply.never_again
             )));

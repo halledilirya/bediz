@@ -1,5 +1,5 @@
 use std::ffi::c_void;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
@@ -7,7 +7,7 @@ use thiserror::Error;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-use super::runtime::{self, Commands, WM_COMMANDS, WM_STOP};
+use super::runtime::{self, Commands, WM_COMMANDS, WM_FINISH_SAVES, WM_STOP};
 use crate::event::{Command, Event};
 
 #[derive(Debug, Error)]
@@ -21,6 +21,7 @@ pub enum StartError {
 pub struct Platform {
     window: isize,
     commands: Commands,
+    saves_finished: Mutex<Receiver<()>>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -28,15 +29,24 @@ impl Platform {
     pub fn start(sink: impl Fn(Event) + Send + 'static) -> Result<Self, StartError> {
         let commands: Commands = Arc::new(Mutex::new(Vec::new()));
         let (ready_sender, ready) = mpsc::channel();
+        let (finished_sender, saves_finished) = mpsc::channel();
         let thread_commands = Arc::clone(&commands);
         let thread = std::thread::Builder::new()
             .name("bediz-platform".to_owned())
-            .spawn(move || runtime::run(thread_commands, Box::new(sink), ready_sender))?;
+            .spawn(move || {
+                runtime::run(
+                    thread_commands,
+                    Box::new(sink),
+                    ready_sender,
+                    finished_sender,
+                );
+            })?;
         let reply = ready.recv();
         match reply {
             Ok(Ok(window)) => Ok(Self {
                 window,
                 commands,
+                saves_finished: Mutex::new(saves_finished),
                 thread: Mutex::new(Some(thread)),
             }),
             Ok(Err(message)) => {
@@ -58,6 +68,15 @@ impl Platform {
             .unwrap_or_else(PoisonError::into_inner)
             .push(command);
         self.post(WM_COMMANDS);
+    }
+
+    pub fn finish_saves(&self) {
+        let finished = self
+            .saves_finished
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        self.post(WM_FINISH_SAVES);
+        let _ = finished.recv();
     }
 
     pub fn shutdown(&self) {

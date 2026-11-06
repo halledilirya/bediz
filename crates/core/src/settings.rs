@@ -6,12 +6,16 @@ use thiserror::Error;
 use crate::capture::Allocation;
 use crate::delivery::Delivery;
 use crate::file_name::Pattern;
+use crate::geometry::Rect;
 use crate::hotkey::Hotkey;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     pub start_with_windows: bool,
+    pub language: Option<String>,
+    pub theme: Theme,
+    pub accent: Accent,
     pub hotkey: Hotkey,
     pub ask_about_hotkey: bool,
     pub print_screen_yields: bool,
@@ -22,6 +26,26 @@ pub struct Settings {
     pub file_name: Pattern,
     pub keep_out_of_history: bool,
     pub release_gpu_while_idle: bool,
+    pub last_region: Option<Rect>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Accent {
+    #[default]
+    Blue,
+    Teal,
+    Purple,
+    Pink,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +65,9 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             start_with_windows: true,
+            language: None,
+            theme: Theme::System,
+            accent: Accent::Blue,
             hotkey: Hotkey::PRINT_SCREEN,
             ask_about_hotkey: true,
             print_screen_yields: false,
@@ -51,6 +78,7 @@ impl Default for Settings {
             file_name: Pattern::default(),
             keep_out_of_history: false,
             release_gpu_while_idle: false,
+            last_region: None,
         }
     }
 }
@@ -75,6 +103,7 @@ impl Settings {
     pub fn keeping_facts_of(self, current: &Self) -> Self {
         Self {
             print_screen_yields: current.print_screen_yields,
+            last_region: current.last_region,
             ..self
         }
     }
@@ -100,6 +129,10 @@ mod tests {
         let settings = Settings::parse("{}").unwrap();
         assert_eq!(settings, Settings::default());
         assert!(settings.start_with_windows);
+        assert_eq!(settings.language, None);
+        assert_eq!(settings.theme, Theme::System);
+        assert_eq!(settings.accent, Accent::Blue);
+        assert_eq!(settings.last_region, None);
         assert_eq!(settings.hotkey, Hotkey::PRINT_SCREEN);
         assert!(settings.ask_about_hotkey);
         assert!(!settings.print_screen_yields);
@@ -137,6 +170,8 @@ mod tests {
         assert!(Settings::parse(r#"{ "hotkey": "Q" }"#).is_err());
         assert!(Settings::parse(r#"{ "fileName": "a/b" }"#).is_err());
         assert!(Settings::parse(r#"{ "enter": "print" }"#).is_err());
+        assert!(Settings::parse(r#"{ "theme": "sepia" }"#).is_err());
+        assert!(Settings::parse(r#"{ "lastRegion": [1, 2] }"#).is_err());
         assert!(Settings::parse("").is_err());
         assert!(Settings::parse("null").is_err());
     }
@@ -145,6 +180,9 @@ mod tests {
     fn written_settings_read_back_the_same() {
         let settings = Settings {
             start_with_windows: false,
+            language: Some("tr".to_owned()),
+            theme: Theme::Dark,
+            accent: Accent::Teal,
             hotkey: Hotkey {
                 ctrl: true,
                 alt: false,
@@ -160,8 +198,11 @@ mod tests {
             file_name: Pattern::parse("Shot {width}x{height}").unwrap(),
             keep_out_of_history: true,
             release_gpu_while_idle: true,
+            last_region: Some(Rect::new(-1920, 0, 640, 480)),
         };
         let json = settings.to_json().unwrap();
+        assert!(json.contains(r#""theme": "dark""#), "{json}");
+        assert!(json.contains(r#""left": -1920"#), "{json}");
         assert!(json.contains(r#""hotkey": "Ctrl+Shift+A""#), "{json}");
         assert!(json.contains(r#""enter": "copy""#), "{json}");
         assert!(json.contains(r#""releaseGpuWhileIdle": true"#), "{json}");
@@ -180,8 +221,10 @@ mod tests {
 
     #[test]
     fn the_settings_window_never_changes_a_fact_it_does_not_show() {
+        let region = Rect::new(10, 20, 30, 40);
         let current = Settings {
             print_screen_yields: true,
+            last_region: Some(region),
             ..Settings::default()
         };
         let wanted = Settings {
@@ -190,6 +233,7 @@ mod tests {
         };
         let kept = wanted.keeping_facts_of(&current);
         assert!(kept.print_screen_yields);
+        assert_eq!(kept.last_region, Some(region));
         assert!(kept.detect_windows);
     }
 

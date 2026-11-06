@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Point {
     pub x: i32,
@@ -10,7 +12,7 @@ impl Point {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rect {
     pub left: i32,
     pub top: i32,

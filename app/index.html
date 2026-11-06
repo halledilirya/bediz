@@ -41,6 +41,11 @@
           data-section="memory"
           data-l10n-id="settings-section-memory"
         ></button>
+        <button
+          type="button"
+          data-section="about"
+          data-l10n-id="settings-section-about"
+        ></button>
       </nav>
       <form class="pane" id="pane">
         <section class="group" id="general">
@@ -67,6 +72,113 @@
                 </span>
               </span>
               <p class="row-error" id="start-error" role="alert" hidden></p>
+            </div>
+            <div class="row" data-search="settings-language">
+              <div class="row-text">
+                <label for="language" data-l10n-id="settings-language"></label>
+                <p data-l10n-id="settings-language-detail"></p>
+              </div>
+              <span class="select">
+                <select id="language" name="language">
+                  <option
+                    value=""
+                    data-l10n-id="settings-language-system"
+                  ></option>
+                  <option
+                    value="tr"
+                    data-l10n-id="settings-language-tr"
+                  ></option>
+                  <option
+                    value="en"
+                    data-l10n-id="settings-language-en"
+                  ></option>
+                </select>
+              </span>
+            </div>
+            <div class="row" data-search="settings-theme">
+              <div class="row-text">
+                <span id="theme-label" data-l10n-id="settings-theme"></span>
+                <p data-l10n-id="settings-theme-detail"></p>
+              </div>
+              <div
+                class="segmented"
+                role="radiogroup"
+                aria-labelledby="theme-label"
+              >
+                <input
+                  type="radio"
+                  name="theme"
+                  id="theme-system"
+                  value="system"
+                />
+                <label
+                  for="theme-system"
+                  data-l10n-id="settings-theme-system"
+                ></label>
+                <input
+                  type="radio"
+                  name="theme"
+                  id="theme-light"
+                  value="light"
+                />
+                <label
+                  for="theme-light"
+                  data-l10n-id="settings-theme-light"
+                ></label>
+                <input type="radio" name="theme" id="theme-dark" value="dark" />
+                <label
+                  for="theme-dark"
+                  data-l10n-id="settings-theme-dark"
+                ></label>
+              </div>
+            </div>
+            <div class="row" data-search="settings-accent">
+              <div class="row-text">
+                <span id="accent-label" data-l10n-id="settings-accent"></span>
+                <p data-l10n-id="settings-accent-detail"></p>
+              </div>
+              <div
+                class="swatches"
+                role="radiogroup"
+                aria-labelledby="accent-label"
+              >
+                <input
+                  type="radio"
+                  name="accent"
+                  id="accent-blue"
+                  value="blue"
+                />
+                <label for="accent-blue" data-accent="blue">
+                  <span data-l10n-id="settings-accent-blue"></span>
+                </label>
+                <input
+                  type="radio"
+                  name="accent"
+                  id="accent-teal"
+                  value="teal"
+                />
+                <label for="accent-teal" data-accent="teal">
+                  <span data-l10n-id="settings-accent-teal"></span>
+                </label>
+                <input
+                  type="radio"
+                  name="accent"
+                  id="accent-purple"
+                  value="purple"
+                />
+                <label for="accent-purple" data-accent="purple">
+                  <span data-l10n-id="settings-accent-purple"></span>
+                </label>
+                <input
+                  type="radio"
+                  name="accent"
+                  id="accent-pink"
+                  value="pink"
+                />
+                <label for="accent-pink" data-accent="pink">
+                  <span data-l10n-id="settings-accent-pink"></span>
+                </label>
+              </div>
             </div>
           </div>
         </section>
@@ -356,9 +468,62 @@
             </div>
           </div>
         </section>
+        <section class="group" id="about">
+          <h2 data-l10n-id="settings-section-about"></h2>
+          <div class="card">
+            <div class="row about" data-search="settings-about">
+              <svg viewBox="0 0 256 256" aria-hidden="true">
+                <rect width="256" height="256" rx="56" fill="#1e293b" />
+                <path
+                  d="M52 112V52h60M144 52h60v60M204 144v60h-60M112 204H52v-60"
+                  fill="none"
+                  stroke="#f59e0b"
+                  stroke-width="28"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <div class="row-text">
+                <span class="about-name" id="about-name"></span>
+                <p data-l10n-id="settings-about-detail"></p>
+              </div>
+              <div class="actions">
+                <button
+                  type="button"
+                  class="button"
+                  id="show-licences"
+                  data-l10n-id="settings-licences"
+                ></button>
+                <button
+                  type="button"
+                  class="button"
+                  id="open-logs"
+                  data-l10n-id="settings-open-logs"
+                ></button>
+                <button
+                  type="button"
+                  class="button"
+                  id="open-source"
+                  data-l10n-id="settings-source"
+                ></button>
+              </div>
+              <p class="row-error" id="about-error" role="alert" hidden></p>
+            </div>
+          </div>
+        </section>
         <p class="empty" hidden></p>
       </form>
       <p class="save-error" role="alert" hidden></p>
+      <dialog class="licences" id="licences" aria-labelledby="licences-title">
+        <h2 id="licences-title" data-l10n-id="settings-licences"></h2>
+        <pre id="licences-text"></pre>
+        <form method="dialog">
+          <button
+            class="button primary"
+            data-l10n-id="settings-licences-close"
+          ></button>
+        </form>
+      </dialog>
     </div>
   </body>
 </html>

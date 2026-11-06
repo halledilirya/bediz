@@ -4,6 +4,8 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent};
 use windows::Win32::UI::WindowsAndMessaging::{EVENT_SYSTEM_DESKTOPSWITCH, WINEVENT_OUTOFCONTEXT};
 
+use super::window_class::guarded;
+
 thread_local! {
     static SWITCHED: Cell<bool> = const { Cell::new(false) };
 }
@@ -46,5 +48,5 @@ unsafe extern "system" fn switched(
     _thread: u32,
     _time: u32,
 ) {
-    SWITCHED.with(|flag| flag.set(true));
+    guarded((), || SWITCHED.with(|flag| flag.set(true)));
 }

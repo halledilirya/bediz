@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { held, keysOf, pick } from "./hotkey";
-import { text } from "./i18n";
+import { onLanguage, text } from "./i18n";
 import "./styles/shortcuts.css";
 
 type State = "registered" | "snipping-tool" | "taken";
@@ -86,9 +86,11 @@ export async function enableShortcuts(
     take.hidden = state !== "snipping-tool";
     retry.hidden = state !== "taken";
   };
-  const problem = (message: string): void => {
-    error.textContent = message;
-    error.hidden = false;
+  const shown: { problem: (() => string) | null } = { problem: null };
+  const problem = (said: (() => string) | null): void => {
+    shown.problem = said;
+    error.textContent = said ? said() : "";
+    error.hidden = said === null;
   };
   const stop = (): void => {
     if (!recording) {
@@ -100,7 +102,7 @@ export async function enableShortcuts(
     void invoke("record_hotkey", { recording: false });
   };
   const choose = (hotkey: string): void => {
-    error.hidden = true;
+    problem(null);
     const changed = hotkey !== field.value;
     field.value = hotkey;
     stop();
@@ -138,10 +140,12 @@ export async function enableShortcuts(
         );
         return;
       case "unsupported":
-        problem(text("settings-hotkey-unsupported"));
+        problem(() => text("settings-hotkey-unsupported"));
         return;
       case "needs-modifier":
-        problem(text("settings-hotkey-needs-modifier", { key: picked.key }));
+        problem(() =>
+          text("settings-hotkey-needs-modifier", { key: picked.key }),
+        );
         return;
       case "hotkey":
         choose(picked.hotkey);
@@ -154,7 +158,7 @@ export async function enableShortcuts(
       return;
     }
     recording = true;
-    error.hidden = true;
+    problem(null);
     record.textContent = text("settings-hotkey-cancel");
     drawKeys([], true);
     void invoke("record_hotkey", { recording: true });
@@ -204,6 +208,10 @@ export async function enableShortcuts(
   const asked = await invoke<State | null>("hotkey_state").catch(() => null);
   state = heard.state ?? asked;
   drawStatus();
+  onLanguage(() => {
+    problem(shown.problem);
+    drawStatus();
+  });
 
   return {
     show: (hotkey) => {

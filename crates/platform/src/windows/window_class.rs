@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::panic::AssertUnwindSafe;
 
 use windows::Win32::Foundation::{
     ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM,
@@ -7,7 +8,7 @@ use windows::Win32::Graphics::Gdi::ValidateRect;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, DefWindowProcW, EndMenu, HCURSOR, HTCLIENT, IDC_CROSS, LoadCursorW,
     RegisterClassExW, SetCursor, WM_APP, WM_CLOSE, WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_PAINT,
-    WM_SETCURSOR, WNDCLASSEXW,
+    WM_SETCURSOR, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
@@ -20,6 +21,7 @@ pub const LABEL_CLASS: PCWSTR = w!("BedizLabel");
 thread_local! {
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CLOSE_REQUESTED: Cell<bool> = const { Cell::new(false) };
+    static COLOURS_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CURSOR: Cell<Option<HCURSOR>> = const { Cell::new(None) };
     static MISSED: Cell<Vec<u32>> = const { Cell::new(Vec::new()) };
 }
@@ -39,6 +41,10 @@ pub fn take_display_changed() -> bool {
 
 pub fn take_close_requested() -> bool {
     CLOSE_REQUESTED.with(|flag| flag.replace(false))
+}
+
+pub fn take_colours_changed() -> bool {
+    COLOURS_CHANGED.with(|flag| flag.replace(false))
 }
 
 pub fn register(instance: HINSTANCE) -> Result<()> {
@@ -81,12 +87,21 @@ fn register_class(class: &WNDCLASSEXW) -> Result<()> {
     Err(error)
 }
 
+// A panic leaving an extern "system" function aborts the process, which would take the hotkey with it.
+pub fn guarded<T>(fallback: T, body: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(AssertUnwindSafe(body)).unwrap_or(fallback)
+}
+
 unsafe extern "system" fn message_procedure(
     window: HWND,
     message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    guarded(LRESULT(0), || on_message(window, message, wparam, lparam))
+}
+
+fn on_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     // The runtime's pump handles its own messages; a modal loop (a menu, a dialog) dispatches them here.
     if message >= WM_APP {
         if message == WM_STOP {
@@ -110,7 +125,9 @@ unsafe extern "system" fn label_procedure(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    unsafe { DefWindowProcW(window, message, wparam, lparam) }
+    guarded(LRESULT(0), || unsafe {
+        DefWindowProcW(window, message, wparam, lparam)
+    })
 }
 
 unsafe extern "system" fn overlay_procedure(
@@ -119,10 +136,20 @@ unsafe extern "system" fn overlay_procedure(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    guarded(LRESULT(0), || {
+        on_overlay_message(window, message, wparam, lparam)
+    })
+}
+
+fn on_overlay_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match message {
         WM_DISPLAYCHANGE => {
             DISPLAY_CHANGED.with(|flag| flag.set(true));
             LRESULT(0)
+        }
+        WM_SETTINGCHANGE | WM_SYSCOLORCHANGE => {
+            COLOURS_CHANGED.with(|flag| flag.set(true));
+            unsafe { DefWindowProcW(window, message, wparam, lparam) }
         }
         WM_CLOSE => {
             CLOSE_REQUESTED.with(|flag| flag.set(true));

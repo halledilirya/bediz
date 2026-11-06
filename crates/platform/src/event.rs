@@ -28,6 +28,7 @@ pub enum Command {
         file_name: Pattern,
     },
     KeepOutOfHistory(bool),
+    SetLastRegion(Option<Rect>),
     SetStartWithWindows {
         on: bool,
         request: u64,
@@ -75,6 +76,7 @@ pub enum Event {
     Hotkey(HotkeyState),
     PrintScreenYields,
     HotkeyWhileRecording,
+    LastRegion(Rect),
     StartWithWindows {
         on: bool,
         request: u64,

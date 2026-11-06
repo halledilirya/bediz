@@ -1,4 +1,7 @@
+use std::sync::{Mutex, PoisonError};
+
 use bediz_core::notice::Notice;
+use bediz_platform::MenuTexts;
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 use unic_langid::LanguageIdentifier;
 
@@ -8,7 +11,21 @@ const LOCALES: [(&str, &str); 2] = [
     ("tr", include_str!("../../../locales/tr/bediz.ftl")),
 ];
 
-pub struct Language(pub &'static str);
+pub struct Language(Mutex<&'static str>);
+
+impl Language {
+    pub fn new(language: &'static str) -> Self {
+        Self(Mutex::new(language))
+    }
+
+    pub fn get(&self) -> &'static str {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn set(&self, language: &'static str) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = language;
+    }
+}
 
 pub struct Texts {
     language: &'static str,
@@ -16,6 +33,26 @@ pub struct Texts {
 }
 
 impl Texts {
+    pub fn for_choice(choice: Option<&str>, system: &[String]) -> Self {
+        match choice {
+            Some(code) => Self::for_languages(&[code.to_owned()]),
+            None => Self::for_languages(system),
+        }
+    }
+
+    pub fn menu_texts(&self) -> MenuTexts {
+        MenuTexts {
+            copy_and_save: self.get("overlay-menu-copy-and-save"),
+            copy: self.get("overlay-menu-copy"),
+            save: self.get("overlay-menu-save"),
+            save_as: self.get("overlay-menu-save-as"),
+            copy_colour: self.get("overlay-menu-copy-colour"),
+            whole_monitor: self.get("overlay-menu-whole-monitor"),
+            last_region: self.get("overlay-menu-last-region"),
+            cancel: self.get("overlay-menu-cancel"),
+        }
+    }
+
     pub fn for_languages(preferred: &[String]) -> Self {
         let (code, source) = preferred
             .iter()
@@ -84,12 +121,13 @@ mod tests {
     use super::*;
 
     const SETTINGS_PAGE: &str = include_str!("../../index.html");
-    const SETTINGS_SCRIPTS: [&str; 5] = [
+    const SETTINGS_SCRIPTS: [&str; 6] = [
         include_str!("../../src/settings.ts"),
         include_str!("../../src/search.ts"),
         include_str!("../../src/shortcuts.ts"),
         include_str!("../../src/folder.ts"),
         include_str!("../../src/file-name.ts"),
+        include_str!("../../src/about.ts"),
     ];
 
     const USED: [&str; 30] = [
@@ -375,6 +413,14 @@ price = Costs $5
     fn picks_the_first_supported_language() {
         let texts = Texts::for_languages(&["de-DE".to_owned(), "tr-TR".to_owned()]);
         assert_eq!(texts.get("tray-open-logs"), "Günlük klasörünü aç");
+    }
+
+    #[test]
+    fn a_chosen_language_wins_over_windows() {
+        let system = ["tr-TR".to_owned()];
+        assert_eq!(Texts::for_choice(Some("en"), &system).language(), "en");
+        assert_eq!(Texts::for_choice(None, &system).language(), "tr");
+        assert_eq!(Texts::for_choice(Some("xx"), &system).language(), "en");
     }
 
     #[test]

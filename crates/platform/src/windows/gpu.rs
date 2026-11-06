@@ -26,6 +26,8 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::core::{Error, Interface, Result};
 
+use super::contrast::Colours;
+
 const DIM: D2D1_COLOR_F = D2D1_COLOR_F {
     r: 0.0,
     g: 0.0,
@@ -129,6 +131,15 @@ impl Gpu {
             dashed,
             pixel,
         })
+    }
+
+    pub fn use_colours(&self, colours: Option<&Colours>) {
+        let (ink, ground) =
+            colours.map_or((BORDER, OUTLINE), |colours| (colours.ink, colours.ground));
+        unsafe {
+            self.border.SetColor(&ink);
+            self.outline.SetColor(&ground);
+        }
     }
 
     // D3D11 frees released resources only at the next flush, and Direct2D keeps its own caches.

@@ -1,4 +1,4 @@
-import { attribute, text } from "./i18n";
+import { attribute, onLanguage, text } from "./i18n";
 import "./styles/search.css";
 
 function fold(value: string): string {
@@ -15,16 +15,16 @@ export function enableSearch(
   rail: HTMLElement,
   filtered: () => void,
 ): void {
-  input.placeholder = text("settings-search-placeholder");
-  const rows = [...pane.querySelectorAll<HTMLElement>("[data-search]")].map(
-    (row) => {
+  const index = (): { row: HTMLElement; words: string }[] =>
+    [...pane.querySelectorAll<HTMLElement>("[data-search]")].map((row) => {
       const shown = [...row.querySelectorAll(".row-text > *")].map(
         (element) => element.textContent,
       );
       const keywords = attribute(row.dataset.search ?? "", "keywords");
       return { row, words: fold([...shown, keywords].join(" ")) };
-    },
-  );
+    });
+  input.placeholder = text("settings-search-placeholder");
+  let rows = index();
   const sections = [...pane.querySelectorAll<HTMLElement>("section")];
   const empty = pane.querySelector<HTMLElement>(".empty");
   const apply = (): void => {
@@ -56,6 +56,11 @@ export function enableSearch(
     }
     filtered();
   };
+  onLanguage(() => {
+    input.placeholder = text("settings-search-placeholder");
+    rows = index();
+    apply();
+  });
   input.addEventListener("input", apply);
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && input.value !== "") {
