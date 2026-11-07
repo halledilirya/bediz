@@ -9,6 +9,14 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+    ignore:
+      # These follow the windows-rs version Tauri's wry uses; bumping one alone splits windows-core in two.
+      - dependency-name: windows
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: windows-core
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: webview2-com
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: npm
     directory: /app
