@@ -124,10 +124,7 @@ pub fn retry_hotkey(app: AppHandle) {
 #[tauri::command]
 pub async fn save_folder(chosen: Option<PathBuf>) -> Result<Folder, String> {
     in_background(move || {
-        let path = resolve(chosen)?;
-        if !path.is_dir() {
-            return Err(format!("{}: {}", path.display(), SaveError::FolderMissing));
-        }
+        let path = existing_folder(chosen)?;
         Ok(Folder {
             one_drive: bediz_platform::synced_by_onedrive(&path),
             path: path.to_string_lossy().into_owned(),
@@ -139,7 +136,7 @@ pub async fn save_folder(chosen: Option<PathBuf>) -> Result<Folder, String> {
 #[tauri::command]
 pub async fn open_save_folder(chosen: Option<PathBuf>, app: AppHandle) -> Result<(), String> {
     in_background(move || {
-        let path = resolve(chosen)?;
+        let path = existing_folder(chosen)?;
         app.opener()
             .open_path(path.to_string_lossy(), None::<&str>)
             .map_err(|error| error.to_string())
@@ -169,6 +166,16 @@ pub async fn choose_save_folder(
 
 fn resolve(chosen: Option<PathBuf>) -> Result<PathBuf, String> {
     bediz_platform::save_folder(chosen.as_deref()).map_err(|error| error.to_string())
+}
+
+// The opener runs whatever it is given, so only a folder that exists is passed on.
+fn existing_folder(chosen: Option<PathBuf>) -> Result<PathBuf, String> {
+    let path = resolve(chosen)?;
+    if path.is_dir() {
+        Ok(path)
+    } else {
+        Err(format!("{}: {}", path.display(), SaveError::FolderMissing))
+    }
 }
 
 // A folder on an unreachable network share can take the network's timeout to answer.

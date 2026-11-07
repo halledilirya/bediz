@@ -34,6 +34,9 @@ pub use folder::{pick_folder, synced_by_onedrive};
 pub use language::preferred_languages;
 pub use platform::{Platform, StartError};
 pub use question::{Question, Reply, ask as ask_question};
-pub use save::{FileId, file_id, folder as save_folder, save_chosen, save_screenshot};
+pub use save::{
+    FileId, SavedAs, file_id, folder as save_folder, keep_beside, replace_own_file, save_beside,
+    save_chosen, save_screenshot,
+};
 pub use single_instance::{FirstInstance, first_instance};
 pub use webview::make_webview_an_app;

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use bediz_core::delivery::{CopyError, Delivery, DeliveryError, Report, SaveError};
 use bediz_core::file_name::LocalTime;
 use bediz_core::geometry::{Point, Rect};
@@ -11,10 +9,11 @@ use super::{CLIPBOARD_TIMER, Runtime};
 use crate::event::Event;
 use crate::windows::clipboard::{self, Contents, Placed};
 use crate::windows::clock;
+use crate::windows::save;
 use crate::windows::session::Session;
 use crate::windows::worker::{self, Job, Outcome, Target, Worker};
 
-const CLIPBOARD_RETRY_MILLISECONDS: u32 = 25;
+pub(super) const CLIPBOARD_RETRY_MILLISECONDS: u32 = 25;
 const CLIPBOARD_ATTEMPTS: u32 = 10;
 
 pub(super) struct PendingCopy {
@@ -138,7 +137,7 @@ impl Runtime {
         self.handle_outcomes(outcomes);
     }
 
-    fn handle_outcomes(&mut self, outcomes: Vec<Outcome>) {
+    pub(super) fn handle_outcomes(&mut self, outcomes: Vec<Outcome>) {
         for outcome in outcomes {
             match outcome {
                 Outcome::Encoded {
@@ -172,49 +171,21 @@ impl Runtime {
         let _ = self.saves_finished.send(true);
     }
 
-    // An update ends the app right after starting its installer, so every accepted job ends first.
-    pub(super) fn on_hold(&mut self) {
-        let held = self.hold();
-        let _ = self.saves_finished.send(held);
-    }
-
-    fn hold(&mut self) -> bool {
-        if self.session.is_some() || self.save_as.is_some() {
-            return false;
-        }
-        self.held = true;
-        let outcomes = self.worker.take().map(Worker::finish).unwrap_or_default();
-        self.handle_outcomes(outcomes);
-        while self.clipboard.is_some() {
-            std::thread::sleep(Duration::from_millis(u64::from(
-                CLIPBOARD_RETRY_MILLISECONDS,
-            )));
-            self.retry_clipboard();
-        }
-        if self.save_as.is_some() {
-            self.resume();
-            return false;
-        }
-        true
-    }
-
-    pub(super) fn resume(&mut self) {
-        if std::mem::take(&mut self.held) && self.worker.is_none() {
-            let mut notes = Vec::new();
-            self.start_worker(&mut notes);
-            self.emit_notes(notes);
-        }
-    }
-
-    // On quit, copies not yet on the clipboard are dropped, but finished saves still count.
+    // On quit, copies not yet on the clipboard are dropped, but every accepted save still ends.
     pub(super) fn finish_saves(&mut self) {
-        let Some(worker) = self.worker.take() else {
-            return;
-        };
-        for outcome in worker.finish() {
-            if let Outcome::Saved { job, result } = outcome {
-                self.save_settled(job, result);
+        let outcomes = self.worker.take().map(Worker::finish).unwrap_or_default();
+        let mut taken = Vec::new();
+        for outcome in outcomes {
+            match outcome {
+                Outcome::Saved { job, result } => self.save_settled(job, result),
+                Outcome::Appeared { job, png, path, .. } => taken.push((job, png, path)),
+                Outcome::Encoded { .. } | Outcome::Failed { .. } => {}
             }
+        }
+        taken.extend(self.take_accepted_saves());
+        for (job, png, path) in taken {
+            let result = save::save_beside(&path, &png).map(drop);
+            self.save_settled(job, result);
         }
     }
 

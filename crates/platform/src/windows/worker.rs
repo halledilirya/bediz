@@ -14,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use super::clipboard::Contents;
 use super::runtime::WM_OUTCOMES;
-use super::save::{self, FileId};
+use super::save::{self, FileId, SavedAs};
 
 const WAITING_TO_ENCODE: usize = 2;
 const WAITING_TO_SAVE: usize = 4;
@@ -258,21 +258,99 @@ fn save_one(save: Save, reply: &Reply) {
         target,
         time,
     } = save;
-    let saved = match &target {
-        Target::Folder { folder, stem } => save::folder(folder.as_deref())
-            .and_then(|folder| save::save_screenshot(&folder, stem, &png)),
-        Target::Chosen { path, replace } => save::save_chosen(path, &png, *replace),
+    let outcome = match target {
+        Target::Folder { folder, stem } => Outcome::Saved {
+            job,
+            result: save::folder(folder.as_deref())
+                .and_then(|folder| save::save_screenshot(&folder, &stem, &png))
+                .map(drop),
+        },
+        Target::Chosen { path, replace } => match save::save_chosen(&path, &png, replace) {
+            Ok(SavedAs::NameTaken) => Outcome::Appeared {
+                job,
+                png,
+                path,
+                time,
+            },
+            saved => Outcome::Saved {
+                job,
+                result: saved.map(drop),
+            },
+        },
     };
-    reply.send(match (saved, target) {
-        (Err(SaveError::Appeared), Target::Chosen { path, .. }) => Outcome::Appeared {
-            job,
-            png,
-            path,
-            time,
-        },
-        (saved, _) => Outcome::Saved {
-            job,
-            result: saved.map(|_| ()),
-        },
-    });
+    reply.send(outcome);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use bediz_core::delivery::SaveError;
+    use bediz_core::file_name::LocalTime;
+    use bediz_core::image::Image;
+    use windows::Win32::Foundation::HWND;
+
+    use super::{Job, Outcome, Target, Worker};
+
+    fn copy(id: u64) -> Job {
+        Job {
+            id,
+            image: Image::blank(64, 48).unwrap(),
+            copy: Some(id),
+            save: None,
+            time: LocalTime {
+                year: 2026,
+                month: 1,
+                day: 2,
+                hour: 3,
+                minute: 4,
+                second: 5,
+            },
+        }
+    }
+
+    #[test]
+    fn finishing_waits_for_every_accepted_job() {
+        let worker = Worker::start(HWND::default()).unwrap();
+        worker.send(copy(1)).unwrap();
+        worker.send(copy(2)).unwrap();
+        let encoded: Vec<u64> = worker
+            .finish()
+            .into_iter()
+            .map(|outcome| match outcome {
+                Outcome::Encoded { job, ticket, .. } => {
+                    assert_eq!(job, ticket);
+                    job
+                }
+                _ => panic!("only copies were sent"),
+            })
+            .collect();
+        assert_eq!(encoded, [1, 2]);
+    }
+
+    #[test]
+    fn finishing_waits_for_the_save_of_an_accepted_job_too() {
+        let worker = Worker::start(HWND::default()).unwrap();
+        let job = Job {
+            save: Some(Target::Folder {
+                folder: Some(PathBuf::from("Pictures")),
+                stem: "Bediz".to_owned(),
+            }),
+            ..copy(1)
+        };
+        worker.send(job).unwrap();
+        let outcomes = worker.finish();
+        assert!(
+            outcomes
+                .iter()
+                .any(|outcome| matches!(outcome, Outcome::Encoded { job: 1, .. }))
+        );
+        assert!(outcomes.iter().any(|outcome| matches!(
+            outcome,
+            Outcome::Saved {
+                job: 1,
+                result: Err(SaveError::FolderMissing)
+            }
+        )));
+    }
 }

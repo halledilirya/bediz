@@ -43,7 +43,6 @@ save-error-folder-missing = 保存できませんでした: フォルダーが�
 save-error-in-use = 保存できませんでした: 別のアプリがファイルを使用しています
 save-error-no-free-name = 保存できませんでした: 番号付きのファイル名がすべて使用済みです
 save-error-busy = 保存できませんでした: 前のスクリーンショットをまだ保存しています
-save-error-appeared = 保存できませんでした: その間に同じ名前のファイルが作成されたため、そのファイルを残しました
 save-error-other = 保存できませんでした: { $reason }
 save-error-unexpected = 保存できませんでした: 予期しない問題が発生しました。詳細はログに記録されています。
 delivery-error-busy = コピーも保存もできませんでした: 前のスクリーンショットをまだ処理しています

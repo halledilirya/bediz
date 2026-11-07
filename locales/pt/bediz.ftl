@@ -43,7 +43,6 @@ save-error-folder-missing = Não salvo: a pasta não existe
 save-error-in-use = Não salvo: outro aplicativo está usando o arquivo
 save-error-no-free-name = Não salvo: todos os nomes de arquivo numerados já estão em uso
 save-error-busy = Não salvo: capturas anteriores ainda estão sendo salvas
-save-error-appeared = Não salvo: um arquivo com esse nome apareceu nesse meio-tempo e foi mantido
 save-error-other = Não salvo: { $reason }
 save-error-unexpected = Não salvo: ocorreu algo inesperado; os detalhes estão no log.
 delivery-error-busy = Não copiado nem salvo: capturas anteriores ainda estão sendo processadas

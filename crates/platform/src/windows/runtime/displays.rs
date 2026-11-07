@@ -53,7 +53,7 @@ impl Runtime {
         if let Some(session) = self.session.as_mut()
             && let Err(error) = session.redraw_all(scene, windows)
         {
-            (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+            self.draw_failed(&error);
         }
     }
 

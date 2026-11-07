@@ -43,7 +43,6 @@ save-error-folder-missing = Kaydedilemedi: klasör yok
 save-error-in-use = Kaydedilemedi: dosya başka bir uygulamada açık
 save-error-no-free-name = Kaydedilemedi: numaralı dosya adlarının hepsi dolu
 save-error-busy = Kaydedilemedi: önceki ekran görüntüleri hâlâ kaydediliyor
-save-error-appeared = Kaydedilemedi: bu arada aynı adla bir dosya oluştu ve olduğu gibi bırakıldı
 save-error-other = Kaydedilemedi: { $reason }
 save-error-unexpected = Kaydedilemedi: beklenmeyen bir şey oldu; ayrıntılar günlükte.
 delivery-error-busy = Kopyalanamadı ve kaydedilemedi: önceki ekran görüntüleri hâlâ işleniyor

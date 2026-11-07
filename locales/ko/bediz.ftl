@@ -43,7 +43,6 @@ save-error-folder-missing = 저장하지 못함: 폴더가 없습니다
 save-error-in-use = 저장하지 못함: 다른 앱이 파일을 사용하고 있습니다
 save-error-no-free-name = 저장하지 못함: 번호를 붙인 파일 이름이 모두 사용 중입니다
 save-error-busy = 저장하지 못함: 이전 스크린샷을 아직 저장하고 있습니다
-save-error-appeared = 저장하지 못함: 그 사이에 같은 이름의 파일이 생겨서 그 파일을 그대로 두었습니다
 save-error-other = 저장하지 못함: { $reason }
 save-error-unexpected = 저장하지 못함: 예기치 않은 문제가 발생했습니다. 자세한 내용은 로그에 있습니다.
 delivery-error-busy = 복사하거나 저장하지 못함: 이전 스크린샷을 아직 처리하고 있습니다

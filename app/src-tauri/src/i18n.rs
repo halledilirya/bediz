@@ -377,7 +377,6 @@ price = Costs $5
             SaveError::InUse,
             SaveError::NoFreeName,
             SaveError::Busy,
-            SaveError::Appeared,
             SaveError::Other(reason()),
             SaveError::Unexpected(reason()),
         ];

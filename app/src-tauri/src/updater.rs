@@ -1,5 +1,5 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError, mpsc};
 use std::time::Duration;
 
 use bediz_platform::Platform;
@@ -8,11 +8,14 @@ use tauri_plugin_updater::{Error, Update, UpdaterExt};
 
 use crate::events::{Message, Messages};
 use crate::settings::Store;
+use crate::settings_window;
+use crate::tray;
 use crate::update::{self, UpdateProblem, UpdateStatus};
 
 const CHECK_AT_MOST: Duration = Duration::from_secs(30);
 const DOWNLOAD_AT_MOST: Duration = Duration::from_secs(600);
 const WRITE_AT_MOST: Duration = Duration::from_secs(10);
+const HIDE_AT_MOST: Duration = Duration::from_secs(2);
 
 struct Inner {
     status: UpdateStatus,
@@ -54,7 +57,12 @@ pub fn check(app: &AppHandle) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let found = match app.updater_builder().timeout(CHECK_AT_MOST).build() {
+        let built = app
+            .updater_builder()
+            .timeout(CHECK_AT_MOST)
+            .on_before_exit(before_installer(&app))
+            .build();
+        let found = match built {
             Ok(updater) => updater.check().await,
             Err(error) => Err(error),
         };
@@ -140,11 +148,14 @@ pub fn install(app: &AppHandle) {
                     )
                 })
                 .await;
-                match installed {
+                let failure = match installed {
                     Ok(Ok(())) => return,
                     Ok(Err(failure)) => failure,
                     Err(error) => (UpdateProblem::Other, error.to_string()),
-                }
+                };
+                let shown = app.clone();
+                let _ = app.run_on_main_thread(move || show(&shown, true));
+                failure
             }
             Err(error) => (problem(&error), error.to_string()),
         };
@@ -156,6 +167,28 @@ pub fn install(app: &AppHandle) {
             };
         });
     });
+}
+
+// The plugin's own hook drops the tray and empties the windows for good; a failed start could not undo that.
+fn before_installer(app: &AppHandle) -> impl Fn() + Send + Sync + 'static {
+    let app = app.clone();
+    move || {
+        let (hidden, done) = mpsc::channel();
+        let hiding = app.clone();
+        let asked = app.run_on_main_thread(move || {
+            show(&hiding, false);
+            let _ = hidden.send(());
+        });
+        // The main thread may be waiting for the held settings, so this wait is short.
+        if asked.is_ok() {
+            let _ = done.recv_timeout(HIDE_AT_MOST);
+        }
+    }
+}
+
+fn show(app: &AppHandle, visible: bool) {
+    tray::show_icon(app, visible);
+    settings_window::show_window(app, visible);
 }
 
 type Failure = (UpdateProblem, String);

@@ -193,6 +193,12 @@ impl Tray {
     }
 }
 
+pub fn show_icon(app: &AppHandle, visible: bool) {
+    if let Some(icon) = app.tray_by_id(ID) {
+        let _ = icon.set_visible(visible);
+    }
+}
+
 // Waiting for the main thread here could deadlock with a command that waits for the settings.
 pub fn show_start_with_windows(app: &AppHandle, on: bool) {
     if let Some(startup) = app.try_state::<StartupItem>() {

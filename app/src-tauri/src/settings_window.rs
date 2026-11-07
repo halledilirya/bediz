@@ -76,6 +76,16 @@ pub fn open(
     })
 }
 
+pub fn show_window(app: &AppHandle, visible: bool) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = if visible {
+            window.show()
+        } else {
+            window.hide()
+        };
+    }
+}
+
 pub fn retitle(app: &AppHandle, title: &str) {
     if let Some(window) = app.get_webview_window(LABEL) {
         let _ = window.set_title(title);

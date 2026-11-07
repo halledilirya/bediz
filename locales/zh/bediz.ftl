@@ -43,7 +43,6 @@ save-error-folder-missing = 未保存：文件夹不存在
 save-error-in-use = 未保存：其他应用正在使用该文件
 save-error-no-free-name = 未保存：所有带编号的文件名都已被占用
 save-error-busy = 未保存：之前的屏幕截图仍在保存
-save-error-appeared = 未保存：期间出现了同名文件，已保留该文件
 save-error-other = 未保存：{ $reason }
 save-error-unexpected = 未保存：发生了意外情况；详细信息已记录在日志中。
 delivery-error-busy = 未复制或保存：之前的屏幕截图仍在处理

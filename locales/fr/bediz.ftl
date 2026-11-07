@@ -43,7 +43,6 @@ save-error-folder-missing = Non enregistré : le dossier n’existe pas
 save-error-in-use = Non enregistré : une autre application utilise le fichier
 save-error-no-free-name = Non enregistré : tous les noms de fichier numérotés sont pris
 save-error-busy = Non enregistré : des captures précédentes sont encore en cours d’enregistrement
-save-error-appeared = Non enregistré : un fichier portant ce nom est apparu entre-temps et a été conservé
 save-error-other = Non enregistré : { $reason }
 save-error-unexpected = Non enregistré : une erreur inattendue s’est produite ; le journal contient les détails.
 delivery-error-busy = Ni copié ni enregistré : des captures précédentes sont encore en cours de traitement

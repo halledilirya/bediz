@@ -1,11 +1,10 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use bediz_core::file_name;
 use bediz_core::geometry::Rect;
 use bediz_core::settings::{Parsed, Settings};
 use bediz_platform::{Command, Platform};
@@ -19,6 +18,7 @@ use crate::update;
 
 const KEPT_NAME: &str = "settings.unreadable.json";
 const KEPT_COPIES: u32 = 100;
+const LARGEST_FILE: u64 = 1 << 20;
 
 type Persist = Box<dyn Fn(&Settings) -> io::Result<()> + Send + Sync>;
 type Reverted = Box<dyn Fn(&Settings, &Settings, &str) + Send + Sync>;
@@ -50,21 +50,20 @@ impl Store {
         path: PathBuf,
         reverted: impl Fn(&Settings, &Settings, &str) + Send + Sync + 'static,
     ) -> io::Result<(Self, Option<String>)> {
-        let read = fs::read_to_string(&path);
+        let read = File::open(&path).and_then(bounded);
         let (settings, problem) = loaded(&read);
-        let note = match (problem, &read) {
-            (Some(problem), Ok(text)) => Some(match keep_copy(&path, text) {
+        let note = problem.map(|problem| {
+            match bediz_platform::keep_beside(&path, KEPT_NAME, KEPT_COPIES) {
                 Ok(copy) => format!(
                     "{problem}; the file as it was is kept as {}",
                     copy.display()
                 ),
                 Err(error) => format!("{problem}; the file as it was could not be kept: {error}"),
-            }),
-            (problem, _) => problem,
-        };
+            }
+        });
         let persist = move |settings: &Settings| {
             let json = settings.to_json().map_err(io::Error::other)?;
-            write(&path, &json)
+            bediz_platform::replace_own_file(&path, json.as_bytes())
         };
         let store = Self::with(settings, Box::new(persist), Box::new(reverted))?;
         Ok((store, note))
@@ -286,45 +285,16 @@ fn loaded(read: &io::Result<String>) -> (Settings, Option<String>) {
     )
 }
 
-// The next write replaces the file, so what this version could not read is kept beside it.
-fn keep_copy(path: &Path, text: &str) -> io::Result<PathBuf> {
-    for attempt in 1..=KEPT_COPIES {
-        let copy = path.with_file_name(file_name::numbered(KEPT_NAME, attempt));
-        match OpenOptions::new().write(true).create_new(true).open(&copy) {
-            Ok(mut file) => {
-                file.write_all(text.as_bytes())?;
-                file.sync_all()?;
-                return Ok(copy);
-            }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                if fs::read_to_string(&copy).is_ok_and(|kept| kept == text) {
-                    return Ok(copy);
-                }
-            }
-            Err(error) => return Err(error),
-        }
+fn bounded(source: impl Read) -> io::Result<String> {
+    let mut bytes = Vec::new();
+    source.take(LARGEST_FILE + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > LARGEST_FILE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the file is larger than 1 MiB",
+        ));
     }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "every numbered name is taken",
-    ))
-}
-
-fn write(path: &Path, json: &str) -> io::Result<()> {
-    if let Some(folder) = path.parent() {
-        fs::create_dir_all(folder)?;
-    }
-    let temporary = path.with_extension("json.tmp");
-    let written = File::create(&temporary).and_then(|mut file| {
-        file.write_all(json.as_bytes())?;
-        file.sync_all()
-    });
-    // Replacing is intended: this is the app's own file; the no-overwrite rule is for captures.
-    let result = written.and_then(|()| fs::rename(&temporary, path));
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 #[cfg(test)]
@@ -590,6 +560,23 @@ mod tests {
                 .is_some_and(|note| note.contains("enter") && note.ends_with("defaults are used")),
             "{note:?}"
         );
+    }
+
+    #[test]
+    fn a_file_larger_than_a_mebibyte_is_refused_without_being_read_whole() {
+        let largest = bounded(io::repeat(b' ').take(LARGEST_FILE)).unwrap();
+        assert_eq!(largest.len() as u64, LARGEST_FILE);
+        let endless = bounded(io::repeat(b' ')).unwrap_err();
+        assert_eq!(endless.kind(), io::ErrorKind::InvalidData);
+        let (settings, note) = loaded(&Err(endless));
+        assert_eq!(settings, Settings::default());
+        assert!(note.is_some_and(|note| note.contains("larger than 1 MiB")));
+    }
+
+    #[test]
+    fn a_file_that_is_not_text_is_refused() {
+        let refused = bounded(&[0xff, 0xfe, b'{'][..]).unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]

@@ -43,7 +43,6 @@ save-error-folder-missing = Not saved: the folder does not exist
 save-error-in-use = Not saved: another app is using the file
 save-error-no-free-name = Not saved: every numbered file name is taken
 save-error-busy = Not saved: earlier screenshots are still being saved
-save-error-appeared = Not saved: a file with that name appeared in the meantime and was kept
 save-error-other = Not saved: { $reason }
 save-error-unexpected = Not saved: something unexpected happened; the log has the details.
 delivery-error-busy = Not copied or saved: earlier screenshots are still being processed

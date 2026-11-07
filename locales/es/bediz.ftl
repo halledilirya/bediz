@@ -43,7 +43,6 @@ save-error-folder-missing = No se guardó: la carpeta no existe
 save-error-in-use = No se guardó: otra aplicación está usando el archivo
 save-error-no-free-name = No se guardó: todos los nombres de archivo numerados están ocupados
 save-error-busy = No se guardó: aún se están guardando capturas anteriores
-save-error-appeared = No se guardó: mientras tanto apareció un archivo con ese nombre y se conservó
 save-error-other = No se guardó: { $reason }
 save-error-unexpected = No se guardó: ocurrió algo inesperado; los detalles están en el registro.
 delivery-error-busy = No se copió ni se guardó: aún se están procesando capturas anteriores

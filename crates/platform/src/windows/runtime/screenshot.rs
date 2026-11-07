@@ -10,7 +10,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE,
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer, SystemParametersInfoW,
 };
-use windows::core::{BOOL, Result};
+use windows::core::{BOOL, Error, Result};
 
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
@@ -113,11 +113,10 @@ impl Runtime {
                 );
             }
         }
-        if let Some(session) = self.session.as_mut()
-            && let Err(error) = session.redraw(scene, self.detect_windows.then_some(&self.windows))
-        {
-            notes.push(format!("the magnifier could not be drawn: {error}"));
-        }
+        let first_view = match self.session.as_mut() {
+            Some(session) => session.redraw(scene, self.detect_windows.then_some(&self.windows)),
+            None => Ok(()),
+        };
         let memory = scene.memory();
         self.emit_notes(notes);
         (self.sink)(Event::Measured(Measurement {
@@ -133,6 +132,16 @@ impl Runtime {
             memory,
         }));
         self.hide_label();
+        if let Err(error) = first_view {
+            self.draw_failed(&error);
+        }
+    }
+
+    // A failed draw may have lost the device, and only a new scene brings the overlay back.
+    pub(super) fn draw_failed(&mut self, error: &Error) {
+        (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+        self.hide();
+        self.rebuild_scene();
     }
 
     // The clicked menu item fades out for a moment and would be in the capture.
@@ -180,7 +189,7 @@ impl Runtime {
             Ok(Action::SaveAs) => self.save_as(),
             Ok(Action::CopyColour(at)) => self.copy_colour(at),
             Ok(Action::Menu(at)) => self.open_menu(at),
-            Err(error) => (self.sink)(Event::Failed(Failure::Overlay(error.to_string()))),
+            Err(error) => self.draw_failed(&error),
         }
     }
 
@@ -258,7 +267,7 @@ impl Runtime {
         change(session, scene);
         let windows = self.detect_windows.then_some(&self.windows);
         if let Err(error) = session.redraw(scene, windows) {
-            (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+            self.draw_failed(&error);
         }
     }
 

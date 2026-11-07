@@ -43,7 +43,6 @@ save-error-folder-missing = Nicht gespeichert: Der Ordner existiert nicht
 save-error-in-use = Nicht gespeichert: Eine andere App verwendet die Datei
 save-error-no-free-name = Nicht gespeichert: Alle nummerierten Dateinamen sind vergeben
 save-error-busy = Nicht gespeichert: Frühere Screenshots werden noch gespeichert
-save-error-appeared = Nicht gespeichert: Inzwischen ist eine Datei mit diesem Namen aufgetaucht; sie bleibt erhalten
 save-error-other = Nicht gespeichert: { $reason }
 save-error-unexpected = Nicht gespeichert: Etwas Unerwartetes ist passiert; Details stehen im Protokoll.
 delivery-error-busy = Weder kopiert noch gespeichert: Frühere Screenshots werden noch verarbeitet

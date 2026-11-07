@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, POINT, RECT, SIZE};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
@@ -21,14 +21,19 @@ use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetMonitorInfoW,
     HBITMAP, HDC, HGDIOBJ, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, SelectObject,
 };
+use windows::Win32::UI::Accessibility::{
+    NotificationKind_ActionAborted, NotificationKind_ActionCompleted,
+    NotificationProcessing_ImportantMostRecent, UiaClientsAreListening, UiaHostProviderFromHwnd,
+    UiaRaiseNotificationEvent,
+};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, HWND_TOPMOST, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-    SetWindowDisplayAffinity, SetWindowPos, ShowWindow, ULW_ALPHA, USER_DEFAULT_SCREEN_DPI,
-    UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    SetWindowDisplayAffinity, SetWindowPos, SetWindowTextW, ShowWindow, ULW_ALPHA,
+    USER_DEFAULT_SCREEN_DPI, UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
-use windows::core::{Error, HSTRING, Result, w};
+use windows::core::{BSTR, Error, HSTRING, Result, w};
 
 use super::contrast::Colours;
 use super::window_class::{LABEL_CLASS, OwnedWindow};
@@ -196,7 +201,8 @@ impl LabelWindow {
         if label.right_to_left {
             unsafe { format.SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT) }?;
         }
-        let wide: Vec<u16> = label.lines.join("\n").encode_utf16().collect();
+        let message = label.lines.join("\n");
+        let wide: Vec<u16> = message.encode_utf16().collect();
         let layout = unsafe {
             self.text
                 .CreateTextLayout(&wide, &format, MAX_TEXT_WIDTH * scale, f32::MAX)
@@ -310,11 +316,38 @@ impl LabelWindow {
                 0,
                 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            )
+            )?;
         }
+        announce(self.window.0, &message, label.warning);
+        Ok(())
     }
 
     pub fn hide(&self) {
         let _ = unsafe { ShowWindow(self.window.0, SW_HIDE) };
     }
+}
+
+// The label is only pixels, so a screen reader is given its text through UI Automation.
+fn announce(window: HWND, text: &str, warning: bool) {
+    let _ = unsafe { SetWindowTextW(window, &HSTRING::from(text)) };
+    if !unsafe { UiaClientsAreListening() }.as_bool() {
+        return;
+    }
+    let Ok(provider) = (unsafe { UiaHostProviderFromHwnd(window) }) else {
+        return;
+    };
+    let kind = if warning {
+        NotificationKind_ActionAborted
+    } else {
+        NotificationKind_ActionCompleted
+    };
+    let _ = unsafe {
+        UiaRaiseNotificationEvent(
+            &provider,
+            kind,
+            NotificationProcessing_ImportantMostRecent,
+            &BSTR::from(text),
+            &BSTR::from("Bediz.Label"),
+        )
+    };
 }

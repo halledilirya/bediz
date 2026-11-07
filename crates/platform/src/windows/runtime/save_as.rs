@@ -33,7 +33,7 @@ pub(super) struct Waiting {
 
 enum Unsaved {
     Image(Image),
-    Encoded { job: u64, png: Png },
+    Encoded { job: u64, png: Png, path: PathBuf },
 }
 
 impl Runtime {
@@ -90,11 +90,15 @@ impl Runtime {
         let pending = PendingSaveAs {
             dialog: 0,
             rect: self.near_of(job).unwrap_or_default(),
-            unsaved: Unsaved::Encoded { job, png },
+            unsaved: Unsaved::Encoded { job, png, path },
             time,
             previous: HWND::default(),
         };
         self.ask_in_turn(pending, suggestion);
+    }
+
+    pub(super) fn take_accepted_saves(&mut self) -> Vec<(u64, Png, PathBuf)> {
+        accepted(self.save_as.take(), std::mem::take(&mut self.waiting))
     }
 
     fn ask_in_turn(&mut self, pending: PendingSaveAs, suggestion: Suggestion) {
@@ -156,7 +160,7 @@ impl Runtime {
                 Some(target),
                 pending.time,
             ),
-            (Ok(Some(target)), Unsaved::Encoded { job, png }) => {
+            (Ok(Some(target)), Unsaved::Encoded { job, png, .. }) => {
                 let save = Save {
                     job,
                     png,
@@ -204,6 +208,17 @@ impl Runtime {
     }
 }
 
+fn accepted(open: Option<PendingSaveAs>, waiting: VecDeque<Waiting>) -> Vec<(u64, Png, PathBuf)> {
+    let waiting = waiting.into_iter().map(|waiting| waiting.pending);
+    open.into_iter()
+        .chain(waiting)
+        .filter_map(|pending| match pending.unsaved {
+            Unsaved::Encoded { job, png, path } => Some((job, png, path)),
+            Unsaved::Image(_) => None,
+        })
+        .collect()
+}
+
 // Each new capture waits with all its pixels; saves already accepted are never turned away.
 fn has_room(waiting: &VecDeque<Waiting>) -> bool {
     let images = waiting
@@ -216,6 +231,7 @@ fn has_room(waiting: &VecDeque<Waiting>) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use bediz_core::file_name::LocalTime;
@@ -223,8 +239,18 @@ mod tests {
     use bediz_core::image::Image;
     use windows::Win32::Foundation::HWND;
 
-    use super::{IMAGES_WAITING, PendingSaveAs, Unsaved, Waiting, has_room};
+    use super::{IMAGES_WAITING, PendingSaveAs, Unsaved, Waiting, accepted, has_room};
     use crate::windows::save_dialog::Suggestion;
+
+    fn encoded(job: u64) -> Unsaved {
+        let png = Arc::new(vec![0; 8]);
+        let path = PathBuf::from(format!(r"C:\Users\Ada\Pictures\notes {job}.png"));
+        Unsaved::Encoded { job, png, path }
+    }
+
+    fn image() -> Unsaved {
+        Unsaved::Image(Image::blank(4, 4).unwrap())
+    }
 
     fn waiting(unsaved: Unsaved) -> Waiting {
         Waiting {
@@ -254,13 +280,31 @@ mod tests {
     fn new_captures_wait_in_a_bounded_line_and_accepted_saves_do_not_count() {
         let mut line = VecDeque::new();
         for job in 0..10 {
-            let png = Arc::new(vec![0; 8]);
-            line.push_back(waiting(Unsaved::Encoded { job, png }));
+            line.push_back(waiting(encoded(job)));
         }
         for _ in 0..IMAGES_WAITING {
             assert!(has_room(&line));
-            line.push_back(waiting(Unsaved::Image(Image::blank(4, 4).unwrap())));
+            line.push_back(waiting(image()));
         }
         assert!(!has_room(&line));
+    }
+
+    #[test]
+    fn quitting_keeps_every_accepted_save_and_drops_captures_never_named() {
+        let open = Some(waiting(encoded(1)).pending);
+        let line = VecDeque::from([waiting(image()), waiting(encoded(2)), waiting(encoded(3))]);
+        let kept: Vec<(u64, PathBuf)> = accepted(open, line)
+            .into_iter()
+            .map(|(job, _, path)| (job, path))
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                (1, PathBuf::from(r"C:\Users\Ada\Pictures\notes 1.png")),
+                (2, PathBuf::from(r"C:\Users\Ada\Pictures\notes 2.png")),
+                (3, PathBuf::from(r"C:\Users\Ada\Pictures\notes 3.png")),
+            ]
+        );
+        assert!(accepted(Some(waiting(image()).pending), VecDeque::new()).is_empty());
     }
 }

@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use bediz_core::delivery::SaveError;
 use bediz_core::file_name;
-use bediz_platform::{file_id, save_chosen, save_folder, save_screenshot};
+use bediz_platform::{
+    SavedAs, file_id, keep_beside, replace_own_file, save_beside, save_chosen, save_folder,
+    save_screenshot,
+};
 
 const STEM: &str = "Bediz 2026-11-05 143012";
 
@@ -88,7 +91,7 @@ fn a_chosen_path_replaces_the_file_the_user_confirmed() {
     fs::write(&leftover, b"crashed").unwrap();
     let asked = file_id(&chosen).unwrap();
     let saved = save_chosen(&chosen, b"new", Some(asked)).unwrap();
-    assert_eq!(saved, chosen);
+    assert_eq!(saved, SavedAs::Saved(chosen.clone()));
     assert_eq!(fs::read(&chosen).unwrap(), b"new");
     assert_eq!(fs::read(&leftover).unwrap(), b"crashed");
     assert_eq!(names(&folder).unwrap().len(), 2);
@@ -99,9 +102,32 @@ fn a_file_that_appeared_after_the_choice_is_kept() {
     let folder = empty_folder("appeared").unwrap();
     let chosen = folder.join("notes.png");
     fs::write(&chosen, b"other").unwrap();
-    assert_eq!(save_chosen(&chosen, b"new", None), Err(SaveError::Appeared));
+    assert_eq!(save_chosen(&chosen, b"new", None), Ok(SavedAs::NameTaken));
     assert_eq!(fs::read(&chosen).unwrap(), b"other");
     assert_eq!(names(&folder).unwrap(), ["notes.png".to_owned()]);
+}
+
+#[test]
+fn a_save_whose_name_was_taken_takes_the_next_free_one_beside_it() {
+    let folder = empty_folder("beside").unwrap();
+    let chosen = folder.join("notes.png");
+    fs::write(&chosen, b"other").unwrap();
+    let saved = save_beside(&chosen, b"new").unwrap();
+    assert_eq!(saved, folder.join("notes (2).png"));
+    assert_eq!(fs::read(&chosen).unwrap(), b"other");
+    assert_eq!(fs::read(&saved).unwrap(), b"new");
+}
+
+#[test]
+fn a_taken_name_at_the_length_limit_still_finds_a_name_beside_it() {
+    let folder = empty_folder("beside-long").unwrap();
+    let chosen = folder.join(format!("{}.png", "a".repeat(248)));
+    fs::write(&chosen, b"other").unwrap();
+    let saved = save_beside(&chosen, b"new").unwrap();
+    assert_eq!(saved, folder.join(format!("{} (2).png", "a".repeat(247))));
+    assert_eq!(fs::read(&chosen).unwrap(), b"other");
+    assert_eq!(fs::read(&saved).unwrap(), b"new");
+    assert_eq!(names(&folder).unwrap().len(), 2);
 }
 
 #[test]
@@ -115,7 +141,7 @@ fn a_file_that_took_the_asked_files_place_is_kept() {
     assert_ne!(file_id(&chosen).unwrap(), asked);
     assert_eq!(
         save_chosen(&chosen, b"new", Some(asked)),
-        Err(SaveError::Appeared)
+        Ok(SavedAs::NameTaken)
     );
     assert_eq!(fs::read(&chosen).unwrap(), b"other");
 }
@@ -127,7 +153,10 @@ fn a_file_asked_about_and_then_removed_leaves_a_new_save() {
     fs::write(&chosen, b"asked").unwrap();
     let asked = file_id(&chosen).unwrap();
     fs::remove_file(&chosen).unwrap();
-    assert_eq!(save_chosen(&chosen, b"new", Some(asked)).unwrap(), chosen);
+    assert_eq!(
+        save_chosen(&chosen, b"new", Some(asked)),
+        Ok(SavedAs::Saved(chosen.clone()))
+    );
     assert_eq!(fs::read(&chosen).unwrap(), b"new");
 }
 
@@ -135,7 +164,10 @@ fn a_file_asked_about_and_then_removed_leaves_a_new_save() {
 fn a_new_chosen_name_is_saved() {
     let folder = empty_folder("new-name").unwrap();
     let chosen = folder.join("notes.png");
-    assert_eq!(save_chosen(&chosen, b"new", None).unwrap(), chosen);
+    assert_eq!(
+        save_chosen(&chosen, b"new", None),
+        Ok(SavedAs::Saved(chosen.clone()))
+    );
     assert_eq!(fs::read(&chosen).unwrap(), b"new");
 }
 
@@ -143,8 +175,59 @@ fn a_new_chosen_name_is_saved() {
 fn a_name_at_the_length_limit_is_saved() {
     let folder = empty_folder("long-name").unwrap();
     let chosen = folder.join(format!("{}.png", "a".repeat(248)));
-    assert_eq!(save_chosen(&chosen, b"new", None).unwrap(), chosen);
+    assert_eq!(
+        save_chosen(&chosen, b"new", None),
+        Ok(SavedAs::Saved(chosen.clone()))
+    );
     assert_eq!(fs::read(&chosen).unwrap(), b"new");
+}
+
+#[test]
+fn the_apps_own_file_is_replaced_and_no_temporary_is_left() {
+    let folder = empty_folder("own-file").unwrap();
+    let own = folder.join("settings.json");
+    replace_own_file(&own, b"first").unwrap();
+    replace_own_file(&own, b"second").unwrap();
+    assert_eq!(fs::read(&own).unwrap(), b"second");
+    assert_eq!(names(&folder).unwrap(), ["settings.json".to_owned()]);
+}
+
+#[test]
+fn a_link_left_at_a_temporary_name_never_leads_the_write_into_another_file() {
+    let folder = empty_folder("own-file-link").unwrap();
+    let elsewhere = empty_folder("own-file-link-target")
+        .unwrap()
+        .join("sentinel");
+    fs::write(&elsewhere, b"untouched").unwrap();
+    let own = folder.join("settings.json");
+    for attempt in 1..=3 {
+        let name = file_name::temporary(&file_name::numbered("settings.json", attempt));
+        fs::hard_link(&elsewhere, folder.join(name)).unwrap();
+    }
+    replace_own_file(&own, b"settings").unwrap();
+    assert_eq!(fs::read(&own).unwrap(), b"settings");
+    assert_eq!(fs::read(&elsewhere).unwrap(), b"untouched");
+}
+
+#[test]
+fn a_file_kept_beside_keeps_its_content_when_the_file_is_replaced() {
+    let folder = empty_folder("kept").unwrap();
+    let own = folder.join("settings.json");
+    fs::write(&own, b"unreadable").unwrap();
+    let kept = keep_beside(&own, "settings.unreadable.json", 100).unwrap();
+    assert_eq!(kept, folder.join("settings.unreadable.json"));
+    assert_eq!(
+        keep_beside(&own, "settings.unreadable.json", 100).unwrap(),
+        kept
+    );
+    replace_own_file(&own, b"readable").unwrap();
+    assert_eq!(fs::read(&kept).unwrap(), b"unreadable");
+    assert_eq!(fs::read(&own).unwrap(), b"readable");
+    replace_own_file(&own, b"unreadable again").unwrap();
+    let again = keep_beside(&own, "settings.unreadable.json", 100).unwrap();
+    assert_eq!(again, folder.join("settings.unreadable (2).json"));
+    assert_eq!(fs::read(&kept).unwrap(), b"unreadable");
+    assert_eq!(fs::read(&again).unwrap(), b"unreadable again");
 }
 
 #[test]

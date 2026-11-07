@@ -13,6 +13,7 @@ pub struct LocalTime {
 
 pub const DEFAULT_PATTERN: &str = "Bediz {date} {time}";
 pub const LONGEST_PATTERN: usize = 120;
+const LONGEST_NAME: usize = 255;
 const TOKENS: [&str; 4] = ["date", "time", "width", "height"];
 const FORBIDDEN: [char; 9] = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
@@ -125,6 +126,25 @@ fn device_name(text: &str) -> Option<&str> {
 
 pub fn png(stem: &str, attempt: u32) -> String {
     numbered(&format!("{stem}.png"), attempt)
+}
+
+// Windows allows 255 UTF-16 units in one name, so a stem that fills them gives way to the suffix.
+pub fn png_within_limit(stem: &str, attempt: u32) -> String {
+    let full = png(stem, attempt);
+    let excess = full.encode_utf16().count().saturating_sub(LONGEST_NAME);
+    if excess == 0 {
+        return full;
+    }
+    let kept = stem.encode_utf16().count().saturating_sub(excess);
+    let mut units = 0;
+    let shortened: String = stem
+        .chars()
+        .take_while(|letter| {
+            units += letter.len_utf16();
+            units <= kept
+        })
+        .collect();
+    png(&shortened, attempt)
 }
 
 pub fn temporary(name: &str) -> String {
@@ -273,5 +293,31 @@ mod tests {
     #[test]
     fn a_temporary_name_keeps_the_final_name_in_front() {
         assert_eq!(temporary(&png("Notes", 1)), "Notes.png.tmp");
+    }
+
+    #[test]
+    fn a_name_within_the_limit_keeps_its_whole_stem() {
+        assert_eq!(png_within_limit("notes", 2), "notes (2).png");
+        let longest = "a".repeat(251);
+        assert_eq!(png_within_limit(&longest, 1), format!("{longest}.png"));
+    }
+
+    #[test]
+    fn a_stem_that_fills_the_limit_gives_way_to_the_suffix() {
+        let stem = "a".repeat(248);
+        let name = png_within_limit(&stem, 2);
+        assert_eq!(name, format!("{} (2).png", "a".repeat(247)));
+        assert_eq!(name.encode_utf16().count(), 255);
+        let name = png_within_limit(&stem, 10_000);
+        assert_eq!(name.encode_utf16().count(), 255);
+        assert!(name.ends_with(" (10000).png"));
+    }
+
+    #[test]
+    fn a_shortened_stem_never_splits_a_character() {
+        let stem = "\u{1F600}".repeat(124);
+        let name = png_within_limit(&stem, 2);
+        assert!(name.encode_utf16().count() <= 255);
+        assert_eq!(name, format!("{} (2).png", "\u{1F600}".repeat(123)));
     }
 }

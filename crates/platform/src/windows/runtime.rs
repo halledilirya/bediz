@@ -1,6 +1,7 @@
 mod commands;
 mod delivery;
 mod displays;
+mod hold;
 mod save_as;
 mod screenshot;
 

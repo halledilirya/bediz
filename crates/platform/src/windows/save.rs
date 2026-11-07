@@ -46,18 +46,26 @@ pub fn save_screenshot(folder: &Path, stem: &str, png: &[u8]) -> Result<PathBuf,
         |attempt| file_name::temporary(&file_name::png(stem, attempt)),
         png,
     )?;
+    move_to_free_name(&temporary, folder, |attempt| file_name::png(stem, attempt))
+}
+
+fn move_to_free_name(
+    temporary: &Path,
+    folder: &Path,
+    name: impl Fn(u32) -> String,
+) -> Result<PathBuf, SaveError> {
     for attempt in 1..=LAST_ATTEMPT {
-        let target = folder.join(file_name::png(stem, attempt));
-        match move_file(&temporary, &target, MOVE_FILE_FLAGS(0)) {
+        let target = folder.join(name(attempt));
+        match move_file(temporary, &target, MOVE_FILE_FLAGS(0)) {
             Ok(()) => return Ok(target),
             Err(error) if is_taken(error.code()) => {}
             Err(error) => {
-                let _ = fs::remove_file(&temporary);
+                let _ = fs::remove_file(temporary);
                 return Err(save_error(error.code(), error.message()));
             }
         }
     }
-    let _ = fs::remove_file(&temporary);
+    let _ = fs::remove_file(temporary);
     Err(SaveError::NoFreeName)
 }
 
@@ -98,7 +106,13 @@ pub fn file_id(path: &Path) -> io::Result<FileId> {
     })
 }
 
-pub fn save_chosen(path: &Path, png: &[u8], replace: Option<FileId>) -> Result<PathBuf, SaveError> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SavedAs {
+    Saved(PathBuf),
+    NameTaken,
+}
+
+pub fn save_chosen(path: &Path, png: &[u8], replace: Option<FileId>) -> Result<SavedAs, SaveError> {
     let Some(folder) = path.parent() else {
         return Err(SaveError::FolderMissing);
     };
@@ -109,11 +123,11 @@ pub fn save_chosen(path: &Path, png: &[u8], replace: Option<FileId>) -> Result<P
         _ => MOVE_FILE_FLAGS(0),
     };
     match move_file(&temporary, path, flags) {
-        Ok(()) => Ok(path.to_path_buf()),
+        Ok(()) => Ok(SavedAs::Saved(path.to_path_buf())),
         Err(error) => {
             let _ = fs::remove_file(&temporary);
             if is_taken(error.code()) {
-                Err(SaveError::Appeared)
+                Ok(SavedAs::NameTaken)
             } else {
                 Err(save_error(error.code(), error.message()))
             }
@@ -121,31 +135,90 @@ pub fn save_chosen(path: &Path, png: &[u8], replace: Option<FileId>) -> Result<P
     }
 }
 
+// Nothing can ask for a name any more, so the image takes the next free one beside the chosen.
+pub fn save_beside(path: &Path, png: &[u8]) -> Result<PathBuf, SaveError> {
+    let (Some(folder), Some(stem)) = (path.parent(), path.file_stem()) else {
+        return Err(SaveError::FolderMissing);
+    };
+    let stem = stem.to_string_lossy();
+    let temporary = write_temporary(folder, file_name::scratch, png)?;
+    move_to_free_name(&temporary, folder, |attempt| {
+        file_name::png_within_limit(&stem, attempt)
+    })
+}
+
+// Replacing is meant here; the temporary is always a new file, so no link found there is written through.
+pub fn replace_own_file(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(ErrorKind::InvalidInput.into());
+    };
+    fs::create_dir_all(folder)?;
+    let name = name.to_string_lossy();
+    let temporary = new_file(
+        folder,
+        |attempt| file_name::temporary(&file_name::numbered(&name, attempt)),
+        contents,
+    )?
+    .ok_or_else(|| io::Error::from(ErrorKind::AlreadyExists))?;
+    move_file(&temporary, path, MOVEFILE_REPLACE_EXISTING).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        io::Error::from(error)
+    })
+}
+
+// A hard link keeps the old content because replace_own_file swaps the name, never the content.
+pub fn keep_beside(path: &Path, name: &str, copies: u32) -> io::Result<PathBuf> {
+    let kept = file_id(path)?;
+    for attempt in 1..=copies {
+        let copy = path.with_file_name(file_name::numbered(name, attempt));
+        match fs::hard_link(path, &copy) {
+            Ok(()) => return Ok(copy),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                if file_id(&copy).ok() == Some(kept) {
+                    return Ok(copy);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(ErrorKind::AlreadyExists.into())
+}
+
 fn write_temporary(
     folder: &Path,
     name: impl Fn(u32) -> String,
     png: &[u8],
 ) -> Result<PathBuf, SaveError> {
+    new_file(folder, name, png)
+        .map_err(|error| io_error(&error))?
+        .ok_or(SaveError::NoFreeName)
+}
+
+fn new_file(
+    folder: &Path,
+    name: impl Fn(u32) -> String,
+    contents: &[u8],
+) -> io::Result<Option<PathBuf>> {
     for attempt in 1..=LAST_ATTEMPT {
         let path = folder.join(name(attempt));
         let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(io_error(&error)),
+            Err(error) => return Err(error),
         };
-        return match fill(file, png) {
-            Ok(()) => Ok(path),
+        return match fill(file, contents) {
+            Ok(()) => Ok(Some(path)),
             Err(error) => {
                 let _ = fs::remove_file(&path);
-                Err(io_error(&error))
+                Err(error)
             }
         };
     }
-    Err(SaveError::NoFreeName)
+    Ok(None)
 }
 
-fn fill(mut file: File, png: &[u8]) -> io::Result<()> {
-    file.write_all(png)?;
+fn fill(mut file: File, contents: &[u8]) -> io::Result<()> {
+    file.write_all(contents)?;
     file.sync_all()
 }
 
