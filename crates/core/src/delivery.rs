@@ -48,6 +48,8 @@ pub enum CopyError {
     Busy,
     #[error("{0}")]
     Other(String),
+    #[error("{0}")]
+    Unexpected(String),
 }
 
 impl CopyError {
@@ -55,6 +57,7 @@ impl CopyError {
         match self {
             Self::Busy => "copy-error-busy",
             Self::Other(_) => "copy-error-other",
+            Self::Unexpected(_) => "copy-error-unexpected",
         }
     }
 }
@@ -77,6 +80,8 @@ pub enum SaveError {
     Appeared,
     #[error("{0}")]
     Other(String),
+    #[error("{0}")]
+    Unexpected(String),
 }
 
 impl SaveError {
@@ -90,6 +95,7 @@ impl SaveError {
             Self::Busy => "save-error-busy",
             Self::Appeared => "save-error-appeared",
             Self::Other(_) => "save-error-other",
+            Self::Unexpected(_) => "save-error-unexpected",
         }
     }
 }
@@ -100,6 +106,8 @@ pub enum DeliveryError {
     Busy,
     #[error("{0}")]
     Other(String),
+    #[error("{0}")]
+    Unexpected(String),
 }
 
 impl DeliveryError {
@@ -107,6 +115,7 @@ impl DeliveryError {
         match self {
             Self::Busy => "delivery-error-busy",
             Self::Other(_) => "delivery-error-other",
+            Self::Unexpected(_) => "delivery-error-unexpected",
         }
     }
 }

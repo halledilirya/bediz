@@ -139,8 +139,8 @@ export async function showSettings(
       releaseGpuWhileIdle: checked("releaseGpuWhileIdle"),
       checkForUpdates: checked("checkForUpdates"),
     }),
-    send: async (wanted) => {
-      await invoke("set_settings", { settings: wanted });
+    send: async (wanted, shown) => {
+      await invoke("set_settings", { settings: wanted, shown });
     },
     stored: () => invoke<[Settings, number]>("settings"),
     show: (settings) => {

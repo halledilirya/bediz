@@ -94,13 +94,10 @@ impl Scene {
     }
 
     pub fn release(&mut self) -> Result<()> {
-        for overlay in &mut self.overlays {
-            overlay.release()?;
-        }
-        for gpu in &self.displays.gpus {
-            gpu.free_released()?;
-        }
-        Ok(())
+        self.capturer.forget_targets();
+        let released = every(self.overlays.iter_mut().map(Overlay::release));
+        let freed = every(self.displays.gpus.iter().map(Gpu::free_released));
+        released.and(freed)
     }
 
     pub fn use_colours(&self, colours: Option<&Colours>) {
@@ -188,7 +185,7 @@ impl Scene {
     }
 
     pub fn hide(&self) -> Result<()> {
-        self.overlays.iter().try_for_each(Overlay::hide)
+        every(self.overlays.iter().map(Overlay::hide))
     }
 
     pub fn rearm(&mut self) {
@@ -232,9 +229,43 @@ impl Scene {
     }
 }
 
+// Each one is tried even after a failure, so one stuck overlay does not keep the others on screen.
+fn every(results: impl Iterator<Item = Result<()>>) -> Result<()> {
+    let mut all = Ok(());
+    for result in results {
+        all = all.and(result);
+    }
+    all
+}
+
 fn gpu(displays: &Displays, index: usize) -> Result<&Gpu> {
     displays
         .gpus
         .get(index)
         .ok_or_else(|| Error::new(E_FAIL, "the monitor has no device"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use windows::Win32::Foundation::{E_ACCESSDENIED, E_FAIL};
+    use windows::core::Error;
+
+    use super::every;
+
+    #[test]
+    fn every_overlay_is_tried_and_the_first_failure_is_reported() {
+        let tried = Cell::new(0);
+        let results = [
+            Ok(()),
+            Err(Error::from(E_FAIL)),
+            Err(Error::from(E_ACCESSDENIED)),
+            Ok(()),
+        ];
+        let outcome = every(results.into_iter().inspect(|_| tried.set(tried.get() + 1)));
+        assert_eq!(tried.get(), 4);
+        assert_eq!(outcome.map_err(|error| error.code()), Err(E_FAIL));
+        assert!(every([Ok(()), Ok(())].into_iter()).is_ok());
+    }
 }

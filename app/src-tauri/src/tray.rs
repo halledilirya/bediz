@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use bediz_core::settings::Settings;
-use bediz_platform::{Command, HotkeyState, Platform};
+use bediz_platform::{Command, HotkeyState};
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, Wry};
@@ -11,6 +11,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::events::Message;
 use crate::i18n::Texts;
 use crate::settings;
+use crate::setup;
 
 const ID: &str = "main";
 const TAKE_SCREENSHOT: &str = "tray-take-screenshot";
@@ -89,9 +90,9 @@ impl Tray {
         }
         let icon = builder
             .on_menu_event(move |app, event| match event.id().as_ref() {
-                TAKE_SCREENSHOT => send(app, Command::CaptureAfterMenu),
-                RETRY => send(app, Command::RetryHotkey),
-                TAKE_PRINT_SCREEN => send(app, Command::TakePrintScreen),
+                TAKE_SCREENSHOT => setup::send(app, Command::CaptureAfterMenu),
+                RETRY => setup::send(app, Command::RetryHotkey),
+                TAKE_PRINT_SCREEN => setup::send(app, Command::TakePrintScreen),
                 START_WITH_WINDOWS => settings::change(app, |current| Settings {
                     start_with_windows: !current.start_with_windows,
                     ..current.clone()
@@ -113,8 +114,8 @@ impl Tray {
                     button: MouseButton::Left,
                     button_state: MouseButtonState::Up,
                     ..
-                } => send(icon.app_handle(), Command::Capture),
-                TrayIconEvent::Enter { .. } => send(icon.app_handle(), Command::RetryHotkey),
+                } => setup::send(icon.app_handle(), Command::Capture),
+                TrayIconEvent::Enter { .. } => setup::send(icon.app_handle(), Command::RetryHotkey),
                 _ => {}
             })
             .build(app)?;
@@ -199,11 +200,5 @@ pub fn show_start_with_windows(app: &AppHandle, on: bool) {
         let _ = app.run_on_main_thread(move || {
             let _ = item.set_checked(on);
         });
-    }
-}
-
-fn send(app: &AppHandle, command: Command) {
-    if let Some(platform) = app.try_state::<Platform>() {
-        platform.send(command);
     }
 }

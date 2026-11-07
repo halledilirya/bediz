@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use bediz_core::delivery::SaveError;
 use bediz_core::settings::Settings;
-use bediz_platform::{Command, Platform};
+use bediz_platform::Command;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
@@ -11,6 +11,7 @@ use crate::events::HotkeyStatus;
 use crate::i18n::Language;
 use crate::settings::{self, Store};
 use crate::settings_window::Section;
+use crate::setup;
 use crate::startup::StartupStatus;
 use crate::update::{self, UpdateStatus};
 use crate::updater::{self, Updates};
@@ -33,9 +34,9 @@ pub fn settings(store: State<'_, Store>) -> (Settings, u64) {
 }
 
 #[tauri::command]
-pub fn set_settings(settings: Settings, store: State<'_, Store>, app: AppHandle) {
+pub fn set_settings(settings: Settings, shown: Settings, store: State<'_, Store>, app: AppHandle) {
     store.change(
-        |current| settings.keeping_facts_of(current),
+        |current| current.with_changes(&shown, &settings),
         |before, after| settings::apply(&app, before, after),
     );
 }
@@ -107,17 +108,17 @@ pub fn start_with_windows_problem(status: State<'_, StartupStatus>) -> Option<St
 
 #[tauri::command]
 pub fn record_hotkey(recording: bool, app: AppHandle) {
-    send(&app, Command::RecordHotkey(recording));
+    setup::send(&app, Command::RecordHotkey(recording));
 }
 
 #[tauri::command]
 pub fn take_print_screen(app: AppHandle) {
-    send(&app, Command::TakePrintScreen);
+    setup::send(&app, Command::TakePrintScreen);
 }
 
 #[tauri::command]
 pub fn retry_hotkey(app: AppHandle) {
-    send(&app, Command::RetryHotkey);
+    setup::send(&app, Command::RetryHotkey);
 }
 
 #[tauri::command]
@@ -177,10 +178,4 @@ async fn in_background<T: Send + 'static>(
     tauri::async_runtime::spawn_blocking(work)
         .await
         .map_err(|error| error.to_string())?
-}
-
-fn send(app: &AppHandle, command: Command) {
-    if let Some(platform) = app.try_state::<Platform>() {
-        platform.send(command);
-    }
 }

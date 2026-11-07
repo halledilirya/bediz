@@ -36,13 +36,13 @@ impl Notice {
         }
     }
 
+    // Other holds Windows' own text in the user's language; English details stay in the log.
     pub fn argument(&self) -> Option<(&'static str, &str)> {
         match self {
             Self::ColourCopied(colour) => Some(("colour", colour)),
             Self::CopyFailed(CopyError::Other(reason))
             | Self::SaveFailed(SaveError::Other(reason))
-            | Self::DeliveryFailed(DeliveryError::Other(reason))
-            | Self::CaptureFailed(reason) => Some(("reason", reason)),
+            | Self::DeliveryFailed(DeliveryError::Other(reason)) => Some(("reason", reason)),
             _ => None,
         }
     }
@@ -90,5 +90,24 @@ mod tests {
         assert!(notice.is_failure());
         assert_eq!(Notice::Saved.argument(), None);
         assert!(!Notice::Saved.is_failure());
+    }
+
+    #[test]
+    fn an_unexpected_detail_goes_to_the_log_but_not_to_the_label() {
+        let detail = "the selection is on no monitor";
+        for notice in [
+            Notice::CopyFailed(CopyError::Unexpected(detail.to_owned())),
+            Notice::SaveFailed(SaveError::Unexpected(detail.to_owned())),
+            Notice::DeliveryFailed(DeliveryError::Unexpected(detail.to_owned())),
+            Notice::CaptureFailed(detail.to_owned()),
+        ] {
+            assert_eq!(notice.argument(), None, "{notice}");
+            assert!(notice.to_string().contains(detail), "{notice}");
+            assert!(notice.is_failure());
+        }
+        assert_eq!(
+            Notice::CopyFailed(CopyError::Unexpected(detail.to_owned())).locale_id(),
+            "copy-error-unexpected"
+        );
     }
 }

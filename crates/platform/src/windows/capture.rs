@@ -3,6 +3,8 @@ mod gdi;
 mod scrgb;
 mod white_level;
 
+use std::time::Instant;
+
 use bediz_core::capture::{CaptureMethod, Pixels};
 use bediz_core::measurement::MonitorCapture;
 use windows::Win32::Foundation::E_FAIL;
@@ -62,6 +64,7 @@ impl Capturer {
                 _ => None,
             })
             .collect();
+        let begun_at = Instant::now();
         let mut captures = Vec::with_capacity(self.sources.len());
         let mut failure = None;
         let parts = self
@@ -79,7 +82,7 @@ impl Capturer {
             };
             let outcome = match (source, begun) {
                 (Some(Source::Duplication(duplicator)), Some(begun)) => duplicator
-                    .finish(begun, context, image, &mut levels)
+                    .finish(begun, begun_at, context, image, &mut levels)
                     .map(|(fresh, pixels)| (CaptureMethod::Duplication, pixels, fresh)),
                 (Some(Source::Gdi(surface)), _) => surface
                     .capture(monitor.rect, context, image)
@@ -136,6 +139,14 @@ impl Capturer {
         for source in &mut self.sources {
             if let Some(Source::Duplication(duplicator)) = source {
                 duplicator.reopen_quietly();
+            }
+        }
+    }
+
+    pub fn forget_targets(&mut self) {
+        for source in &mut self.sources {
+            if let Some(Source::Duplication(duplicator)) = source {
+                duplicator.forget_target();
             }
         }
     }

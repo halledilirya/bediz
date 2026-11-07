@@ -22,9 +22,9 @@ function fakeWindow(initial) {
   };
   const saver = saveChanges({
     read: () => ({ ...state.switches }),
-    send: (wanted) => {
+    send: (wanted, shown) => {
       const pending = deferred();
-      state.sent.push({ wanted, ...pending });
+      state.sent.push({ wanted, shown, ...pending });
       return pending.promise;
     },
     stored: () => {
@@ -67,6 +67,42 @@ test("every change sends all the switches at once and in order", () => {
     state.sent.map((send) => send.wanted),
     [A_ON, { a: true, b: true }],
   );
+});
+
+test("every change names what the window showed before it", async () => {
+  const { state, saver } = fakeWindow({ a: true, b: true });
+  const loading = saver.load();
+  state.reads.shift().resolve([OFF, 1]);
+  await loading;
+  state.switches.a = true;
+  saver.changed();
+  state.switches.b = true;
+  saver.changed();
+  assert.deepEqual(
+    state.sent.map((send) => send.shown),
+    [OFF, A_ON],
+  );
+});
+
+test("a change before the first load names the switches as they were", () => {
+  const { state, saver } = fakeWindow(OFF);
+  state.switches.a = true;
+  saver.changed();
+  assert.deepEqual(state.sent[0].shown, OFF);
+  assert.deepEqual(state.sent[0].wanted, A_ON);
+});
+
+test("a reload overtaken by a change is asked for again", async () => {
+  const { state, saver } = fakeWindow(OFF);
+  const loading = saver.load();
+  state.switches.b = true;
+  saver.changed();
+  state.reads.shift().resolve([A_ON, 3]);
+  await settle();
+  assert.deepEqual(state.switches, { a: false, b: true });
+  state.reads.shift().resolve([{ a: true, b: true }, 4]);
+  await loading;
+  assert.deepEqual(state.switches, { a: true, b: true });
 });
 
 test("a change hides the last error", () => {

@@ -87,8 +87,7 @@ impl Platform {
             .saves_finished
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        self.post(message);
-        answers.recv().unwrap_or(false)
+        self.post(message) && answers.recv().unwrap_or(false)
     }
 
     pub fn shutdown(&self) {
@@ -97,15 +96,16 @@ impl Platform {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        if let Some(thread) = thread {
-            self.post(WM_STOP);
+        if let Some(thread) = thread
+            && self.post(WM_STOP)
+        {
             let _ = thread.join();
         }
     }
 
-    fn post(&self, message: u32) {
+    fn post(&self, message: u32) -> bool {
         let window = HWND(self.window as *mut c_void);
-        let _ = unsafe { PostMessageW(Some(window), message, WPARAM(0), LPARAM(0)) };
+        unsafe { PostMessageW(Some(window), message, WPARAM(0), LPARAM(0)) }.is_ok()
     }
 }
 

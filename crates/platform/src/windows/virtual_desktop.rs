@@ -3,6 +3,8 @@ use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
 use windows::Win32::UI::Shell::{IVirtualDesktopManager, VirtualDesktopManager};
 use windows::core::{Error, GUID, Result};
 
+use super::window_list;
+
 pub struct VirtualDesktops(IVirtualDesktopManager);
 
 impl VirtualDesktops {
@@ -22,13 +24,29 @@ impl VirtualDesktops {
         if unsafe { self.0.IsWindowOnCurrentVirtualDesktop(first) }?.as_bool() {
             return Ok(false);
         }
-        let desktop = unsafe { self.0.GetWindowDesktopId(here) }?;
-        if desktop == GUID::zeroed() {
-            return Err(Error::new(E_FAIL, "the current virtual desktop is unknown"));
-        }
+        let desktop = self
+            .desktop_of(here)
+            .or_else(|| self.current_desktop())
+            .ok_or_else(|| Error::new(E_FAIL, "the current virtual desktop is unknown"))?;
         for &window in windows {
             unsafe { self.0.MoveWindowToDesktop(window, &desktop) }?;
         }
         Ok(true)
+    }
+
+    fn desktop_of(&self, window: HWND) -> Option<GUID> {
+        let desktop = unsafe { self.0.GetWindowDesktopId(window) }.ok()?;
+        (desktop != GUID::zeroed()).then_some(desktop)
+    }
+
+    // Shell windows such as the wallpaper and the taskbar have no desktop id; app windows here do.
+    fn current_desktop(&self) -> Option<GUID> {
+        window_list::shown_windows()
+            .into_iter()
+            .filter(|&window| {
+                unsafe { self.0.IsWindowOnCurrentVirtualDesktop(window) }
+                    .is_ok_and(|here| here.as_bool())
+            })
+            .find_map(|window| self.desktop_of(window))
     }
 }

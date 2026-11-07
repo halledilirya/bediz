@@ -22,7 +22,7 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, DispatchMessageW, HWND_MESSAGE, MSG, MWMO_INPUTAVAILABLE,
+    CreateWindowExW, DispatchMessageW, HWND_MESSAGE, MSG, MWMO_INPUTAVAILABLE,
     MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT, TranslateMessage,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
@@ -32,7 +32,7 @@ use windows::core::{Result, w};
 
 use bediz_core::geometry::Rect;
 
-use super::clock::Clock;
+use super::clock::{self, Clock};
 use super::contrast::{Colours, contrast_colours};
 use super::desktop_switch::{self, DesktopSwitchHook};
 use super::hotkey::{self, Change, Registration};
@@ -41,12 +41,12 @@ use super::save_dialog::Answers;
 use super::scene::Scene;
 use super::session::Session;
 use super::virtual_desktop::VirtualDesktops;
-use super::window_class::{self, MESSAGE_CLASS};
+use super::window_class::{self, MESSAGE_CLASS, OwnedWindow};
 use super::window_list::WindowList;
 use super::worker::Worker;
-use crate::event::{Command, Event, Failure, HotkeyState, MenuTexts};
+use crate::event::{Command, Event, Failure, HotkeyState, Label, MenuTexts};
 use delivery::{PendingCopy, Tracked};
-use save_as::{PendingSaveAs, Retry};
+use save_as::{PendingSaveAs, Waiting};
 
 pub const WM_COMMANDS: u32 = WM_APP + 1;
 pub const WM_STOP: u32 = WM_APP + 2;
@@ -67,14 +67,6 @@ const WARNING_MILLISECONDS: u32 = 6000;
 pub type Commands = Arc<Mutex<Vec<Command>>>;
 pub type Sink = Box<dyn Fn(Event) + Send>;
 
-struct MessageWindow(HWND);
-
-impl Drop for MessageWindow {
-    fn drop(&mut self) {
-        let _ = unsafe { DestroyWindow(self.0) };
-    }
-}
-
 struct Runtime {
     session: Option<Session>,
     scene: Option<Scene>,
@@ -91,11 +83,12 @@ struct Runtime {
     deliveries: u64,
     reports: Vec<Tracked>,
     label: Option<LabelWindow>,
+    label_after_overlay: Option<Label>,
     menu_texts: Option<MenuTexts>,
     save_as: Option<PendingSaveAs>,
     save_as_answers: Answers,
-    retries: VecDeque<Retry>,
-    window: MessageWindow,
+    waiting: VecDeque<Waiting>,
+    window: OwnedWindow,
     instance: HINSTANCE,
     commands: Commands,
     sink: Sink,
@@ -173,11 +166,12 @@ impl Runtime {
             deliveries: 0,
             reports: Vec::new(),
             label: None,
+            label_after_overlay: None,
             menu_texts: None,
             save_as: None,
             save_as_answers: Answers::default(),
-            retries: VecDeque::new(),
-            window: MessageWindow(window),
+            waiting: VecDeque::new(),
+            window: OwnedWindow(window),
             instance,
             commands,
             sink,
@@ -297,7 +291,7 @@ impl Runtime {
         match message.message {
             WM_STOP if own => return false,
             WM_HOTKEY if own && message.wParam.0 == hotkey::HOTKEY as usize => {
-                self.on_hotkey(message);
+                self.on_hotkey(message.lParam, Some(clock::message_age(message.time)));
             }
             WM_TIMER if own && message.wParam.0 == MENU_FADE_TIMER => {
                 if self.menu_capture {
@@ -352,6 +346,10 @@ impl Runtime {
             }
             let change = self.hotkey.refresh();
             self.report_hotkey(change);
+        }
+        // A press the overlay's menu took acts in the overlay still open, but never opens a new one.
+        if let Some(keys) = window_class::take_missed_hotkey() {
+            self.on_hotkey(keys, None);
         }
         let own = self.window.0;
         window_class::take_missed().into_iter().all(|message| {

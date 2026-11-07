@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bediz_core::image::Image;
 use windows::Win32::Foundation::{E_OUTOFMEMORY, GlobalFree, HANDLE, HWND};
 use windows::Win32::Graphics::Gdi::{BI_BITFIELDS, BITMAPV5HEADER, LCS_GM_IMAGES};
@@ -10,7 +12,7 @@ use windows::Win32::UI::ColorSystem::LCS_sRGB;
 use windows::core::{Error, PCWSTR, Result, w};
 
 pub enum Contents {
-    Image { png: Vec<u8>, dib: Vec<u8> },
+    Image { png: Arc<Vec<u8>>, dib: Vec<u8> },
     Text(Vec<u8>),
 }
 
@@ -21,7 +23,7 @@ pub enum Placed {
 }
 
 impl Contents {
-    pub fn image(image: &Image, png: Vec<u8>) -> Self {
+    pub fn image(image: &Image, png: Arc<Vec<u8>>) -> Self {
         let pixels = image.opaque_bottom_up_bgra();
         let header = dib_header(image, pixels.len());
         let header_bytes = unsafe {

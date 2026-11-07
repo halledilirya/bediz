@@ -36,6 +36,32 @@ test("only the four parts are known", () => {
   assert.equal(problem("a}b"), null);
 });
 
+test("a name Windows keeps for a device is explained, as in Rust", () => {
+  for (const [pattern, name] of [
+    ["NUL", "NUL"],
+    ["con", "con"],
+    [" Aux ", "Aux"],
+    ["prn.shot", "prn"],
+    ["COM1", "COM1"],
+    ["lpt9", "lpt9"],
+    ["COM¹", "COM¹"],
+    ["Nul .", "Nul"],
+  ]) {
+    assert.deepEqual(problem(pattern), { kind: "reserved", name }, pattern);
+  }
+  for (const pattern of [
+    "NULL",
+    "COM10",
+    "LPT",
+    "My CON",
+    "{date} NUL",
+    "NUL{time}",
+    "conference",
+  ]) {
+    assert.equal(problem(pattern), null, pattern);
+  }
+});
+
 test("the sample uses the local date and time with leading zeros", () => {
   const sample = sampleAt(new Date(2026, 2, 7, 9, 5, 2), 10, 20);
   assert.deepEqual(sample, {

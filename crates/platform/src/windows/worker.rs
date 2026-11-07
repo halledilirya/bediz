@@ -51,7 +51,7 @@ pub enum Outcome {
     },
     Appeared {
         job: u64,
-        png: Vec<u8>,
+        png: Png,
         path: PathBuf,
         time: LocalTime,
     },
@@ -61,9 +61,11 @@ pub enum Outcome {
     },
 }
 
+pub type Png = Arc<Vec<u8>>;
+
 pub struct Save {
     pub job: u64,
-    pub png: Vec<u8>,
+    pub png: Png,
     pub target: Target,
     pub time: LocalTime,
 }
@@ -95,7 +97,7 @@ impl Worker {
                     if catch_unwind(AssertUnwindSafe(|| save_one(save, &save_reply))).is_err() {
                         save_reply.send(Outcome::Saved {
                             job,
-                            result: Err(SaveError::Other(INTERNAL_ERROR.to_owned())),
+                            result: Err(SaveError::Unexpected(INTERNAL_ERROR.to_owned())),
                         });
                     }
                 }
@@ -113,7 +115,7 @@ impl Worker {
                     if catch_unwind(AssertUnwindSafe(|| encode(job, &reply, &saves))).is_err() {
                         reply.send(Outcome::Failed {
                             job: id,
-                            error: DeliveryError::Other(INTERNAL_ERROR.to_owned()),
+                            error: DeliveryError::Unexpected(INTERNAL_ERROR.to_owned()),
                         });
                     }
                 }
@@ -129,7 +131,7 @@ impl Worker {
     pub fn save(&self, save: Save) -> Result<(), SaveError> {
         match &self.saves {
             Some(saves) => queue_save(saves, save),
-            None => Err(SaveError::Other(stopped().to_string())),
+            None => Err(save_stopped()),
         }
     }
 
@@ -184,8 +186,14 @@ impl Reply {
     }
 }
 
+const STOPPED: &str = "the threads that encode and save are not running";
+
 pub fn stopped() -> DeliveryError {
-    DeliveryError::Other("the threads that encode and save are not running".to_owned())
+    DeliveryError::Unexpected(STOPPED.to_owned())
+}
+
+pub fn save_stopped() -> SaveError {
+    SaveError::Unexpected(STOPPED.to_owned())
 }
 
 fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
@@ -197,17 +205,17 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
         time,
     } = job;
     let png = match image.encode_png() {
-        Ok(png) => png,
+        Ok(png) => Arc::new(png),
         Err(error) => {
             reply.send(Outcome::Failed {
                 job: id,
-                error: DeliveryError::Other(error.to_string()),
+                error: DeliveryError::Unexpected(error.to_string()),
             });
             return;
         }
     };
     let (to_copy, to_save) = match (copy, save) {
-        (Some(ticket), Some(target)) => (Some((ticket, png.clone())), Some((target, png))),
+        (Some(ticket), Some(target)) => (Some((ticket, Arc::clone(&png))), Some((target, png))),
         (Some(ticket), None) => (Some((ticket, png)), None),
         (None, Some(target)) => (None, Some((target, png))),
         (None, None) => (None, None),
@@ -239,7 +247,7 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
 fn queue_save(saves: &SyncSender<Save>, save: Save) -> Result<(), SaveError> {
     saves.try_send(save).map_err(|error| match error {
         TrySendError::Full(_) => SaveError::Busy,
-        TrySendError::Disconnected(_) => SaveError::Other(stopped().to_string()),
+        TrySendError::Disconnected(_) => save_stopped(),
     })
 }
 

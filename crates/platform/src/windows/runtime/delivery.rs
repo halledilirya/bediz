@@ -40,13 +40,13 @@ impl Runtime {
         let Some((rect, read)) = self.read_selection() else {
             return;
         };
-        self.hide();
         let time = clock::local_time();
         let target = delivery.save.then(|| Target::Folder {
             folder: self.save_folder.clone(),
             stem: self.file_name.stem(&time, rect.width(), rect.height()),
         });
         self.send_job(rect, read, delivery, target, time);
+        self.hide();
     }
 
     pub(super) fn forget(&mut self, job: u64) {
@@ -64,8 +64,8 @@ impl Runtime {
         let rect = self.session.as_ref().and_then(Session::selected)?;
         let read = match self.scene.as_ref().map(|scene| scene.read(rect)) {
             Some(Ok(image)) => Ok(image),
-            Some(Err(error)) => Err(DeliveryError::Other(error.to_string())),
-            None => Err(DeliveryError::Other("no display is ready".to_owned())),
+            Some(Err(error)) => Err(DeliveryError::Unexpected(error.to_string())),
+            None => Err(DeliveryError::Unexpected("no display is ready".to_owned())),
         };
         Some((rect, read))
     }
@@ -113,7 +113,7 @@ impl Runtime {
     pub(super) fn copy_colour(&mut self, at: Point) {
         let colour = self.scene.as_ref().and_then(|scene| scene.pixel(at));
         self.hide();
-        let near = Rect::new(at.x, at.y, at.x.saturating_add(1), at.y.saturating_add(1));
+        let near = Rect::spanning(at, at);
         match colour {
             Some(colour) => {
                 let ticket = self.copies.upcoming();
@@ -123,7 +123,7 @@ impl Runtime {
                 self.place_on_clipboard(ticket, contents, Copied::Colour { hex, near });
             }
             None => {
-                let error = CopyError::Other("no colour under the pointer".to_owned());
+                let error = CopyError::Unexpected("no colour under the pointer".to_owned());
                 self.notify(vec![Notice::CopyFailed(error)], near);
             }
         }

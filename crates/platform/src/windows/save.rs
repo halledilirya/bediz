@@ -180,7 +180,7 @@ fn extended_wide(path: &[u16]) -> Vec<u16> {
 fn io_error(error: &io::Error) -> SaveError {
     match error.raw_os_error() {
         Some(code) => save_error(WIN32_ERROR(code as u32).to_hresult(), error.to_string()),
-        None => SaveError::Other(error.to_string()),
+        None => SaveError::Unexpected(error.to_string()),
     }
 }
 

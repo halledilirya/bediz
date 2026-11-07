@@ -55,6 +55,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
+      - name: Check that Cargo.lock is current
+        run: cargo fetch --locked
       - name: Licence notices of the Rust crates
         run: |
           cargo install cargo-about --locked --features cli --version 0.9.3

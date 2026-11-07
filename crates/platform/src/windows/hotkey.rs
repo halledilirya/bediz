@@ -1,15 +1,15 @@
 use bediz_core::hotkey::{Hotkey, Key};
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HANDLE, HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, RegisterHotKey,
     UnregisterHotKey, VIRTUAL_KEY, VK_0, VK_A, VK_DELETE, VK_DOWN, VK_END, VK_F1, VK_HOME,
     VK_INSERT, VK_LEFT, VK_NEXT, VK_PAUSE, VK_PRIOR, VK_RIGHT, VK_SCROLL, VK_SNAPSHOT, VK_SPACE,
     VK_UP,
 };
-use windows::Win32::UI::WindowsAndMessaging::{WM_KEYDOWN, WM_SYSKEYDOWN};
 use windows::core::{Error, Result};
 
 use super::print_screen_setting::{self, Watch};
+use super::session::KeyPress;
 use crate::event::HotkeyState;
 
 pub const HOTKEY: i32 = 1;
@@ -170,15 +170,15 @@ fn state_for(snipping_tool: bool, yields: bool, registered: bool, arrived: bool)
     }
 }
 
-pub fn as_key_press(keys: LPARAM) -> (u32, WPARAM) {
+pub fn as_key_press(keys: LPARAM) -> KeyPress {
     let modifiers = keys.0 & 0xFFFF;
-    let key = (keys.0 >> 16) & 0xFFFF;
-    let message = if modifiers & MOD_ALT.0 as isize != 0 {
-        WM_SYSKEYDOWN
-    } else {
-        WM_KEYDOWN
-    };
-    (message, WPARAM(key as usize))
+    let held = |modifier: HOT_KEY_MODIFIERS| modifiers & modifier.0 as isize != 0;
+    KeyPress {
+        key: VIRTUAL_KEY(((keys.0 >> 16) & 0xFFFF) as u16),
+        alt: held(MOD_ALT),
+        control: held(MOD_CONTROL),
+        shift: held(MOD_SHIFT),
+    }
 }
 
 fn modifiers(hotkey: Hotkey) -> HOT_KEY_MODIFIERS {
@@ -268,21 +268,31 @@ mod tests {
     }
 
     #[test]
-    fn the_shortcut_pressed_on_the_overlay_becomes_that_key() {
+    fn the_shortcut_pressed_on_the_overlay_becomes_that_key_with_its_modifiers() {
         let held = |modifiers: HOT_KEY_MODIFIERS, key: VIRTUAL_KEY| {
             LPARAM(((key.0 as isize) << 16) | modifiers.0 as isize)
         };
+        let press = |key, alt, control, shift| KeyPress {
+            key,
+            alt,
+            control,
+            shift,
+        };
         assert_eq!(
             as_key_press(held(MOD_CONTROL, VK_S)),
-            (WM_KEYDOWN, WPARAM(usize::from(VK_S.0)))
+            press(VK_S, false, true, false)
         );
         assert_eq!(
             as_key_press(held(MOD_CONTROL | MOD_SHIFT, VK_S)),
-            (WM_KEYDOWN, WPARAM(usize::from(VK_S.0)))
+            press(VK_S, false, true, true)
         );
         assert_eq!(
             as_key_press(held(MOD_ALT, VK_F4)),
-            (WM_SYSKEYDOWN, WPARAM(usize::from(VK_F4.0)))
+            press(VK_F4, true, false, false)
+        );
+        assert_eq!(
+            as_key_press(held(HOT_KEY_MODIFIERS(0), VK_SNAPSHOT)),
+            press(VK_SNAPSHOT, false, false, false)
         );
     }
 

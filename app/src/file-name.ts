@@ -20,6 +20,8 @@ function explain(found: Problem): string {
       return text("settings-file-name-forbidden");
     case "unknown":
       return text("settings-file-name-unknown", { token: found.token });
+    case "reserved":
+      return text("settings-file-name-reserved", { name: found.name });
   }
 }
 
@@ -70,8 +72,11 @@ export function enableFileName(
 
   return {
     show: (pattern) => {
-      input.value = pattern;
-      valid = pattern;
+      // A reload caused elsewhere must not take away text that is still being typed.
+      if (pattern !== valid) {
+        input.value = pattern;
+        valid = pattern;
+      }
       describe();
     },
     valid: () => valid,

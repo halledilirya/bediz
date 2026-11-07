@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::PoisonError;
 
@@ -12,7 +13,10 @@ use super::Runtime;
 use crate::windows::clock;
 use crate::windows::foreground;
 use crate::windows::save_dialog::{self, Suggestion};
-use crate::windows::worker::{self, Save, Target};
+use crate::windows::session::Session;
+use crate::windows::worker::{self, Png, Save, Target};
+
+const IMAGES_WAITING: usize = 2;
 
 pub(super) struct PendingSaveAs {
     dialog: u64,
@@ -22,21 +26,24 @@ pub(super) struct PendingSaveAs {
     previous: HWND,
 }
 
-enum Unsaved {
-    Image(Image),
-    Encoded { job: u64, png: Vec<u8> },
+pub(super) struct Waiting {
+    pending: PendingSaveAs,
+    suggestion: Suggestion,
 }
 
-pub(super) struct Retry {
-    job: u64,
-    png: Vec<u8>,
-    path: PathBuf,
-    time: LocalTime,
+enum Unsaved {
+    Image(Image),
+    Encoded { job: u64, png: Png },
 }
 
 impl Runtime {
     pub(super) fn save_as(&mut self) {
-        if self.save_as.is_some() {
+        if self.save_as.is_some() && !has_room(&self.waiting) {
+            let Some(rect) = self.session.as_ref().and_then(Session::selected) else {
+                return;
+            };
+            self.hide();
+            self.notify(vec![Notice::SaveFailed(SaveError::Busy)], rect);
             return;
         }
         let Some((rect, read)) = self.read_selection() else {
@@ -65,23 +72,13 @@ impl Runtime {
             time,
             previous,
         };
-        if let Err(error) = self.ask(pending, suggestion) {
+        if self.save_as.is_some() {
             foreground::give_back(previous);
-            let error = DeliveryError::Other(error.to_string());
-            self.notify(vec![Notice::DeliveryFailed(error)], rect);
         }
+        self.ask_in_turn(pending, suggestion);
     }
 
-    pub(super) fn ask_again(&mut self, job: u64, png: Vec<u8>, path: PathBuf, time: LocalTime) {
-        if self.save_as.is_some() {
-            self.retries.push_back(Retry {
-                job,
-                png,
-                path,
-                time,
-            });
-            return;
-        }
+    pub(super) fn ask_again(&mut self, job: u64, png: Png, path: PathBuf, time: LocalTime) {
         let suggestion = Suggestion {
             name: path
                 .file_name()
@@ -97,9 +94,35 @@ impl Runtime {
             time,
             previous: HWND::default(),
         };
-        if let Err(error) = self.ask(pending, suggestion) {
-            let error = SaveError::Other(error.to_string());
-            self.update(job, |report| report.saved(Err(error)));
+        self.ask_in_turn(pending, suggestion);
+    }
+
+    fn ask_in_turn(&mut self, pending: PendingSaveAs, suggestion: Suggestion) {
+        if self.save_as.is_some() {
+            self.waiting.push_back(Waiting {
+                pending,
+                suggestion,
+            });
+            return;
+        }
+        let (rect, previous) = (pending.rect, pending.previous);
+        let job = match &pending.unsaved {
+            Unsaved::Image(_) => None,
+            Unsaved::Encoded { job, .. } => Some(*job),
+        };
+        let Err(error) = self.ask(pending, suggestion) else {
+            return;
+        };
+        match job {
+            Some(job) => {
+                let error = SaveError::Unexpected(error.to_string());
+                self.update(job, |report| report.saved(Err(error)));
+            }
+            None => {
+                foreground::give_back_from_us(previous);
+                let error = DeliveryError::Unexpected(error.to_string());
+                self.notify(vec![Notice::DeliveryFailed(error)], rect);
+            }
         }
     }
 
@@ -142,7 +165,7 @@ impl Runtime {
                 };
                 let queued = match &self.worker {
                     Some(worker) => worker.save(save),
-                    None => Err(SaveError::Other(worker::stopped().to_string())),
+                    None => Err(worker::save_stopped()),
                 };
                 if let Err(error) = queued {
                     self.update(job, |report| report.saved(Err(error)));
@@ -160,10 +183,10 @@ impl Runtime {
             }
         }
         while self.save_as.is_none() {
-            let Some(retry) = self.retries.pop_front() else {
+            let Some(next) = self.waiting.pop_front() else {
                 break;
             };
-            self.ask_again(retry.job, retry.png, retry.path, retry.time);
+            self.ask_in_turn(next.pending, next.suggestion);
         }
     }
 
@@ -178,5 +201,66 @@ impl Runtime {
         )?;
         self.save_as = Some(pending);
         Ok(())
+    }
+}
+
+// Each new capture waits with all its pixels; saves already accepted are never turned away.
+fn has_room(waiting: &VecDeque<Waiting>) -> bool {
+    let images = waiting
+        .iter()
+        .filter(|waiting| matches!(waiting.pending.unsaved, Unsaved::Image(_)))
+        .count();
+    images < IMAGES_WAITING
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+    use std::sync::Arc;
+
+    use bediz_core::file_name::LocalTime;
+    use bediz_core::geometry::Rect;
+    use bediz_core::image::Image;
+    use windows::Win32::Foundation::HWND;
+
+    use super::{IMAGES_WAITING, PendingSaveAs, Unsaved, Waiting, has_room};
+    use crate::windows::save_dialog::Suggestion;
+
+    fn waiting(unsaved: Unsaved) -> Waiting {
+        Waiting {
+            pending: PendingSaveAs {
+                dialog: 0,
+                rect: Rect::default(),
+                unsaved,
+                time: LocalTime {
+                    year: 2026,
+                    month: 1,
+                    day: 2,
+                    hour: 3,
+                    minute: 4,
+                    second: 5,
+                },
+                previous: HWND::default(),
+            },
+            suggestion: Suggestion {
+                name: "Bediz.png".to_owned(),
+                folder: None,
+                usual_folder: None,
+            },
+        }
+    }
+
+    #[test]
+    fn new_captures_wait_in_a_bounded_line_and_accepted_saves_do_not_count() {
+        let mut line = VecDeque::new();
+        for job in 0..10 {
+            let png = Arc::new(vec![0; 8]);
+            line.push_back(waiting(Unsaved::Encoded { job, png }));
+        }
+        for _ in 0..IMAGES_WAITING {
+            assert!(has_room(&line));
+            line.push_back(waiting(Unsaved::Image(Image::blank(4, 4).unwrap())));
+        }
+        assert!(!has_room(&line));
     }
 }

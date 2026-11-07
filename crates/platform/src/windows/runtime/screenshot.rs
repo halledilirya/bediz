@@ -10,11 +10,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE,
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer, SystemParametersInfoW,
 };
-use windows::core::BOOL;
+use windows::core::{BOOL, Result};
 
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
-use crate::windows::clock;
 use crate::windows::foreground::{self, Foreground};
 use crate::windows::hotkey;
 use crate::windows::overlay_menu::{self, Choice, Offer};
@@ -36,6 +35,9 @@ impl Runtime {
         if self.displays_changed {
             self.rebuild_scene();
             notes.push("the displays had just changed; the overlay was rebuilt first".to_owned());
+        } else if self.scene.is_none() {
+            self.rebuild_scene();
+            notes.push("no overlay was ready; it was built again first".to_owned());
         }
         let Some(scene) = self.scene.as_mut() else {
             (self.sink)(Event::Failed(Failure::Displays(
@@ -166,7 +168,12 @@ impl Runtime {
             return;
         };
         let windows = self.detect_windows.then_some(&self.windows);
-        match session.handle(scene, windows, self.last_region, message) {
+        let action = session.handle(scene, windows, self.last_region, message);
+        self.act(action);
+    }
+
+    fn act(&mut self, action: Result<Action>) {
+        match action {
             Ok(Action::None) => {}
             Ok(Action::Cancel) => self.hide(),
             Ok(Action::Deliver(delivery)) => self.deliver(delivery),
@@ -177,13 +184,13 @@ impl Runtime {
         }
     }
 
-    pub(super) fn on_hotkey(&mut self, message: &MSG) {
+    pub(super) fn on_hotkey(&mut self, keys: LPARAM, opens_after: Option<Duration>) {
         if self.recording_hotkey {
             (self.sink)(Event::HotkeyWhileRecording);
         } else if self.session.is_some() {
-            self.press_in_overlay(message.lParam);
-        } else {
-            self.open(clock::message_age(message.time));
+            self.press_in_overlay(keys);
+        } else if let Some(queued) = opens_after {
+            self.open(queued);
         }
         let (change, proves_yielding) = self.hotkey.arrived();
         self.report_hotkey(change);
@@ -194,15 +201,20 @@ impl Runtime {
 
     // The shortcut is taken from every window, the overlay too, so there it acts as the key it is.
     fn press_in_overlay(&mut self, keys: LPARAM) {
-        let (message, key) = hotkey::as_key_press(keys);
         let mut cursor = POINT::default();
         let _ = unsafe { GetCursorPos(&mut cursor) };
-        self.on_input(&MSG {
-            message,
-            wParam: key,
-            pt: cursor,
-            ..Default::default()
-        });
+        let (Some(scene), Some(session)) = (self.scene.as_ref(), self.session.as_mut()) else {
+            return;
+        };
+        let windows = self.detect_windows.then_some(&self.windows);
+        let action = session.press_key(
+            scene,
+            windows,
+            self.last_region,
+            hotkey::as_key_press(keys),
+            Point::new(cursor.x, cursor.y),
+        );
+        self.act(action);
     }
 
     fn open_menu(&mut self, at: Point) {
@@ -269,6 +281,9 @@ impl Runtime {
         }
         self.rest_scene();
         self.report_idle();
+        if let Some(label) = self.label_after_overlay.take() {
+            self.show_label(label);
+        }
         session.previous()
     }
 
@@ -290,10 +305,6 @@ fn pointer_rect() -> Rect {
     if unsafe { GetCursorPos(&mut cursor) }.is_err() {
         return Rect::default();
     }
-    Rect::new(
-        cursor.x,
-        cursor.y,
-        cursor.x.saturating_add(1),
-        cursor.y.saturating_add(1),
-    )
+    let at = Point::new(cursor.x, cursor.y);
+    Rect::spanning(at, at)
 }

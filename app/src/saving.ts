@@ -1,6 +1,6 @@
 export interface Saving<T> {
   read: () => T;
-  send: (wanted: T) => Promise<void>;
+  send: (wanted: T, shown: T) => Promise<void>;
   stored: () => Promise<[T, number]>;
   show: (settings: T) => void;
   failed: (reason: unknown) => void;
@@ -16,12 +16,20 @@ export interface Saver {
 export function saveChanges<T>(saving: Saving<T>): Saver {
   let changes = 0;
   let shown = -1;
+  let showing = saving.read();
   const load = async (): Promise<void> => {
-    const asked = changes;
-    const [stored, revision] = await saving.stored();
-    if (changes === asked && revision > shown) {
-      shown = revision;
-      saving.show(stored);
+    // An answer asked for before a change may not hold it yet, so it is asked for again.
+    for (;;) {
+      const asked = changes;
+      const [stored, revision] = await saving.stored();
+      if (changes === asked) {
+        if (revision > shown) {
+          shown = revision;
+          saving.show(stored);
+          showing = saving.read();
+        }
+        return;
+      }
     }
   };
   return {
@@ -29,7 +37,9 @@ export function saveChanges<T>(saving: Saving<T>): Saver {
     changed: () => {
       changes += 1;
       saving.cleared();
-      void saving.send(saving.read()).catch((reason: unknown) => {
+      const before = showing;
+      showing = saving.read();
+      void saving.send(showing, before).catch((reason: unknown) => {
         saving.failed(reason);
         void load().catch(() => undefined);
       });

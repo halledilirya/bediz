@@ -23,14 +23,14 @@ use windows::Win32::Graphics::Dxgi::{
 use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromRect};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, HWND_TOPMOST, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE,
-    SetWindowPos, ShowWindow, USER_DEFAULT_SCREEN_DPI, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, HWND_TOPMOST, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE, SetWindowPos,
+    ShowWindow, USER_DEFAULT_SCREEN_DPI, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{BOOL, Result, w};
 
 use super::gpu::Gpu;
 use super::readback;
-use super::window_class::OVERLAY_CLASS;
+use super::window_class::{OVERLAY_CLASS, OwnedWindow};
 use paint::Painter;
 
 const PARKED: i32 = -32000;
@@ -42,14 +42,6 @@ pub struct View {
     pub highlight: Option<Rect>,
     pub labelled: bool,
     pub pointer: Option<Point>,
-}
-
-struct OwnedWindow(HWND);
-
-impl Drop for OwnedWindow {
-    fn drop(&mut self) {
-        let _ = unsafe { DestroyWindow(self.0) };
-    }
 }
 
 struct Surfaces {
@@ -247,8 +239,8 @@ impl Overlay {
     }
 
     pub fn hide(&self) -> Result<()> {
-        set_flag(self.window.0, DWMWA_CLOAK, true)?;
-        unsafe {
+        let cloaked = set_flag(self.window.0, DWMWA_CLOAK, true);
+        let parked = unsafe {
             SetWindowPos(
                 self.window.0,
                 Some(HWND_TOPMOST),
@@ -258,7 +250,8 @@ impl Overlay {
                 0,
                 SWP_NOSIZE | SWP_NOACTIVATE,
             )
-        }
+        };
+        cloaked.and(parked)
     }
 
     fn resize(&self, width: u32, height: u32) -> Result<()> {

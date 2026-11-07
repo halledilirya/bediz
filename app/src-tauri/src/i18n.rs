@@ -365,7 +365,11 @@ price = Costs $5
 
     fn every_notice() -> Vec<Notice> {
         let reason = || "reason".to_owned();
-        let copy_errors = [CopyError::Busy, CopyError::Other(reason())];
+        let copy_errors = [
+            CopyError::Busy,
+            CopyError::Other(reason()),
+            CopyError::Unexpected(reason()),
+        ];
         let save_errors = [
             SaveError::DiskFull,
             SaveError::AccessDenied,
@@ -375,8 +379,13 @@ price = Costs $5
             SaveError::Busy,
             SaveError::Appeared,
             SaveError::Other(reason()),
+            SaveError::Unexpected(reason()),
         ];
-        let delivery_errors = [DeliveryError::Busy, DeliveryError::Other(reason())];
+        let delivery_errors = [
+            DeliveryError::Busy,
+            DeliveryError::Other(reason()),
+            DeliveryError::Unexpected(reason()),
+        ];
         [
             Notice::Copied,
             Notice::Saved,
@@ -417,6 +426,8 @@ price = Costs $5
             "network gone".to_owned(),
         )));
         assert!(reason.contains("network gone"), "{reason}");
+        let unexpected = texts.notice(&Notice::CaptureFailed("GDI failed as well".to_owned()));
+        assert!(!unexpected.contains("GDI"), "{unexpected}");
         for notice in every_notice() {
             assert_ne!(texts.notice(&notice), notice.locale_id());
         }

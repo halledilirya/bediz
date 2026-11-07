@@ -2,6 +2,7 @@ use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::selection::{Grip, Handle, Modifiers, Selection};
 use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::System::SystemServices::MK_LBUTTON;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_A, VK_APPS, VK_C, VK_CONTROL, VK_DOWN,
     VK_ESCAPE, VK_F4, VK_F10, VK_LEFT, VK_MENU, VK_R, VK_RETURN, VK_RIGHT, VK_S, VK_SHIFT, VK_UP,
@@ -18,6 +19,7 @@ use super::scene::Scene;
 use super::window_class;
 use super::window_list::WindowList;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     None,
     Cancel,
@@ -25,6 +27,25 @@ pub enum Action {
     SaveAs,
     CopyColour(Point),
     Menu(Point),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyPress {
+    pub key: VIRTUAL_KEY,
+    pub alt: bool,
+    pub control: bool,
+    pub shift: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Response {
+    Act(Action),
+    Move { dx: i32, dy: i32, resize: bool },
+    WholeMonitor,
+    LastRegion,
+    CopyColour,
+    Menu,
+    Modifiers,
 }
 
 struct Click {
@@ -88,24 +109,51 @@ impl Session {
                 }
                 true
             }
+            // Alt+Tab or the Win key can take the mouse mid-drag; the button then comes up elsewhere.
+            WM_MOUSEMOVE
+                if message.wParam.0 & MK_LBUTTON.0 as usize == 0
+                    && (self.click.is_some() || self.is_dragging()) =>
+            {
+                let _ = unsafe { ReleaseCapture() };
+                self.release(scene, point)
+            }
             WM_MOUSEMOVE => self.hover(scene, point),
             WM_LBUTTONUP => {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, point)
             }
             WM_RBUTTONUP if !self.is_dragging() => return Ok(Action::Menu(point)),
-            WM_KEYDOWN | WM_SYSKEYDOWN => match self.key(scene, last_region, message, point) {
-                Some(Action::None) => true,
-                Some(action) => return Ok(action),
-                None => false,
-            },
-            WM_KEYUP | WM_SYSKEYUP => self.modifiers_changed(message),
+            WM_KEYDOWN | WM_SYSKEYDOWN => {
+                let press = KeyPress {
+                    key: VIRTUAL_KEY(message.wParam.0 as u16),
+                    alt: message.message == WM_SYSKEYDOWN,
+                    control: is_down(VK_CONTROL),
+                    shift: is_down(VK_SHIFT),
+                };
+                return self.press_key(scene, windows, last_region, press, point);
+            }
+            WM_KEYUP | WM_SYSKEYUP => self.modifiers_changed(VIRTUAL_KEY(message.wParam.0 as u16)),
             _ => false,
         };
         if changed {
             self.redraw(scene, windows)?;
         }
         Ok(Action::None)
+    }
+
+    pub fn press_key(
+        &mut self,
+        scene: &Scene,
+        windows: Option<&WindowList>,
+        last_region: Option<Rect>,
+        press: KeyPress,
+        point: Point,
+    ) -> Result<Action> {
+        match self.key(scene, last_region, press, point) {
+            Some(Action::None) => self.redraw(scene, windows).map(|()| Action::None),
+            Some(action) => Ok(action),
+            None => Ok(Action::None),
+        }
     }
 
     pub fn select_whole_monitor(&mut self, scene: &Scene, at: Point) {
@@ -184,56 +232,37 @@ impl Session {
         &mut self,
         scene: &Scene,
         last_region: Option<Rect>,
-        message: &MSG,
+        press: KeyPress,
         point: Point,
     ) -> Option<Action> {
-        let key = VIRTUAL_KEY(message.wParam.0 as u16);
-        let control = is_down(VK_CONTROL);
-        let shift = is_down(VK_SHIFT);
-        let step = if shift { 10 } else { 1 };
-        let selected = self.selected().is_some();
-        match key {
-            VK_ESCAPE => Some(Action::Cancel),
-            VK_F4 if message.message == WM_SYSKEYDOWN => Some(Action::Cancel),
-            VK_RETURN if selected => Some(Action::Deliver(self.enter)),
-            VK_C if control && selected => Some(Action::Deliver(Delivery::COPY)),
-            VK_S if control && !shift && selected => Some(Action::Deliver(Delivery::SAVE)),
-            VK_S if control && shift && selected => Some(Action::SaveAs),
-            VK_LEFT | VK_RIGHT | VK_UP | VK_DOWN => {
-                let (dx, dy) = match key {
-                    VK_LEFT => (-step, 0),
-                    VK_RIGHT => (step, 0),
-                    VK_UP => (0, -step),
-                    _ => (0, step),
-                };
+        match respond(press, self.selected().is_some(), self.enter)? {
+            Response::Act(action) => Some(action),
+            Response::Move { dx, dy, resize } => {
                 let selection = self.selection.as_mut()?;
-                if control {
+                if resize {
                     selection.resize_by(dx, dy);
                 } else {
                     selection.nudge(dx, dy);
                 }
                 Some(Action::None)
             }
-            VK_A if control => {
+            Response::WholeMonitor => {
                 self.select_whole_monitor(scene, point);
                 Some(Action::None)
             }
-            VK_R if !control => {
+            Response::LastRegion => {
                 self.select_region(scene, last_region?);
                 Some(Action::None)
             }
-            VK_C if !control => Some(Action::CopyColour(
+            Response::CopyColour => Some(Action::CopyColour(
                 self.magnified().or(self.pointer).unwrap_or(point),
             )),
-            VK_APPS => Some(Action::Menu(self.pointer.unwrap_or(point))),
-            VK_F10 if shift => Some(Action::Menu(self.pointer.unwrap_or(point))),
-            VK_SHIFT | VK_MENU => self.modifiers_changed(message).then_some(Action::None),
-            _ => None,
+            Response::Menu => Some(Action::Menu(self.pointer.unwrap_or(point))),
+            Response::Modifiers => self.modifiers_changed(press.key).then_some(Action::None),
         }
     }
 
-    fn modifiers_changed(&mut self, message: &MSG) -> bool {
-        let key = VIRTUAL_KEY(message.wParam.0 as u16);
+    fn modifiers_changed(&mut self, key: VIRTUAL_KEY) -> bool {
         match &mut self.selection {
             Some(selection) if selection.is_dragging() && (key == VK_SHIFT || key == VK_MENU) => {
                 selection.change_modifiers(modifiers());
@@ -288,6 +317,37 @@ impl Session {
     }
 }
 
+fn respond(press: KeyPress, selected: bool, enter: Delivery) -> Option<Response> {
+    let step = if press.shift { 10 } else { 1 };
+    let moved = |dx, dy| Response::Move {
+        dx,
+        dy,
+        resize: press.control,
+    };
+    let response = match press.key {
+        VK_ESCAPE => Response::Act(Action::Cancel),
+        VK_F4 if press.alt => Response::Act(Action::Cancel),
+        VK_RETURN if selected => Response::Act(Action::Deliver(enter)),
+        VK_C if press.control && selected => Response::Act(Action::Deliver(Delivery::COPY)),
+        VK_S if press.control && !press.shift && selected => {
+            Response::Act(Action::Deliver(Delivery::SAVE))
+        }
+        VK_S if press.control && press.shift && selected => Response::Act(Action::SaveAs),
+        VK_LEFT => moved(-step, 0),
+        VK_RIGHT => moved(step, 0),
+        VK_UP => moved(0, -step),
+        VK_DOWN => moved(0, step),
+        VK_A if press.control => Response::WholeMonitor,
+        VK_R if !press.control => Response::LastRegion,
+        VK_C if !press.control => Response::CopyColour,
+        VK_APPS => Response::Menu,
+        VK_F10 if press.shift => Response::Menu,
+        VK_SHIFT | VK_MENU => Response::Modifiers,
+        _ => return None,
+    };
+    Some(response)
+}
+
 fn label_monitor(monitors: &[Rect], rect: Rect) -> Option<usize> {
     let corner = Point::new(rect.left, rect.top);
     monitors
@@ -331,5 +391,64 @@ fn cursor_for(grip: Option<Grip>) -> PCWSTR {
 fn show_cursor(shape: PCWSTR) {
     if let Ok(cursor) = unsafe { LoadCursorW(None, shape) } {
         window_class::use_cursor(cursor);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bediz_core::delivery::Delivery;
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, VIRTUAL_KEY, VK_C, VK_F4, VK_LEFT, VK_S,
+    };
+
+    use super::{Action, Response, respond};
+    use crate::windows::hotkey::as_key_press;
+
+    fn replayed(
+        modifiers: HOT_KEY_MODIFIERS,
+        key: VIRTUAL_KEY,
+        selected: bool,
+    ) -> Option<Response> {
+        let keys = LPARAM(((key.0 as isize) << 16) | modifiers.0 as isize);
+        respond(as_key_press(keys), selected, Delivery::COPY_AND_SAVE)
+    }
+
+    #[test]
+    fn a_shortcut_replayed_after_its_keys_came_up_acts_as_it_was_pressed() {
+        assert_eq!(
+            replayed(MOD_CONTROL, VK_C, true),
+            Some(Response::Act(Action::Deliver(Delivery::COPY)))
+        );
+        assert_eq!(
+            replayed(MOD_CONTROL, VK_S, true),
+            Some(Response::Act(Action::Deliver(Delivery::SAVE)))
+        );
+        assert_eq!(
+            replayed(MOD_CONTROL | MOD_SHIFT, VK_S, true),
+            Some(Response::Act(Action::SaveAs))
+        );
+        assert_eq!(
+            replayed(MOD_ALT, VK_F4, true),
+            Some(Response::Act(Action::Cancel))
+        );
+        assert_eq!(
+            replayed(MOD_CONTROL | MOD_SHIFT, VK_LEFT, true),
+            Some(Response::Move {
+                dx: -10,
+                dy: 0,
+                resize: true
+            })
+        );
+    }
+
+    #[test]
+    fn a_key_without_its_modifier_does_what_the_bare_key_does() {
+        assert_eq!(
+            replayed(HOT_KEY_MODIFIERS(0), VK_C, true),
+            Some(Response::CopyColour)
+        );
+        assert_eq!(replayed(HOT_KEY_MODIFIERS(0), VK_S, true), None);
+        assert_eq!(replayed(MOD_CONTROL, VK_C, false), None);
     }
 }

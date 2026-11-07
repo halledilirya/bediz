@@ -2,12 +2,14 @@ export const LONGEST = 120;
 
 const TOKENS = ["date", "time", "width", "height"];
 const FORBIDDEN = /[\\/:*?"<>|]|\p{Cc}/u;
+const DEVICE = /^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
 
 export type Problem =
   | { kind: "empty" }
   | { kind: "long" }
   | { kind: "forbidden" }
-  | { kind: "unknown"; token: string };
+  | { kind: "unknown"; token: string }
+  | { kind: "reserved"; name: string };
 
 export interface Sample {
   date: string;
@@ -35,6 +37,10 @@ export function problem(pattern: string): Problem | null {
     if (!TOKENS.includes(token)) {
       return { kind: "unknown", token: `{${token}}` };
     }
+  }
+  const name = (pattern.trim().split(".")[0] ?? "").trimEnd();
+  if (DEVICE.test(name)) {
+    return { kind: "reserved", name };
   }
   return null;
 }

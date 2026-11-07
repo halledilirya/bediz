@@ -6,12 +6,13 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Gdi::ValidateRect;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, DefWindowProcW, EndMenu, HCURSOR, HTCLIENT, IDC_CROSS, LoadCursorW,
-    RegisterClassExW, SetCursor, WM_APP, WM_CLOSE, WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_PAINT,
-    WM_SETCURSOR, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
+    CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HCURSOR, HTCLIENT, IDC_CROSS, LoadCursorW,
+    RegisterClassExW, SetCursor, WM_APP, WM_CLOSE, WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_HOTKEY,
+    WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
+use super::hotkey::HOTKEY;
 use super::runtime::WM_STOP;
 
 pub const MESSAGE_CLASS: PCWSTR = w!("BedizMessage");
@@ -24,10 +25,23 @@ thread_local! {
     static COLOURS_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CURSOR: Cell<Option<HCURSOR>> = const { Cell::new(None) };
     static MISSED: Cell<Vec<u32>> = const { Cell::new(Vec::new()) };
+    static MISSED_HOTKEY: Cell<Option<LPARAM>> = const { Cell::new(None) };
+}
+
+pub struct OwnedWindow(pub HWND);
+
+impl Drop for OwnedWindow {
+    fn drop(&mut self) {
+        let _ = unsafe { DestroyWindow(self.0) };
+    }
 }
 
 pub fn take_missed() -> Vec<u32> {
     MISSED.with(Cell::take)
+}
+
+pub fn take_missed_hotkey() -> Option<LPARAM> {
+    MISSED_HOTKEY.with(Cell::take)
 }
 
 pub fn use_cursor(cursor: HCURSOR) {
@@ -116,6 +130,10 @@ fn on_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRE
         });
         return LRESULT(0);
     }
+    if message == WM_HOTKEY && wparam.0 == HOTKEY as usize {
+        MISSED_HOTKEY.with(|missed| missed.set(Some(lparam)));
+        return LRESULT(0);
+    }
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }
 
@@ -125,8 +143,12 @@ unsafe extern "system" fn label_procedure(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    guarded(LRESULT(0), || unsafe {
-        DefWindowProcW(window, message, wparam, lparam)
+    guarded(LRESULT(0), || {
+        // Without overlays the label is the only window that hears of a display change.
+        if message == WM_DISPLAYCHANGE {
+            DISPLAY_CHANGED.with(|flag| flag.set(true));
+        }
+        unsafe { DefWindowProcW(window, message, wparam, lparam) }
     })
 }
 

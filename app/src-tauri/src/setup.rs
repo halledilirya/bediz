@@ -90,13 +90,18 @@ fn start_store(app: &App, log: &Log, notes: Sender<Message>) -> Result<Store, Bo
     Ok(store)
 }
 
+pub fn send(app: &AppHandle, command: Command) {
+    if let Some(platform) = app.try_state::<Platform>() {
+        platform.send(command);
+    }
+}
+
 pub fn on_run_event(app: &AppHandle, event: RunEvent) {
     match event {
         RunEvent::ExitRequested {
             code: None, api, ..
         } => api.prevent_exit(),
-        // Tauri ends the process without dropping managed state, so queued writes finish here.
-        // Saves finish before the last settings write, which may still need the platform.
+        // Tauri exits without dropping managed state; saves end first, as one still changes a setting.
         RunEvent::Exit => {
             let platform = app.try_state::<Platform>();
             if let Some(platform) = &platform {

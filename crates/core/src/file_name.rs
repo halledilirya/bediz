@@ -15,6 +15,11 @@ pub const DEFAULT_PATTERN: &str = "Bediz {date} {time}";
 pub const LONGEST_PATTERN: usize = 120;
 const TOKENS: [&str; 4] = ["date", "time", "width", "height"];
 const FORBIDDEN: [char; 9] = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+const NUMBERED_DEVICES: [&str; 2] = ["COM", "LPT"];
+const DEVICE_NUMBERS: [&str; 13] = [
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "\u{b9}", "\u{b2}", "\u{b3}",
+];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -30,6 +35,8 @@ pub enum PatternError {
     Forbidden(char),
     #[error("{0} is not a part a file name can hold")]
     UnknownToken(String),
+    #[error("Windows keeps the name {0} for a device")]
+    Reserved(String),
 }
 
 impl Pattern {
@@ -54,6 +61,9 @@ impl Pattern {
                 }
                 None => return Err(PatternError::UnknownToken(format!("{{{after}"))),
             }
+        }
+        if let Some(device) = device_name(text) {
+            return Err(PatternError::Reserved(device.to_owned()));
         }
         Ok(Self(text.to_owned()))
     }
@@ -99,6 +109,18 @@ impl From<Pattern> for String {
     fn from(pattern: Pattern) -> Self {
         pattern.0
     }
+}
+
+// Windows opens a device instead of a file for these names, even with an extension after them.
+fn device_name(text: &str) -> Option<&str> {
+    let name = text.trim().split('.').next().unwrap_or_default().trim_end();
+    let upper = name.to_uppercase();
+    let numbered = NUMBERED_DEVICES.iter().any(|device| {
+        upper
+            .strip_prefix(device)
+            .is_some_and(|number| DEVICE_NUMBERS.contains(&number))
+    });
+    (DEVICES.contains(&upper.as_str()) || numbered).then_some(name)
 }
 
 pub fn png(stem: &str, attempt: u32) -> String {
@@ -180,6 +202,38 @@ mod tests {
             Err(PatternError::TooLong)
         );
         assert!(Pattern::parse(&"ş".repeat(LONGEST_PATTERN)).is_ok());
+    }
+
+    #[test]
+    fn a_name_windows_keeps_for_a_device_is_rejected() {
+        for name in [
+            "NUL",
+            "con",
+            " Aux ",
+            "prn.shot",
+            "COM1",
+            "lpt9",
+            "COM\u{b9}",
+            "Nul .",
+        ] {
+            let device = name.trim().split('.').next().unwrap().trim_end();
+            assert_eq!(
+                Pattern::parse(name),
+                Err(PatternError::Reserved(device.to_owned())),
+                "{name}"
+            );
+        }
+        for name in [
+            "NULL",
+            "COM10",
+            "LPT",
+            "My CON",
+            "{date} NUL",
+            "NUL{time}",
+            "conference",
+        ] {
+            assert!(Pattern::parse(name).is_ok(), "{name}");
+        }
     }
 
     #[test]

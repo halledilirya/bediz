@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use bediz_core::capture::Pixels;
 use windows::Win32::Foundation::{E_FAIL, E_POINTER};
 use windows::Win32::Graphics::Direct3D11::{
@@ -27,6 +29,7 @@ pub struct Duplicator {
     held: Option<ID3D11Texture2D>,
     holding: bool,
     has_image: bool,
+    target_holds_image: bool,
     pixels: Pixels,
     converter: Option<Converter>,
     refresh_milliseconds: u32,
@@ -42,6 +45,7 @@ impl Duplicator {
             held: None,
             holding: false,
             has_image: false,
+            target_holds_image: false,
             pixels: Pixels::Bgra8,
             converter: None,
             refresh_milliseconds: refresh_period(0, 0),
@@ -62,18 +66,22 @@ impl Duplicator {
         self.release()
     }
 
+    // Every monitor's frame arrives while the first is waited for, so the waits overlap, not add up.
     pub fn finish(
         &mut self,
         begun: Result<()>,
+        begun_at: Instant,
         context: &ID3D11DeviceContext,
         target: &ID3D11Texture2D,
         levels: &mut WhiteLevels,
     ) -> Result<(bool, Pixels)> {
-        match begun.and_then(|()| self.acquire(self.refresh_milliseconds)) {
+        let waited = u32::try_from(begun_at.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let timeout = self.refresh_milliseconds.saturating_sub(waited);
+        match begun.and_then(|()| self.acquire(timeout)) {
             Ok(true) => self
                 .present(context, target, levels)
                 .map(|pixels| (true, pixels)),
-            Ok(false) if self.has_image => Ok((false, self.pixels)),
+            Ok(false) if self.has_image && self.target_holds_image => Ok((false, self.pixels)),
             Ok(false) => Err(no_image()),
             Err(error) if is_lost(&error) => {
                 self.reopen()?;
@@ -92,6 +100,10 @@ impl Duplicator {
 
     pub fn reopen_quietly(&mut self) {
         let _ = self.reopen();
+    }
+
+    pub fn forget_target(&mut self) {
+        self.target_holds_image = false;
     }
 
     fn present(
@@ -122,6 +134,7 @@ impl Duplicator {
                 ));
             }
         };
+        self.target_holds_image = true;
         Ok(self.pixels)
     }
 
