@@ -7,12 +7,14 @@ use windows::Win32::Foundation::{
 use windows::Win32::Graphics::Gdi::ValidateRect;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HCURSOR, HTCLIENT, IDC_CROSS, LoadCursorW,
-    RegisterClassExW, SetCursor, WM_APP, WM_CLOSE, WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_HOTKEY,
-    WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
+    RegisterClassExW, SetCursor, WM_APP, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE, WM_ERASEBKGND,
+    WM_GETOBJECT, WM_HOTKEY, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE,
+    WNDCLASSEXW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
 use super::hotkey::HOTKEY;
+use super::label_window::automation;
 use super::runtime::WM_STOP;
 
 pub const MESSAGE_CLASS: PCWSTR = w!("BedizMessage");
@@ -22,6 +24,7 @@ pub const LABEL_CLASS: PCWSTR = w!("BedizLabel");
 thread_local! {
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CLOSE_REQUESTED: Cell<bool> = const { Cell::new(false) };
+    static LABEL_CLOSE_REQUESTED: Cell<bool> = const { Cell::new(false) };
     static COLOURS_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CURSOR: Cell<Option<HCURSOR>> = const { Cell::new(None) };
     static MISSED: Cell<Vec<u32>> = const { Cell::new(Vec::new()) };
@@ -55,6 +58,10 @@ pub fn take_display_changed() -> bool {
 
 pub fn take_close_requested() -> bool {
     CLOSE_REQUESTED.with(|flag| flag.replace(false))
+}
+
+pub fn take_label_close_requested() -> bool {
+    LABEL_CLOSE_REQUESTED.with(|flag| flag.replace(false))
 }
 
 pub fn take_colours_changed() -> bool {
@@ -144,9 +151,21 @@ unsafe extern "system" fn label_procedure(
     lparam: LPARAM,
 ) -> LRESULT {
     guarded(LRESULT(0), || {
-        // Without overlays the label is the only window that hears of a display change.
-        if message == WM_DISPLAYCHANGE {
-            DISPLAY_CHANGED.with(|flag| flag.set(true));
+        match message {
+            // Without overlays the label is the only window that hears of a display change.
+            WM_DISPLAYCHANGE => DISPLAY_CHANGED.with(|flag| flag.set(true)),
+            WM_GETOBJECT => {
+                if let Some(answer) = automation::answer(window, wparam, lparam) {
+                    return answer;
+                }
+            }
+            // The runtime owns the label, so a close asked through UI Automation is left to it.
+            WM_CLOSE => {
+                LABEL_CLOSE_REQUESTED.with(|flag| flag.set(true));
+                return LRESULT(0);
+            }
+            WM_DESTROY => automation::detach(window),
+            _ => {}
         }
         unsafe { DefWindowProcW(window, message, wparam, lparam) }
     })

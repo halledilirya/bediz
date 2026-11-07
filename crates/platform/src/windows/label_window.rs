@@ -1,6 +1,8 @@
+pub(super) mod automation;
+
 use std::ffi::c_void;
 
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, POINT, RECT, SIZE};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
@@ -21,23 +23,19 @@ use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetMonitorInfoW,
     HBITMAP, HDC, HGDIOBJ, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, SelectObject,
 };
-use windows::Win32::UI::Accessibility::{
-    NotificationKind_ActionAborted, NotificationKind_ActionCompleted,
-    NotificationProcessing_ImportantMostRecent, UiaClientsAreListening, UiaHostProviderFromHwnd,
-    UiaRaiseNotificationEvent,
-};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, HWND_TOPMOST, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-    SetWindowDisplayAffinity, SetWindowPos, SetWindowTextW, ShowWindow, ULW_ALPHA,
-    USER_DEFAULT_SCREEN_DPI, UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED,
+    CreateWindowExW, HWND_TOPMOST, IsWindowVisible, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowDisplayAffinity, SetWindowPos, SetWindowTextW, ShowWindow,
+    ULW_ALPHA, USER_DEFAULT_SCREEN_DPI, UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
-use windows::core::{BSTR, Error, HSTRING, Result, w};
+use windows::core::{Error, HSTRING, Result, w};
 
 use super::contrast::Colours;
 use super::window_class::{LABEL_CLASS, OwnedWindow};
 use crate::event::Label;
+use automation::Announcer;
 
 const FONT_SIZE: f32 = 14.0;
 const PADDING_X: f32 = 14.0;
@@ -123,8 +121,14 @@ impl Drop for MemoryBitmap {
     }
 }
 
+pub enum Shown {
+    Opened,
+    Replaced,
+}
+
 pub struct LabelWindow {
     window: OwnedWindow,
+    announcer: Announcer,
     d2d: ID2D1Factory,
     text: IDWriteFactory,
 }
@@ -151,15 +155,17 @@ impl LabelWindow {
                 None,
             )
         }?);
+        let announcer = Announcer::attach(window.0);
         unsafe { SetWindowDisplayAffinity(window.0, WDA_EXCLUDEFROMCAPTURE) }?;
         Ok(Self {
             window,
+            announcer,
             d2d: unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) }?,
             text: unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED) }?,
         })
     }
 
-    pub fn show(&self, label: &Label, colours: Option<&Colours>) -> Result<()> {
+    pub fn show(&self, label: &Label, colours: Option<&Colours>) -> Result<Shown> {
         let center = POINT {
             x: label.near.left + i32::try_from(label.near.width() / 2).unwrap_or(0),
             y: label.near.top + i32::try_from(label.near.height() / 2).unwrap_or(0),
@@ -293,7 +299,13 @@ impl LabelWindow {
             SourceConstantAlpha: u8::MAX,
             AlphaFormat: AC_SRC_ALPHA as u8,
         };
+        let shown = if unsafe { IsWindowVisible(self.window.0) }.as_bool() {
+            Shown::Replaced
+        } else {
+            Shown::Opened
+        };
         unsafe {
+            SetWindowTextW(self.window.0, &HSTRING::from(message.as_str()))?;
             UpdateLayeredWindow(
                 self.window.0,
                 None,
@@ -318,36 +330,22 @@ impl LabelWindow {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             )?;
         }
-        announce(self.window.0, &message, label.warning);
-        Ok(())
+        Ok(shown)
     }
 
-    pub fn hide(&self) {
+    pub fn announce(&self, label: &Label, shown: Shown) -> Result<()> {
+        let text = label.lines.join("\n");
+        match shown {
+            Shown::Opened => self.announcer.opened(&text, label.warning),
+            Shown::Replaced => self.announcer.replaced(&text, label.warning),
+        }
+    }
+
+    pub fn hide(&self) -> Result<()> {
+        if !unsafe { IsWindowVisible(self.window.0) }.as_bool() {
+            return Ok(());
+        }
         let _ = unsafe { ShowWindow(self.window.0, SW_HIDE) };
+        self.announcer.closed()
     }
-}
-
-// The label is only pixels, so a screen reader is given its text through UI Automation.
-fn announce(window: HWND, text: &str, warning: bool) {
-    let _ = unsafe { SetWindowTextW(window, &HSTRING::from(text)) };
-    if !unsafe { UiaClientsAreListening() }.as_bool() {
-        return;
-    }
-    let Ok(provider) = (unsafe { UiaHostProviderFromHwnd(window) }) else {
-        return;
-    };
-    let kind = if warning {
-        NotificationKind_ActionAborted
-    } else {
-        NotificationKind_ActionCompleted
-    };
-    let _ = unsafe {
-        UiaRaiseNotificationEvent(
-            &provider,
-            kind,
-            NotificationProcessing_ImportantMostRecent,
-            &BSTR::from(text),
-            &BSTR::from("Bediz.Label"),
-        )
-    };
 }

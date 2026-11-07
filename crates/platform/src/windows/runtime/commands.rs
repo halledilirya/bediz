@@ -1,9 +1,12 @@
 use std::sync::PoisonError;
 use std::time::Duration;
 
-use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
+use windows::Win32::UI::WindowsAndMessaging::{
+    KillTimer, SPI_GETMESSAGEDURATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer,
+    SystemParametersInfoW,
+};
 
-use super::{LABEL_MILLISECONDS, LABEL_TIMER, Runtime, WARNING_MILLISECONDS};
+use super::{LABEL_MILLISECONDS, LABEL_TIMER, Runtime};
 use crate::event::{Command, Event, Label};
 use crate::windows::startup;
 
@@ -70,14 +73,22 @@ impl Runtime {
         let Some(window) = &self.label else {
             return;
         };
-        if let Err(error) = window.show(&label, self.colours.as_ref()) {
+        let shown = match window.show(&label, self.colours.as_ref()) {
+            Ok(shown) => shown,
+            Err(error) => {
+                self.emit_notes(vec![format!(
+                    "the confirmation could not be shown: {error}"
+                )]);
+                return;
+            }
+        };
+        if let Err(error) = window.announce(&label, shown) {
             self.emit_notes(vec![format!(
-                "the confirmation could not be shown: {error}"
+                "the confirmation could not be passed to a screen reader: {error}"
             )]);
-            return;
         }
         let shown_for = if label.warning {
-            WARNING_MILLISECONDS
+            warning_milliseconds()
         } else {
             LABEL_MILLISECONDS
         };
@@ -86,10 +97,40 @@ impl Runtime {
 
     pub(super) fn hide_label(&mut self) {
         let _ = unsafe { KillTimer(Some(self.window.0), LABEL_TIMER) };
-        if let Some(window) = &self.label {
-            window.hide();
+        let Some(window) = &self.label else {
+            return;
+        };
+        if let Err(error) = window.hide() {
+            self.emit_notes(vec![format!(
+                "the closing confirmation could not be passed to a screen reader: {error}"
+            )]);
         }
     }
+}
+
+const SHORTEST_WARNING_SECONDS: u32 = 5;
+const LONGEST_WARNING_SECONDS: u32 = 300;
+
+// Errors stay as long as Windows keeps notifications up, which people who read slowly lengthen.
+fn warning_milliseconds() -> u32 {
+    let mut seconds = 0u32;
+    let read = unsafe {
+        SystemParametersInfoW(
+            SPI_GETMESSAGEDURATION,
+            0,
+            Some((&mut seconds as *mut u32).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    warning_for(read.ok().map(|()| seconds))
+}
+
+// Settings offers 5 seconds to 5 minutes; anything else, or no answer, is held to that range.
+fn warning_for(seconds: Option<u32>) -> u32 {
+    seconds
+        .unwrap_or(SHORTEST_WARNING_SECONDS)
+        .clamp(SHORTEST_WARNING_SECONDS, LONGEST_WARNING_SECONDS)
+        .saturating_mul(1000)
 }
 
 // Errors not shown yet are joined, never dropped; each comes from a job asked for before the selection opened.
@@ -113,8 +154,23 @@ fn deferred(waiting: Option<Label>, label: Label) -> Label {
 mod tests {
     use bediz_core::geometry::Rect;
 
-    use super::deferred;
+    use super::{deferred, warning_for};
     use crate::event::Label;
+
+    #[test]
+    fn an_error_stays_as_long_as_windows_keeps_notifications() {
+        assert_eq!(warning_for(Some(5)), 5_000);
+        assert_eq!(warning_for(Some(7)), 7_000);
+        assert_eq!(warning_for(Some(300)), 300_000);
+    }
+
+    #[test]
+    fn a_duration_outside_what_settings_offers_is_held_to_its_range() {
+        assert_eq!(warning_for(None), 5_000);
+        assert_eq!(warning_for(Some(0)), 5_000);
+        assert_eq!(warning_for(Some(2)), 5_000);
+        assert_eq!(warning_for(Some(u32::MAX)), 300_000);
+    }
 
     fn label(lines: &[&str], warning: bool, left: i32) -> Label {
         Label {

@@ -63,7 +63,6 @@ const CLIPBOARD_TIMER: usize = 3;
 const LABEL_TIMER: usize = 4;
 const DISPLAY_SETTLE_MILLISECONDS: u32 = 500;
 const LABEL_MILLISECONDS: u32 = 1500;
-const WARNING_MILLISECONDS: u32 = 6000;
 
 pub type Commands = Arc<Mutex<Vec<Command>>>;
 pub type Sink = Box<dyn Fn(Event) + Send>;
@@ -333,6 +332,9 @@ impl Runtime {
     fn after_message(&mut self) -> bool {
         if window_class::take_close_requested() {
             self.hide();
+        }
+        if window_class::take_label_close_requested() {
+            self.hide_label();
         }
         if window_class::take_display_changed() {
             self.on_display_change();
