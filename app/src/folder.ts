@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { explain } from "./failure";
 import { onLanguage, text } from "./i18n";
 import "./styles/folder.css";
 
@@ -33,9 +34,9 @@ export function enableFolder(form: HTMLFormElement): FolderRow {
     throw new Error("the folder row is incomplete");
   }
   const chosen = (): string | null => (field.value === "" ? null : field.value);
-  const failed = (reason: unknown): void => {
+  const failed = (failure: unknown): void => {
     error.textContent = text("settings-folder-failed", {
-      reason: String(reason),
+      reason: explain(failure, text),
     });
     error.hidden = false;
   };

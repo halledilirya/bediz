@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { explain } from "./failure";
 import { isolated, onLanguage, text } from "./i18n";
 import { type Fetch, readNotices } from "./licences";
 import "./styles/about.css";
@@ -33,11 +34,15 @@ export async function enableAbout(): Promise<void> {
   ) {
     throw new Error("the about section is incomplete");
   }
-  const shown: { reason: string | null } = { reason: null };
-  const failed = (reason: unknown): void => {
-    shown.reason = String(reason);
+  const shown: { failed: boolean; failure: unknown } = {
+    failed: false,
+    failure: null,
+  };
+  const failed = (failure: unknown): void => {
+    shown.failed = true;
+    shown.failure = failure;
     error.textContent = text("settings-about-failed", {
-      reason: shown.reason,
+      reason: explain(failure, text),
     });
     error.hidden = false;
   };
@@ -48,8 +53,8 @@ export async function enableAbout(): Promise<void> {
   named();
   onLanguage(() => {
     named();
-    if (shown.reason !== null) {
-      failed(shown.reason);
+    if (shown.failed) {
+      failed(shown.failure);
     }
   });
   logs.addEventListener("click", () => {

@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::path::PathBuf;
 
 use bediz_core::delivery::SaveError;
@@ -7,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::events::HotkeyStatus;
+use crate::events::{HotkeyStatus, Message, Messages};
 use crate::i18n::Language;
 use crate::settings::{self, Store};
 use crate::settings_window::Section;
@@ -21,6 +22,14 @@ use crate::updater::{self, Updates};
 pub struct Folder {
     path: String,
     one_drive: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Failure {
+    Missing { path: String },
+    Windows { reason: String },
+    Unexpected,
 }
 
 #[tauri::command]
@@ -80,25 +89,25 @@ pub fn version() -> &'static str {
 }
 
 #[tauri::command]
-pub async fn open_logs(app: AppHandle) -> Result<(), String> {
+pub async fn open_logs(app: AppHandle) -> Result<(), Failure> {
     let logs = app
         .path()
         .app_local_data_dir()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| unexpected(&app, error))?
         .join("logs");
     in_background(move || {
         app.opener()
             .open_path(logs.to_string_lossy(), None::<&str>)
-            .map_err(|error| error.to_string())
+            .map_err(|error| unexpected(&app, error))
     })
     .await
 }
 
 #[tauri::command]
-pub fn open_source(app: AppHandle) -> Result<(), String> {
+pub fn open_source(app: AppHandle) -> Result<(), Failure> {
     app.opener()
         .open_url(env!("CARGO_PKG_REPOSITORY"), None::<&str>)
-        .map_err(|error| error.to_string())
+        .map_err(|error| unexpected(&app, error))
 }
 
 #[tauri::command]
@@ -122,9 +131,9 @@ pub fn retry_hotkey(app: AppHandle) {
 }
 
 #[tauri::command]
-pub async fn save_folder(chosen: Option<PathBuf>) -> Result<Folder, String> {
+pub async fn save_folder(chosen: Option<PathBuf>, app: AppHandle) -> Result<Folder, Failure> {
     in_background(move || {
-        let path = existing_folder(chosen)?;
+        let path = existing_folder(&app, chosen)?;
         Ok(Folder {
             one_drive: bediz_platform::synced_by_onedrive(&path),
             path: path.to_string_lossy().into_owned(),
@@ -134,12 +143,12 @@ pub async fn save_folder(chosen: Option<PathBuf>) -> Result<Folder, String> {
 }
 
 #[tauri::command]
-pub async fn open_save_folder(chosen: Option<PathBuf>, app: AppHandle) -> Result<(), String> {
+pub async fn open_save_folder(chosen: Option<PathBuf>, app: AppHandle) -> Result<(), Failure> {
     in_background(move || {
-        let path = existing_folder(chosen)?;
+        let path = existing_folder(&app, chosen)?;
         app.opener()
             .open_path(path.to_string_lossy(), None::<&str>)
-            .map_err(|error| error.to_string())
+            .map_err(|error| unexpected(&app, error))
     })
     .await
 }
@@ -148,41 +157,90 @@ pub async fn open_save_folder(chosen: Option<PathBuf>, app: AppHandle) -> Result
 pub async fn choose_save_folder(
     chosen: Option<PathBuf>,
     window: WebviewWindow,
-) -> Result<Option<String>, String> {
-    let owner = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+) -> Result<Option<String>, Failure> {
+    let app = window.app_handle().clone();
+    let owner = window.hwnd().map_err(|error| unexpected(&app, error))?.0 as isize;
     let picked = in_background(move || {
-        let start = resolve(chosen).ok();
-        bediz_platform::pick_folder(owner, start).map_err(|error| error.to_string())
+        let start = bediz_platform::save_folder(chosen.as_deref()).ok();
+        bediz_platform::pick_folder(owner, start).map_err(|error| Failure::Windows {
+            reason: error.to_string(),
+        })
     })
     .await?;
     picked
         .map(|path| {
             path.into_os_string()
                 .into_string()
-                .map_err(|_| "the folder's name cannot be stored".to_owned())
+                .map_err(|_| unexpected(&app, "the folder's name cannot be stored"))
         })
         .transpose()
 }
 
-fn resolve(chosen: Option<PathBuf>) -> Result<PathBuf, String> {
-    bediz_platform::save_folder(chosen.as_deref()).map_err(|error| error.to_string())
+fn resolve(app: &AppHandle, chosen: Option<PathBuf>) -> Result<PathBuf, Failure> {
+    bediz_platform::save_folder(chosen.as_deref()).map_err(|error| match error {
+        SaveError::FolderMissing => Failure::Missing {
+            path: chosen
+                .as_deref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+        },
+        SaveError::Other(reason) => Failure::Windows { reason },
+        other => unexpected(app, other),
+    })
 }
 
 // The opener runs whatever it is given, so only a folder that exists is passed on.
-fn existing_folder(chosen: Option<PathBuf>) -> Result<PathBuf, String> {
-    let path = resolve(chosen)?;
+fn existing_folder(app: &AppHandle, chosen: Option<PathBuf>) -> Result<PathBuf, Failure> {
+    let path = resolve(app, chosen)?;
     if path.is_dir() {
         Ok(path)
     } else {
-        Err(format!("{}: {}", path.display(), SaveError::FolderMissing))
+        Err(Failure::Missing {
+            path: path.display().to_string(),
+        })
     }
+}
+
+// Our own details are English, so they go to the log and the window says it in the user's language.
+fn unexpected(app: &AppHandle, detail: impl Display) -> Failure {
+    if let Some(messages) = app.try_state::<Messages>() {
+        let _ = messages.0.send(Message::Note(format!(
+            "the settings window could not do that: {detail}"
+        )));
+    }
+    Failure::Unexpected
 }
 
 // A folder on an unreachable network share can take the network's timeout to answer.
 async fn in_background<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
+    work: impl FnOnce() -> Result<T, Failure> + Send + 'static,
+) -> Result<T, Failure> {
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|error| error.to_string())?
+        .unwrap_or(Err(Failure::Unexpected))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::Failure;
+
+    #[test]
+    fn a_failure_reaches_the_window_as_its_kind_with_no_english_detail() {
+        let shown = |failure: Failure| serde_json::to_value(failure).unwrap();
+        assert_eq!(
+            shown(Failure::Missing {
+                path: r"C:\Users\Ada\Pictures\2.png".to_owned()
+            }),
+            json!({ "kind": "missing", "path": r"C:\Users\Ada\Pictures\2.png" })
+        );
+        assert_eq!(
+            shown(Failure::Windows {
+                reason: "Erişim engellendi.".to_owned()
+            }),
+            json!({ "kind": "windows", "reason": "Erişim engellendi." })
+        );
+        assert_eq!(shown(Failure::Unexpected), json!({ "kind": "unexpected" }));
+    }
 }
