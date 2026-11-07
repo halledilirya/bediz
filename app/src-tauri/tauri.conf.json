@@ -16,6 +16,7 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "halledilirya",
     "targets": ["nsis"],
     "windows": {
       "nsis": {
