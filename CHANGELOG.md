@@ -4,6 +4,17 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-10
+
+### Changed
+
+- The settings window appears as soon as you open it, in the colours of its theme, and fills in once it is ready.
+
+### Fixed
+
+- The settings window no longer flashes white as it opens.
+- The setup file and the uninstaller show Bediz's icon, and the files' details name the copyright holder.
+
 ## [0.1.0] - 2026-11-09
 
 ### Added
