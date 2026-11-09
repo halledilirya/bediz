@@ -2,9 +2,10 @@ use std::sync::mpsc::Sender;
 use std::sync::{Mutex, PoisonError};
 
 use bediz_core::settings::Theme;
-use bediz_platform::{Command, Platform, make_webview_an_app};
+use bediz_platform::{Command, Platform, apps_use_dark_mode, make_webview_an_app};
 use tauri::webview::ScrollBarStyle;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::window::Color;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 use crate::events::Message;
 use crate::settings::Store;
@@ -48,23 +49,34 @@ pub fn open(
     let theme = app
         .try_state::<Store>()
         .and_then(|store| window_theme(store.current().theme));
+    let dark = match theme {
+        Some(tauri::Theme::Dark) => true,
+        Some(_) => false,
+        None => apps_use_dark_mode(),
+    };
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title(title)
         .theme(theme)
+        .background_color(background(dark))
         .inner_size(880.0, 640.0)
         .min_inner_size(640.0, 420.0)
         .center()
         .scroll_bar_style(ScrollBarStyle::FluentOverlay)
         .general_autofill_enabled(false)
-        .visible(false)
         .build()?;
     let handle = app.clone();
-    window.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Destroyed)
-            && let Some(platform) = handle.try_state::<Platform>()
-        {
-            platform.send(Command::RecordHotkey(false));
+    window.on_window_event(move |event| match event {
+        WindowEvent::Destroyed => {
+            if let Some(platform) = handle.try_state::<Platform>() {
+                platform.send(Command::RecordHotkey(false));
+            }
         }
+        WindowEvent::ThemeChanged(_) => {
+            if let Some(window) = handle.get_webview_window(LABEL) {
+                paint_behind(&window);
+            }
+        }
+        _ => {}
     });
     let messages = messages.clone();
     window.with_webview(move |webview| {
@@ -98,8 +110,23 @@ pub fn show_theme(app: &AppHandle, theme: Theme) {
     let _ = app.run_on_main_thread(move || {
         if let Some(window) = handle.get_webview_window(LABEL) {
             let _ = window.set_theme(window_theme(theme));
+            paint_behind(&window);
         }
     });
+}
+
+fn paint_behind(window: &WebviewWindow) {
+    let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+    let _ = window.set_background_color(Some(background(dark)));
+}
+
+// The --bg of main.css, shown while WebView2 starts; its own default is white.
+fn background(dark: bool) -> Color {
+    if dark {
+        Color(0x1c, 0x1c, 0x1c, 0xff)
+    } else {
+        Color(0xfa, 0xfa, 0xfa, 0xff)
+    }
 }
 
 fn window_theme(theme: Theme) -> Option<tauri::Theme> {

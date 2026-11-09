@@ -31,6 +31,7 @@ mod window_class;
 mod window_list;
 mod worker;
 
+pub use contrast::apps_use_dark_mode;
 pub use folder::{pick_folder, synced_by_onedrive};
 pub use language::preferred_languages;
 pub use package::{packaged, seen_outside};

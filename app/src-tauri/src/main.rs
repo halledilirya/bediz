@@ -24,7 +24,6 @@ fn main() {
             commands::language,
             commands::settings,
             commands::set_settings,
-            commands::settings_ready,
             commands::take_section,
             commands::version,
             commands::updates_offered,

@@ -51,14 +51,6 @@ pub fn set_settings(settings: Settings, shown: Settings, store: State<'_, Store>
 }
 
 #[tauri::command]
-pub fn settings_ready(window: WebviewWindow) -> Result<(), String> {
-    window
-        .show()
-        .and_then(|()| window.set_focus())
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
 pub fn take_section(section: State<'_, Section>) -> Option<&'static str> {
     section.take()
 }

@@ -12,6 +12,13 @@ import { enableUpdates } from "./updates";
 
 behaveLikeAnApp();
 
+const reveal = (): void => {
+  const settings = document.querySelector<HTMLElement>(".settings");
+  if (settings) {
+    settings.hidden = false;
+  }
+};
+
 async function start(): Promise<void> {
   const language = followLanguage(() => invoke<string>("language"), relocalize);
   await listen("language-changed", () => {
@@ -46,10 +53,12 @@ async function start(): Promise<void> {
   const jumpWhereAsked = async (): Promise<void> => {
     jump(await invoke<string | null>("take_section").catch(() => null));
   };
+  reveal();
+  follow();
   await listen("show-section", () => {
     void jumpWhereAsked();
   }).catch(() => undefined);
   await jumpWhereAsked();
 }
 
-void start().finally(() => invoke("settings_ready"));
+void start().finally(reveal);
