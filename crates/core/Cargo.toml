@@ -9,7 +9,9 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+gif = { version = "0.14.2", default-features = false, features = ["raii_no_panic", "std"] }
 png = "0.18.1"
+quantette = { version = "0.6.0", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

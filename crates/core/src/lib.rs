@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod capture;
 pub mod delivery;
 pub mod file_name;
