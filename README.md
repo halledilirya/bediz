@@ -5,11 +5,21 @@
 
 Bediz is a screenshot app for Windows 11. It waits in the tray: press Print Screen, select a part of the screen, then copy and save it. Recording a region as a GIF and marking up screenshots are planned.
 
-Bediz is in early development and has no release yet.
+Bediz is in early development.
 
 ## Download
 
-There is no release yet. To try Bediz now, install [Rust](https://rustup.rs) and [Node.js](https://nodejs.org), then run `npm ci` and `npm run tauri dev` in the `app` folder of a copy of this repository.
+Download `Bediz_<version>_x64-setup.exe` from the [latest release](https://github.com/halledilirya/bediz/releases/latest) and run it. It installs for your Windows user only, without administrator rights. Later versions install from **Check for updates** in the tray menu.
+
+The setup file is not code-signed yet, so Windows SmartScreen may say that it protected your PC: choose **More info**, then **Run anyway**. With Smart App Control on, Windows may refuse to run it at all.
+
+To check that the file is the one this repository's release workflow built, compare its SHA-256 hash (`Get-FileHash` in PowerShell) with `SHA256SUMS.txt` in the release, or verify its build attestation with the [GitHub CLI](https://cli.github.com):
+
+```
+gh attestation verify Bediz_<version>_x64-setup.exe --repo halledilirya/bediz
+```
+
+To build Bediz yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Usage
 

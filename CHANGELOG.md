@@ -4,6 +4,8 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-09
+
 ### Added
 
 - Screenshots: press Print Screen or click the tray icon, select a region on any monitor or across monitors, then copy it, save it as a PNG or both. The selection can be resized and moved with the mouse or the keyboard; a magnifier shows the pixel and its colour.
