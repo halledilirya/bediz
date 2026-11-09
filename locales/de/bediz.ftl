@@ -58,6 +58,7 @@ settings-section-general = Allgemein
 settings-start-with-windows = Mit Windows starten
     .keywords = Autostart, Systemstart, Anmeldung, anmelden, starten, hochfahren
 settings-start-with-windows-detail = Bediz wartet im Infobereich, damit das Tastenkürzel gleich nach der Anmeldung funktioniert. Wenn Sie es im Task-Manager deaktivieren, belässt Bediz es dabei.
+settings-start-turned-off = Windows startet Bediz nicht, weil es im Task-Manager deaktiviert ist. Aktivieren Sie es dort unter „Autostart-Apps“.
 settings-start-problem = Bediz konnte nicht festlegen, ob es mit Windows startet; das geschieht daher womöglich nicht wie eingestellt: { $reason }
 settings-language = Sprache
     .keywords = Sprache, Übersetzung, Deutsch, language, English

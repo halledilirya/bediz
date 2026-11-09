@@ -58,6 +58,7 @@ settings-section-general = 일반
 settings-start-with-windows = Windows 시작 시 실행
     .keywords = 시작, 시작 프로그램, 시작 앱, 자동 실행, 자동 시작, 로그인, 부팅
 settings-start-with-windows-detail = Bediz는 시스템 트레이에서 대기하므로 로그인하는 즉시 바로 가기 키를 사용할 수 있습니다. 작업 관리자에서 사용 안 함으로 설정한 경우 Bediz는 이를 변경하지 않습니다.
+settings-start-turned-off = 작업 관리자에서 사용 안 함으로 설정되어 있어 Windows가 Bediz를 시작하지 않습니다. 작업 관리자의 시작 앱에서 사용으로 설정하세요.
 settings-start-problem = Windows 시작 시 Bediz를 실행할지 여부를 변경하지 못해 설정대로 동작하지 않을 수 있습니다: { $reason }
 settings-language = 언어
     .keywords = 언어, 번역, 한국어, 한글, language, English

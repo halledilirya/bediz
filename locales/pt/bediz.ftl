@@ -58,6 +58,7 @@ settings-section-general = Geral
 settings-start-with-windows = Iniciar com o Windows
     .keywords = inicialização, iniciar, entrar, login, início automático, boot
 settings-start-with-windows-detail = O Bediz espera na bandeja do sistema, então o atalho funciona assim que você entra no Windows. Se você desativá-lo no Gerenciador de Tarefas, o Bediz não muda isso.
+settings-start-turned-off = O Windows não inicia o Bediz porque ele está desativado no Gerenciador de Tarefas. Ative-o lá, em Aplicativos de inicialização.
 settings-start-problem = O Bediz não conseguiu alterar se o Windows o inicia, então isso pode não acontecer como configurado: { $reason }
 settings-language = Idioma
     .keywords = idioma, tradução, língua, Português, language, English

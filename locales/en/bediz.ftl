@@ -58,6 +58,7 @@ settings-section-general = General
 settings-start-with-windows = Start with Windows
     .keywords = startup, sign in, launch, autostart, boot
 settings-start-with-windows-detail = Bediz waits in the tray, so the shortcut works as soon as you sign in. If you turn it off in Task Manager, Bediz leaves that alone.
+settings-start-turned-off = Windows does not start Bediz, since it is turned off in Task Manager. Turn it on there under Startup apps.
 settings-start-problem = Bediz could not change whether Windows starts it, so this may not happen as set: { $reason }
 settings-language = Language
     .keywords = language, translation, English

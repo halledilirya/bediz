@@ -72,6 +72,26 @@ jobs:
           $installers = @(Get-ChildItem target/release/bundle/nsis/*-setup.exe)
           if ($installers.Count -ne 1) { throw "Expected one installer, found $($installers.Count)" }
           Copy-Item $installers[0].FullName release-files
+      - name: Package for the Microsoft Store
+        id: store
+        if: vars.STORE_IDENTITY_NAME != ''
+        # A Store package that cannot be made must not hold back the GitHub release.
+        continue-on-error: true
+        env:
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: >
+          ./app/src-tauri/msix/pack.ps1
+          -StoreName $env:STORE_IDENTITY_NAME
+          -StorePublisher $env:STORE_PUBLISHER
+          -StorePublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.store.outcome == 'success'
+        with:
+          name: store-package
+          path: target/msix/*.msix
+          if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-files

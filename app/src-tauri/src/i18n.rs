@@ -22,6 +22,8 @@ const LOCALES: [(&str, &str); 13] = [
     ("zh", include_str!("../../../locales/zh/bediz.ftl")),
 ];
 const RIGHT_TO_LEFT: [&str; 1] = ["ar"];
+const FIRST_STRONG_ISOLATE: char = '\u{2068}';
+const POP_DIRECTIONAL_ISOLATE: char = '\u{2069}';
 
 pub struct Language(Mutex<&'static str>);
 
@@ -100,10 +102,12 @@ impl Texts {
         self.format(id, None)
     }
 
+    // Win32 menus and task dialogs draw Fluent's isolation marks as boxes; the label's DirectWrite needs them.
     pub fn get_with(&self, id: &str, name: &'static str, value: &str) -> String {
         let mut args = FluentArgs::new();
         args.set(name, value.to_owned());
         self.format(id, Some(&args))
+            .replace([FIRST_STRONG_ISOLATE, POP_DIRECTIONAL_ISOLATE], "")
     }
 
     pub fn notice(&self, notice: &Notice) -> String {
@@ -437,6 +441,36 @@ price = Costs $5
         let texts = Texts::for_languages(&["en".to_owned()]);
         let taken = texts.get_with("tray-hotkey-taken", "key", "Ctrl+Shift+A");
         assert!(taken.contains("Ctrl+Shift+A"), "{taken}");
+    }
+
+    #[test]
+    fn a_text_for_a_windows_control_has_no_isolation_marks() {
+        let marks = [FIRST_STRONG_ISOLATE, POP_DIRECTIONAL_ISOLATE];
+        for code in ["tr", "ar"] {
+            let texts = Texts::for_languages(&[code.to_owned()]);
+            for id in [
+                "question-taken",
+                "question-taken-detail",
+                "tray-hotkey-taken",
+            ] {
+                let text = texts.get_with(id, "key", "Print Screen");
+                assert!(text.contains("Print Screen"), "{code} {id}: {text}");
+                assert!(!text.contains(marks), "{code} {id}: {text:?}");
+            }
+            let update = texts.get_with("tray-update-to", "version", "1.2.3");
+            assert!(
+                update.contains("1.2.3") && !update.contains(marks),
+                "{update:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_notice_keeps_its_value_isolated_for_right_to_left_text() {
+        let texts = Texts::for_languages(&["ar".to_owned()]);
+        let colour = texts.notice(&Notice::ColourCopied("#FFA010".to_owned()));
+        let isolated = format!("{FIRST_STRONG_ISOLATE}#FFA010{POP_DIRECTIONAL_ISOLATE}");
+        assert!(colour.contains(&isolated), "{colour:?}");
     }
 
     #[test]

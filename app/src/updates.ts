@@ -68,6 +68,11 @@ function describe(status: UpdateStatus): string {
 }
 
 export async function enableUpdates(pane: HTMLElement): Promise<void> {
+  if (!(await invoke<boolean>("updates_offered").catch(() => true))) {
+    document.getElementById("updates")?.remove();
+    document.querySelector('[data-section="updates"]')?.remove();
+    return;
+  }
   const [name, line, action] = [
     "update-name",
     "update-said",

@@ -12,6 +12,7 @@ use crate::events::Message;
 use crate::i18n::Texts;
 use crate::settings;
 use crate::setup;
+use crate::updater;
 
 const ID: &str = "main";
 const TAKE_SCREENSHOT: &str = "tray-take-screenshot";
@@ -68,18 +69,13 @@ impl Tray {
         let quit = item(QUIT)?;
         let status = MenuItem::new(app, "", false, None::<&str>)?;
         let separator = PredefinedMenuItem::separator(app)?;
-        let menu = Menu::with_items(
-            app,
-            &[
-                &take,
-                &PredefinedMenuItem::separator(app)?,
-                &startup,
-                &settings,
-                &updates,
-                &open_logs,
-                &quit,
-            ],
-        )?;
+        let below_take = PredefinedMenuItem::separator(app)?;
+        let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&take, &below_take, &startup, &settings];
+        if updater::offered() {
+            items.push(&updates);
+        }
+        items.extend([&open_logs as &dyn IsMenuItem<Wry>, &quit]);
+        let menu = Menu::with_items(app, &items)?;
         app.manage(StartupItem(startup.clone()));
         let mut builder = TrayIconBuilder::with_id(ID)
             .menu(&menu)
@@ -104,6 +100,7 @@ impl Tray {
                     let _ = messages.send(Message::ShowUpdates);
                 }
                 OPEN_LOGS => {
+                    let logs = bediz_platform::seen_outside(&logs);
                     let _ = app.opener().open_path(logs.to_string_lossy(), None::<&str>);
                 }
                 QUIT => app.exit(0),

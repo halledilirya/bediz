@@ -58,6 +58,7 @@ settings-section-general = Genel
 settings-start-with-windows = Windows başlarken çalıştır
     .keywords = otomatik başlat, açılış, oturum, başlangıç
 settings-start-with-windows-detail = Bediz tepside bekler; oturum açılınca kısayol hemen çalışır. Görev Yöneticisi'nden kapatırsan Bediz bunu değiştirmez.
+settings-start-turned-off = Görev Yöneticisi'nde kapalı olduğu için Windows Bediz'i başlatmaz. Görev Yöneticisi'nin Başlangıç uygulamaları sayfasından açabilirsin.
 settings-start-problem = Bediz'in Windows başlarken çalışıp çalışmayacağı değiştirilemedi, bu yüzden ayarlandığı gibi olmayabilir: { $reason }
 settings-language = Dil
     .keywords = dil, çeviri, Türkçe, language, English

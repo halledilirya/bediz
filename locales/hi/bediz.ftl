@@ -58,6 +58,7 @@ settings-section-general = सामान्य
 settings-start-with-windows = Windows के साथ शुरू करें
     .keywords = स्टार्टअप, साइन इन, शुरू, ऑटोस्टार्ट, अपने आप, बूट
 settings-start-with-windows-detail = Bediz सिस्टम ट्रे में इंतज़ार करता है, इसलिए साइन इन करते ही शॉर्टकट काम करने लगता है। अगर आप इसे कार्य प्रबंधक में बंद करते हैं, तो Bediz उसे नहीं बदलता।
+settings-start-turned-off = कार्य प्रबंधक में बंद होने के कारण Windows, Bediz को शुरू नहीं करता। इसे वहाँ स्टार्टअप ऐप्स में चालू करें।
 settings-start-problem = Bediz यह नहीं बदल सका कि Windows उसे शुरू करे या नहीं, इसलिए हो सकता है कि यह सेट किए अनुसार न हो: { $reason }
 settings-language = भाषा
     .keywords = भाषा, अनुवाद, हिन्दी, हिंदी, language, English

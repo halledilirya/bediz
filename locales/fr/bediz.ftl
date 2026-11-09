@@ -58,6 +58,7 @@ settings-section-general = Général
 settings-start-with-windows = Lancer au démarrage de Windows
     .keywords = démarrage, démarrage automatique, lancement, lancer, connexion, ouvrir une session
 settings-start-with-windows-detail = Bediz attend dans la zone de notification : le raccourci fonctionne dès que vous ouvrez une session. Si vous le désactivez dans le Gestionnaire des tâches, Bediz respecte ce choix.
+settings-start-turned-off = Windows ne lance pas Bediz, car il est désactivé dans le Gestionnaire des tâches. Activez-le dans sa page Applications de démarrage.
 settings-start-problem = Bediz n’a pas pu modifier son lancement avec Windows, qui peut donc ne pas suivre ce réglage : { $reason }
 settings-language = Langue
     .keywords = langue, traduction, français, language, English

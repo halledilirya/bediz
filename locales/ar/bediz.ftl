@@ -58,6 +58,7 @@ settings-section-general = عام
 settings-start-with-windows = التشغيل عند بدء Windows
     .keywords = بدء التشغيل، تسجيل الدخول، تشغيل تلقائي، الإقلاع
 settings-start-with-windows-detail = ينتظر Bediz في علبة النظام، لذا يعمل الاختصار بمجرد تسجيل الدخول. إذا عطّلته من «إدارة المهام»، فلن يغيّر Bediz ذلك.
+settings-start-turned-off = لا يشغّل Windows تطبيق Bediz لأنه معطّل في «إدارة المهام». فعّله هناك من «تطبيقات بدء التشغيل».
 settings-start-problem = تعذّر على Bediz تغيير ما إذا كان Windows يشغّله عند البدء، لذا قد لا يحدث ذلك كما ضبطته: { $reason }
 settings-language = اللغة
     .keywords = اللغة، الترجمة، العربية، language، English

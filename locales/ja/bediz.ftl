@@ -58,6 +58,7 @@ settings-section-general = 全般
 settings-start-with-windows = Windows の起動時に実行
     .keywords = スタートアップ, 起動, 自動起動, 自動実行, サインイン, ログイン
 settings-start-with-windows-detail = Bediz はシステム トレイで待機するため、サインインするとすぐにショートカットが使えます。タスク マネージャーで無効にした場合、Bediz はその設定を変更しません。
+settings-start-turned-off = タスク マネージャーで無効になっているため、Windows は Bediz を起動しません。タスク マネージャーの [スタートアップ アプリ] で有効にしてください。
 settings-start-problem = Windows の起動時に Bediz を実行するかどうかを変更できなかったため、設定どおりにならない可能性があります: { $reason }
 settings-language = 言語
     .keywords = 言語, 翻訳, 日本語, language, English

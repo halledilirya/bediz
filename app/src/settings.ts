@@ -106,15 +106,37 @@ export async function showSettings(
       startError.hidden = problem === null;
     }
   };
+  const startOff = document.getElementById("start-off-note");
+  const turnedOff = { byUser: false, asked: 0 };
+  const showStartOff = (): void => {
+    if (startOff) {
+      startOff.hidden = !(turnedOff.byUser && checked("startWithWindows"));
+    }
+  };
+  // Windows tells no one when Task Manager changes it, so it is read again when the window is back.
+  const readStartOff = async (): Promise<void> => {
+    const asked = ++turnedOff.asked;
+    const byUser = await invoke<boolean>("start_turned_off_by_user").catch(
+      () => false,
+    );
+    if (asked === turnedOff.asked) {
+      turnedOff.byUser = byUser;
+      showStartOff();
+    }
+  };
   onLanguage(() => {
     if (warning.said) {
       error.textContent = warning.said();
     }
     showStartProblem(startProblem.shown);
   });
-  const facts: Pick<Settings, "printScreenYields" | "lastRegion"> = {
+  const facts: Pick<
+    Settings,
+    "printScreenYields" | "lastRegion" | "checkForUpdates"
+  > = {
     printScreenYields: false,
     lastRegion: null,
+    checkForUpdates: false,
   };
   const shortcuts = await enableShortcuts(form);
   const folder = enableFolder(form);
@@ -137,7 +159,11 @@ export async function showSettings(
       fileName: fileName.valid(),
       keepOutOfHistory: checked("keepOutOfHistory"),
       releaseGpuWhileIdle: checked("releaseGpuWhileIdle"),
-      checkForUpdates: checked("checkForUpdates"),
+      // An install from the Microsoft Store has no update switch, so the stored choice is kept.
+      checkForUpdates:
+        control("checkForUpdates") === null
+          ? facts.checkForUpdates
+          : checked("checkForUpdates"),
     }),
     send: async (wanted, shown) => {
       await invoke("set_settings", { settings: wanted, shown });
@@ -157,6 +183,7 @@ export async function showSettings(
       applyLook(settings.theme, settings.accent);
       facts.printScreenYields = settings.printScreenYields;
       facts.lastRegion = settings.lastRegion;
+      facts.checkForUpdates = settings.checkForUpdates;
       shortcuts.show(settings.hotkey);
       folder.show(settings.saveFolder);
       fileName.show(settings.fileName);
@@ -174,11 +201,12 @@ export async function showSettings(
       saver.notSaved(event.payload);
     });
     await listen("settings-changed", () => {
-      void saver.load().catch(() => undefined);
+      void saver.load().then(showStartOff, () => undefined);
     });
     await listen<string | null>("start-with-windows-problem", (event) => {
       startProblem.heard = true;
       showStartProblem(event.payload);
+      void readStartOff();
     });
   } catch (reason) {
     warn(() => text("settings-watch-failed", { reason: String(reason) }));
@@ -190,6 +218,10 @@ export async function showSettings(
   if (!startProblem.heard) {
     showStartProblem(problem);
   }
+  void readStartOff();
+  window.addEventListener("focus", () => {
+    void readStartOff();
+  });
   form.addEventListener("change", (event) => {
     const target = event.target;
     if (
@@ -201,6 +233,9 @@ export async function showSettings(
       saver.changed();
       if (LOOK.has(target.name)) {
         applyLook(value("theme"), value("accent"));
+      }
+      if (target.name === "startWithWindows") {
+        showStartOff();
       }
     }
   });

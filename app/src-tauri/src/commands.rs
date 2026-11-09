@@ -69,6 +69,11 @@ pub fn hotkey_state(status: State<'_, HotkeyStatus>) -> Option<&'static str> {
 }
 
 #[tauri::command]
+pub fn updates_offered() -> bool {
+    updater::offered()
+}
+
+#[tauri::command]
 pub fn update_status(updates: State<'_, Updates>) -> UpdateStatus {
     updates.status()
 }
@@ -96,6 +101,7 @@ pub async fn open_logs(app: AppHandle) -> Result<(), Failure> {
         .map_err(|error| unexpected(&app, error))?
         .join("logs");
     in_background(move || {
+        let logs = bediz_platform::seen_outside(&logs);
         app.opener()
             .open_path(logs.to_string_lossy(), None::<&str>)
             .map_err(|error| unexpected(&app, error))
@@ -113,6 +119,14 @@ pub fn open_source(app: AppHandle) -> Result<(), Failure> {
 #[tauri::command]
 pub fn start_with_windows_problem(status: State<'_, StartupStatus>) -> Option<String> {
     status.problem()
+}
+
+#[tauri::command]
+pub async fn start_turned_off_by_user(app: AppHandle) -> Result<bool, Failure> {
+    in_background(move || {
+        bediz_platform::start_turned_off_by_user().map_err(|error| unexpected(&app, error))
+    })
+    .await
 }
 
 #[tauri::command]

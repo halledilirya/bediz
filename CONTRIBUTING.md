@@ -29,6 +29,21 @@ npm test
 npm run build
 ```
 
+## The Microsoft Store package
+
+The same `bediz.exe` is installed by the setup file and by an MSIX package from the Microsoft Store. Packaged, it starts with Windows through the startup task in `app/src-tauri/msix/AppxManifest.xml` and leaves updates to the Store. The Store takes Bediz from version 1.0.0 on, since it refuses a package version that starts with 0. After `npm run tauri build`, this makes the package in `target/msix` with the Windows SDK's tools:
+
+```
+powershell -ExecutionPolicy Bypass -File app/src-tauri/msix/pack.ps1
+```
+
+To try it, turn on Developer Mode in Windows and register the package's folder; remove it before packing again:
+
+```
+Add-AppxPackage -Register target\msix\Bediz\AppxManifest.xml
+Get-AppxPackage Bediz | Remove-AppxPackage
+```
+
 ## How the code is organized
 
 - `crates/core`: logic with no operating system calls, so all of it can be unit tested.

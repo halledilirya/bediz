@@ -13,6 +13,7 @@ mod language;
 mod memory;
 mod overlay;
 mod overlay_menu;
+mod package;
 mod platform;
 mod print_screen_setting;
 mod question;
@@ -32,6 +33,7 @@ mod worker;
 
 pub use folder::{pick_folder, synced_by_onedrive};
 pub use language::preferred_languages;
+pub use package::{packaged, seen_outside};
 pub use platform::{Platform, StartError};
 pub use question::{Question, Reply, ask as ask_question};
 pub use save::{
@@ -39,4 +41,5 @@ pub use save::{
     save_chosen, save_screenshot,
 };
 pub use single_instance::{FirstInstance, first_instance};
+pub use startup::start_turned_off_by_user;
 pub use webview::make_webview_an_app;

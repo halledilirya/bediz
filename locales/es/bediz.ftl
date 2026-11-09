@@ -58,6 +58,7 @@ settings-section-general = General
 settings-start-with-windows = Iniciar con Windows
     .keywords = inicio, arranque, iniciar sesión, inicio automático, autoarranque
 settings-start-with-windows-detail = Bediz espera en la bandeja del sistema, así que el método abreviado funciona en cuanto inicia sesión. Si lo desactiva en el Administrador de tareas, Bediz no lo cambia.
+settings-start-turned-off = Windows no inicia Bediz porque está desactivado en el Administrador de tareas. Actívelo allí, en Aplicaciones de arranque.
 settings-start-problem = Bediz no pudo cambiar si Windows lo inicia, así que puede que no ocurra como se ha configurado: { $reason }
 settings-language = Idioma
     .keywords = idioma, traducción, lengua, Español, language, English

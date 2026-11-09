@@ -58,6 +58,7 @@ settings-section-general = Generale
 settings-start-with-windows = Avvia con Windows
     .keywords = avvio, avvio automatico, esecuzione automatica, accesso, accensione
 settings-start-with-windows-detail = Bediz resta in attesa nell’area di notifica, così la scorciatoia funziona appena accedi. Se lo disattivi in Gestione attività, Bediz rispetta la scelta.
+settings-start-turned-off = Windows non avvia Bediz perché è disattivato in Gestione attività. Attivalo lì, in App di avvio.
 settings-start-problem = Bediz non è riuscito a modificare l’avvio con Windows, quindi potrebbe non avvenire come impostato: { $reason }
 settings-language = Lingua
     .keywords = lingua, traduzione, italiano, language, English

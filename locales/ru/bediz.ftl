@@ -58,6 +58,7 @@ settings-section-general = Общие
 settings-start-with-windows = Запускать вместе с Windows
     .keywords = автозагрузка, автозапуск, запуск, вход в систему, загрузка
 settings-start-with-windows-detail = Bediz ждёт в области уведомлений, поэтому сочетание клавиш работает сразу после входа в систему. Если отключить его в диспетчере задач, Bediz не будет это менять.
+settings-start-turned-off = Windows не запускает Bediz, потому что он отключён в диспетчере задач. Включите его там на странице «Автозагрузка приложений».
 settings-start-problem = Не удалось изменить запуск Bediz вместе с Windows, поэтому он может происходить не так, как задано: { $reason }
 settings-language = Язык
     .keywords = язык, перевод, Русский, language, English

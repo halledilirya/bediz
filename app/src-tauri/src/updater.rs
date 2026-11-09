@@ -43,7 +43,15 @@ impl Updates {
     }
 }
 
+// The Microsoft Store updates the installs it made, and its policy forbids an app updating itself.
+pub fn offered() -> bool {
+    !bediz_platform::packaged()
+}
+
 pub fn check(app: &AppHandle) {
+    if !offered() {
+        return;
+    }
     let started = begin(app, |inner| {
         if inner.status.busy() {
             return None;

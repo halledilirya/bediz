@@ -58,6 +58,7 @@ settings-section-general = 常规
 settings-start-with-windows = 随 Windows 启动
     .keywords = 启动, 开机, 开机启动, 自启动, 自动启动, 登录
 settings-start-with-windows-detail = Bediz 在系统托盘中待命，因此登录后快捷键即可使用。如果您在任务管理器中将其禁用，Bediz 不会更改该设置。
+settings-start-turned-off = 由于已在任务管理器中禁用，Windows 不会启动 Bediz。请在任务管理器的“启动应用”中启用它。
 settings-start-problem = Bediz 无法更改是否随 Windows 启动，因此可能不会按设置生效：{ $reason }
 settings-language = 语言
     .keywords = 语言, 翻译, 中文, 简体中文, language, English
