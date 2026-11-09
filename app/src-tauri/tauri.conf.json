@@ -17,10 +17,14 @@
   "bundle": {
     "active": true,
     "publisher": "halledilirya",
+    "copyright": "Copyright (c) 2026 halledilirya",
+    "homepage": "https://github.com/halledilirya/bediz",
     "targets": ["nsis"],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       }
     },
     "icon": [
