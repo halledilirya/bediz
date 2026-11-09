@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report a vulnerability privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. Do not open a public issue for it.
+Please report a vulnerability privately through GitHub: on the repository's **Security and quality** tab, choose **Report a vulnerability**. Do not open a public issue for it.
 
 Say what you found, how to reproduce it and which version of Bediz and of Windows you used. You will get an answer within a week.
 
