@@ -14,9 +14,9 @@ use windows::Win32::Foundation::{
     ERROR_SHARING_VIOLATION, HANDLE, WIN32_ERROR,
 };
 use windows::Win32::Storage::FileSystem::{
-    FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    FileIdInfo, GetFileInformationByHandleEx, MOVE_FILE_FLAGS, MOVEFILE_REPLACE_EXISTING,
-    MoveFileExW,
+    BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FileIdInfo, GetFileInformationByHandle,
+    GetFileInformationByHandleEx, MOVE_FILE_FLAGS, MOVEFILE_REPLACE_EXISTING, MoveFileExW,
 };
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::UI::Shell::{FOLDERID_Screenshots, KF_FLAG_CREATE, SHGetKnownFolderPath};
@@ -75,8 +75,16 @@ pub struct FileId {
     file: [u8; 16],
 }
 
-#[cfg(test)]
 impl FileId {
+    fn from_index(volume: u32, high: u32, low: u32) -> Self {
+        let index = (u64::from(high) << 32) | u64::from(low);
+        Self {
+            volume: u64::from(volume),
+            file: u128::from(index).to_le_bytes(),
+        }
+    }
+
+    #[cfg(test)]
     pub fn for_tests(number: u8) -> Self {
         Self {
             volume: 1,
@@ -90,10 +98,16 @@ pub fn file_id(path: &Path) -> io::Result<FileId> {
         .access_mode(FILE_READ_ATTRIBUTES.0)
         .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
         .open(path)?;
+    let handle = HANDLE(file.as_raw_handle());
+    // FAT32, exFAT and some shares refuse FileIdInfo; their 64-bit file index still tells files apart.
+    full_file_id(handle).or_else(|_| indexed_file_id(handle))
+}
+
+fn full_file_id(handle: HANDLE) -> io::Result<FileId> {
     let mut info = FILE_ID_INFO::default();
     unsafe {
         GetFileInformationByHandleEx(
-            HANDLE(file.as_raw_handle()),
+            handle,
             FileIdInfo,
             (&mut info as *mut FILE_ID_INFO).cast(),
             size_of::<FILE_ID_INFO>() as u32,
@@ -104,6 +118,16 @@ pub fn file_id(path: &Path) -> io::Result<FileId> {
         volume: info.VolumeSerialNumber,
         file: info.FileId.Identifier,
     })
+}
+
+fn indexed_file_id(handle: HANDLE) -> io::Result<FileId> {
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(handle, &mut info) }.map_err(io::Error::from)?;
+    Ok(FileId::from_index(
+        info.dwVolumeSerialNumber,
+        info.nFileIndexHigh,
+        info.nFileIndexLow,
+    ))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -314,6 +338,16 @@ mod tests {
             error(ERROR_ALREADY_EXISTS),
             SaveError::Other("other".to_owned())
         );
+    }
+
+    #[test]
+    fn a_file_index_keeps_its_volume_and_both_halves_apart() {
+        let id = FileId::from_index(7, 1, 2);
+        assert_eq!(id, FileId::from_index(7, 1, 2));
+        assert_ne!(id, FileId::from_index(7, 2, 1));
+        assert_ne!(id, FileId::from_index(7, 1, 3));
+        assert_ne!(id, FileId::from_index(7, 0, 2));
+        assert_ne!(id, FileId::from_index(8, 1, 2));
     }
 
     #[test]

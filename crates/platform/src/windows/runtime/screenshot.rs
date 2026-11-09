@@ -40,14 +40,16 @@ impl Runtime {
             notes.push("no overlay was ready; it was built again first".to_owned());
         }
         let Some(scene) = self.scene.as_mut() else {
-            (self.sink)(Event::Failed(Failure::Displays(
-                "no display is ready".to_owned(),
-            )));
+            self.emit_notes(notes);
+            self.capture_failed("no display is ready".to_owned());
             return;
         };
         let previous = unsafe { GetForegroundWindow() };
         if let Err(error) = scene.allocate() {
-            (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+            self.emit_notes(notes);
+            self.capture_failed(format!(
+                "the overlay's memory could not be allocated: {error}"
+            ));
             self.rest_scene();
             return;
         }
@@ -55,10 +57,7 @@ impl Runtime {
             Ok(monitors) => monitors,
             Err(error) => {
                 self.emit_notes(notes);
-                (self.sink)(Event::Notice {
-                    notices: vec![Notice::CaptureFailed(error.to_string())],
-                    near: pointer_rect(),
-                });
+                self.capture_failed(error.to_string());
                 self.rest_scene();
                 return;
             }
@@ -97,9 +96,9 @@ impl Runtime {
         self.session = Some(Session::new(previous, self.enter));
         if let Err(error) = shown {
             self.emit_notes(notes);
-            (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
             self.hide();
             self.build_scene();
+            self.capture_failed(format!("the overlay could not be shown: {error}"));
             return;
         }
         match foreground {
@@ -135,6 +134,13 @@ impl Runtime {
         if let Err(error) = first_view {
             self.draw_failed(&error);
         }
+    }
+
+    fn capture_failed(&self, reason: String) {
+        (self.sink)(Event::Notice {
+            notices: vec![Notice::CaptureFailed(reason)],
+            near: pointer_rect(),
+        });
     }
 
     // A failed draw may have lost the device, and only a new scene brings the overlay back.
