@@ -1,10 +1,5 @@
-use quantette::PaletteBuf;
-use quantette::color_map::{IndexedColorMap, NearestNeighborColorMap};
-use quantette::deps::palette::Srgb;
-
 use super::change::Rgb;
-
-type Channels = [f32; 3];
+use super::nearest::{Channels, Nearest, channels};
 
 pub(super) fn dither(
     pixels: &[Rgb],
@@ -16,17 +11,7 @@ pub(super) fn dither(
     if width == 0 {
         return None;
     }
-    let palette = PaletteBuf::new(
-        colours
-            .iter()
-            .map(|colour| {
-                let [red, green, blue] = channels(*colour);
-                Srgb::new(red, green, blue)
-            })
-            .collect(),
-    )
-    .ok()?;
-    let nearest: NearestNeighborColorMap<Srgb<f32>, f32, 3> = NearestNeighborColorMap::new(palette);
+    let mut nearest = Nearest::new(colours)?;
     let mut indices = vec![transparent; pixels.len()];
     let mut current = vec![[0.0; 3]; width + 2];
     let mut next = vec![[0.0; 3]; width + 2];
@@ -48,13 +33,13 @@ pub(super) fn dither(
             };
             let slot = x + 1;
             let carried = current.get(slot).copied().unwrap_or_default();
-            let [red, green, blue] = sum(channels(*pixel), carried).map(|c| c.clamp(0.0, 255.0));
-            let chosen = nearest.palette_index(&Srgb::new(red, green, blue));
+            let wanted = sum(channels(*pixel), carried).map(|c| c.clamp(0.0, 255.0));
+            let chosen = nearest.index(wanted);
             *index = chosen;
             let Some(colour) = colours.get(usize::from(chosen)) else {
                 continue;
             };
-            let error = difference([red, green, blue], channels(*colour));
+            let error = difference(wanted, channels(*colour));
             let (ahead, behind) = if forward {
                 (slot + 1, slot - 1)
             } else {
@@ -69,10 +54,6 @@ pub(super) fn dither(
         next.fill([0.0; 3]);
     }
     Some(indices)
-}
-
-fn channels([red, green, blue]: Rgb) -> Channels {
-    [f32::from(red), f32::from(green), f32::from(blue)]
 }
 
 fn sum([a, b, c]: Channels, [x, y, z]: Channels) -> Channels {

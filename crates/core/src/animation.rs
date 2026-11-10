@@ -1,7 +1,10 @@
 mod change;
+mod codec;
 mod dither;
 mod frame;
+mod nearest;
 mod palette;
+mod store;
 mod timing;
 
 use std::io::Write;
@@ -9,10 +12,10 @@ use std::time::Duration;
 
 use thiserror::Error;
 
-use crate::image::Image;
-use change::{Area, Rgb};
 use frame::IndexedFrame;
 use timing::Timing;
+
+pub use store::{FrameStore, StoredFrame};
 
 #[derive(Debug, Error)]
 pub enum AnimationError {
@@ -25,6 +28,10 @@ pub enum AnimationError {
         actual_width: u32,
         actual_height: u32,
     },
+    #[error("the recording reached its memory budget of {budget} bytes")]
+    Budget { budget: usize },
+    #[error("a stored frame could not be read back")]
+    Unreadable,
     #[error("the frame's colours could not be reduced to a palette")]
     Palette,
     #[error("an animation needs at least one frame")]
@@ -33,64 +40,59 @@ pub enum AnimationError {
     Gif(#[from] gif::EncodingError),
 }
 
+pub struct PreparedFrame {
+    at: Duration,
+    canvas: (u16, u16),
+    indexed: IndexedFrame,
+}
+
+impl PreparedFrame {
+    pub fn new(frame: &StoredFrame) -> Result<Self, AnimationError> {
+        let cut = frame.cut().ok_or(AnimationError::Unreadable)?;
+        let indexed = IndexedFrame::new(&cut, frame.area).ok_or(AnimationError::Palette)?;
+        Ok(Self {
+            at: frame.at,
+            canvas: frame.canvas,
+            indexed,
+        })
+    }
+}
+
 pub struct GifEncoder<W: Write> {
     encoder: gif::Encoder<W>,
     width: u16,
     height: u16,
     timing: Timing,
-    previous: Option<Vec<Rgb>>,
     pending: Option<(u32, IndexedFrame)>,
 }
 
 impl<W: Write> GifEncoder<W> {
     pub fn new(writer: W, width: u32, height: u32) -> Result<Self, AnimationError> {
-        let (Ok(gif_width), Ok(gif_height)) = (u16::try_from(width), u16::try_from(height)) else {
-            return Err(AnimationError::Size { width, height });
-        };
-        if gif_width == 0 || gif_height == 0 {
-            return Err(AnimationError::Size { width, height });
-        }
-        let mut encoder = gif::Encoder::new(writer, gif_width, gif_height, &[])?;
+        let (width, height) = gif_size(width, height)?;
+        let mut encoder = gif::Encoder::new(writer, width, height, &[])?;
         encoder.set_repeat(gif::Repeat::Infinite)?;
         Ok(Self {
             encoder,
-            width: gif_width,
-            height: gif_height,
+            width,
+            height,
             timing: Timing::default(),
-            previous: None,
             pending: None,
         })
     }
 
-    pub fn push(&mut self, image: &Image, at: Duration) -> Result<(), AnimationError> {
-        if image.width() != u32::from(self.width) || image.height() != u32::from(self.height) {
+    pub fn push(&mut self, frame: PreparedFrame) -> Result<(), AnimationError> {
+        let (width, height) = frame.canvas;
+        if (width, height) != (self.width, self.height) {
             return Err(AnimationError::FrameSize {
                 width: self.width,
                 height: self.height,
-                actual_width: image.width(),
-                actual_height: image.height(),
+                actual_width: u32::from(width),
+                actual_height: u32::from(height),
             });
         }
-        let current: Vec<Rgb> = image
-            .bgra()
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|[blue, green, red, _]| [*red, *green, *blue])
-            .collect();
-        let area = match &self.previous {
-            Some(previous) => change::changed_area(previous, &current, self.width),
-            None => Some(Area::whole(self.width, self.height)),
-        };
-        let Some(area) = area else {
-            return Ok(());
-        };
-        let cut = change::cut(self.previous.as_deref(), &current, self.width, area);
-        let frame = IndexedFrame::new(&cut, area).ok_or(AnimationError::Palette)?;
-        let start = self.timing.start(at);
+        let start = self.timing.start(frame.at);
         self.write_pending(start)?;
-        self.pending = Some((start, frame));
-        self.previous = Some(current);
+        self.pending = Some((start, frame.indexed));
         Ok(())
     }
 
@@ -119,11 +121,21 @@ impl<W: Write> GifEncoder<W> {
     }
 }
 
+fn gif_size(width: u32, height: u32) -> Result<(u16, u16), AnimationError> {
+    match (u16::try_from(width), u16::try_from(height)) {
+        (Ok(gif_width), Ok(gif_height)) if gif_width > 0 && gif_height > 0 => {
+            Ok((gif_width, gif_height))
+        }
+        _ => Err(AnimationError::Size { width, height }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::image::Image;
 
     const BLACK: [u8; 3] = [0, 0, 0];
     const RED: [u8; 3] = [255, 0, 0];
@@ -158,10 +170,14 @@ mod tests {
     }
 
     fn encode(frames: &[(&Image, u64)], end: u64) -> Vec<u8> {
-        let first = frames[0].0;
-        let mut encoder = GifEncoder::new(Vec::new(), first.width(), first.height()).unwrap();
+        let (width, height) = (frames[0].0.width(), frames[0].0.height());
+        let mut store = FrameStore::new(width, height, usize::MAX).unwrap();
+        let mut encoder = GifEncoder::new(Vec::new(), width, height).unwrap();
         for (frame, millis) in frames {
-            encoder.push(frame, Duration::from_millis(*millis)).unwrap();
+            store.push(frame, Duration::from_millis(*millis)).unwrap();
+            while let Some(stored) = store.pop() {
+                encoder.push(PreparedFrame::new(&stored).unwrap()).unwrap();
+            }
         }
         encoder.finish(Duration::from_millis(end)).unwrap()
     }
@@ -354,6 +370,44 @@ mod tests {
     }
 
     #[test]
+    fn frames_prepared_out_of_order_on_other_threads_make_the_same_file() {
+        let frames: Vec<Image> = (0..6u32)
+            .map(|n| {
+                image(32, 32, move |x, y| {
+                    [(x * 8) as u8, ((y + n) * 8) as u8, (n * 40) as u8]
+                })
+            })
+            .collect();
+        let timed: Vec<(&Image, u64)> = frames.iter().zip((0..).step_by(100)).collect();
+        let expected = encode(&timed, 600);
+        let mut store = FrameStore::new(32, 32, usize::MAX).unwrap();
+        for (frame, millis) in &timed {
+            store.push(frame, Duration::from_millis(*millis)).unwrap();
+        }
+        let stored: Vec<StoredFrame> = std::iter::from_fn(|| store.pop()).collect();
+        let prepared: Vec<PreparedFrame> = std::thread::scope(|scope| {
+            let handles: Vec<_> = stored
+                .iter()
+                .rev()
+                .map(|frame| scope.spawn(move || PreparedFrame::new(frame).unwrap()))
+                .collect();
+            handles
+                .into_iter()
+                .rev()
+                .map(|handle| handle.join().unwrap())
+                .collect()
+        });
+        let mut encoder = GifEncoder::new(Vec::new(), 32, 32).unwrap();
+        for frame in prepared {
+            encoder.push(frame).unwrap();
+        }
+        assert_eq!(
+            encoder.finish(Duration::from_millis(600)).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
     fn sizes_a_gif_cannot_hold_are_refused() {
         assert!(matches!(
             GifEncoder::new(Vec::new(), 0, 10),
@@ -366,10 +420,22 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_of_another_size_is_refused() {
+    fn a_frame_from_a_recording_of_another_size_is_refused() {
+        let mut store = FrameStore::new(5, 4, usize::MAX).unwrap();
+        store
+            .push(&image(5, 4, |_, _| BLACK), Duration::ZERO)
+            .unwrap();
+        let frame = PreparedFrame::new(&store.pop().unwrap()).unwrap();
         let mut encoder = GifEncoder::new(Vec::new(), 4, 4).unwrap();
-        let result = encoder.push(&image(5, 4, |_, _| BLACK), Duration::ZERO);
-        assert!(matches!(result, Err(AnimationError::FrameSize { .. })));
+        assert!(matches!(
+            encoder.push(frame),
+            Err(AnimationError::FrameSize {
+                width: 4,
+                height: 4,
+                actual_width: 5,
+                actual_height: 4
+            })
+        ));
     }
 
     #[test]
