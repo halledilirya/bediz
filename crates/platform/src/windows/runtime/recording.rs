@@ -91,6 +91,9 @@ impl Runtime {
             self.stop_recording(None);
             return;
         }
+        if paused && let Some(scene) = self.scene.as_mut() {
+            scene.hold_frames();
+        }
         self.show_recording_state();
     }
 
@@ -117,7 +120,7 @@ impl Runtime {
         let stem = self.file_name.stem(&clock::local_time(), width, height);
         let mut notes = Vec::new();
         // The selection's image becomes the first frame, and while locked it stopped following the screen.
-        if locked && let Err(error) = scene.refresh_live() {
+        if locked && let Err(error) = scene.capture(&mut notes) {
             notes.push(format!(
                 "the recording's first frame may show the screen as it was when locked: {error}"
             ));

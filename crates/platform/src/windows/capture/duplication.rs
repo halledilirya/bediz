@@ -106,13 +106,14 @@ impl Duplicator {
         }
     }
 
-    // The frame is held until the next call, as Microsoft advises, so updates in between are not copied.
+    // Not held, against Microsoft's advice: a frame held until the next tick makes that tick miss its update.
     pub fn next(
         &mut self,
         context: &ID3D11DeviceContext,
         target: Option<&ID3D11Texture2D>,
         levels: &mut WhiteLevels,
-    ) -> Result<Option<(ID3D11Texture2D, Pixels)>> {
+        draw: impl FnOnce(&ID3D11Texture2D, Pixels) -> Result<()>,
+    ) -> Result<bool> {
         if let Some(target) = target
             && self.has_image
             && self.held.is_some()
@@ -121,27 +122,36 @@ impl Duplicator {
             self.present(context, target, levels)?;
         }
         self.release()?;
+        let drawn = self.draw_fresh(context, target, levels, draw);
+        let released = self.release();
+        drawn.and_then(|drawn| released.map(|()| drawn))
+    }
+
+    fn draw_fresh(
+        &mut self,
+        context: &ID3D11DeviceContext,
+        target: Option<&ID3D11Texture2D>,
+        levels: &mut WhiteLevels,
+        draw: impl FnOnce(&ID3D11Texture2D, Pixels) -> Result<()>,
+    ) -> Result<bool> {
         if !self.acquire(0)? {
-            return Ok(None);
+            return Ok(false);
         }
         let Some(frame) = self.held.clone() else {
-            return Ok(None);
+            return Ok(false);
         };
-        if let Some(target) = target {
-            let pixels = self.present(context, target, levels)?;
-            return Ok(Some((frame, pixels)));
-        }
-        let pixels = match format(&frame) {
-            DXGI_FORMAT_B8G8R8A8_UNORM => Pixels::Bgra8,
-            DXGI_FORMAT_R16G16B16A16_FLOAT => levels.pixels(&self.name)?,
-            other => {
+        let pixels = match (target, format(&frame)) {
+            (Some(target), _) => self.present(context, target, levels)?,
+            (None, DXGI_FORMAT_B8G8R8A8_UNORM) => Pixels::Bgra8,
+            (None, DXGI_FORMAT_R16G16B16A16_FLOAT) => levels.pixels(&self.name)?,
+            (None, other) => {
                 return Err(Error::new(
                     E_FAIL,
                     format!("the desktop image came in format {}", other.0),
                 ));
             }
         };
-        Ok(Some((frame, pixels)))
+        draw(&frame, pixels).map(|()| true)
     }
 
     pub fn refresh(
@@ -151,21 +161,33 @@ impl Duplicator {
         levels: &mut WhiteLevels,
     ) -> Result<bool> {
         self.release()?;
-        match self.acquire(0) {
-            Ok(true) => self.present(context, target, levels).map(|_| true),
-            Ok(false) => Ok(false),
+        let fresh = match self.acquire(0) {
+            Ok(fresh) => fresh,
             Err(error) if is_lost(&error) => {
                 self.reopen_quietly();
-                Ok(false)
+                return Ok(false);
             }
-            Err(error) => Err(error),
+            Err(error) => return Err(error),
+        };
+        if fresh {
+            self.present(context, target, levels)?;
         }
+        self.release().map(|()| fresh)
     }
 
     // Opened again, a duplication was seen to bring no image while the desktop stayed still, so it is the last resort.
     pub fn settle(&mut self) {
+        self.hold(Instant::now());
         if !(self.has_image && (self.holding || self.target_holds_image)) {
             self.reopen_quietly();
+        }
+    }
+
+    // While no frame is held, Windows copies every desktop update into the duplication.
+    pub fn hold(&mut self, since: Instant) {
+        if !self.holding {
+            let waited = u32::try_from(since.elapsed().as_millis()).unwrap_or(u32::MAX);
+            let _ = self.acquire(self.refresh_milliseconds.saturating_sub(waited));
         }
     }
 

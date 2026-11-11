@@ -107,7 +107,7 @@ impl Runtime {
     pub(super) fn lock_area(&mut self) {
         let (Some(bar), Some(scene), Some(session)) = (
             self.ready.as_mut(),
-            self.scene.as_ref(),
+            self.scene.as_mut(),
             self.session.as_ref(),
         ) else {
             return;
@@ -138,6 +138,7 @@ impl Runtime {
             self.draw_failed(&error);
             return;
         }
+        scene.hold_frames();
         bar.lock = Some(border);
         bar.controls.show_toggled(true);
         foreground::give_back(session.previous());
@@ -167,7 +168,7 @@ impl Runtime {
         }
         bar.controls.show_toggled(false);
         let mut notes = Vec::new();
-        if let Err(error) = scene.refresh_live() {
+        if let Err(error) = scene.capture(&mut notes) {
             notes.push(format!(
                 "the selection for a recording shows the screen as it was when locked: {error}"
             ));

@@ -235,6 +235,10 @@ impl Scene {
         every(self.overlays.iter().map(Overlay::hide))
     }
 
+    pub fn hold_frames(&mut self) {
+        self.capturer.hold_frames();
+    }
+
     pub fn rearm(&mut self) {
         self.capturer.rearm();
     }

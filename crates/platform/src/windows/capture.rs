@@ -68,14 +68,12 @@ impl Capturer {
             .get(found.gpu)
             .ok_or_else(|| Error::new(E_FAIL, "the monitor has no device"))?;
         match source {
-            Some(Source::Duplication(duplicator)) => match duplicator.next(
+            Some(Source::Duplication(duplicator)) => duplicator.next(
                 &gpu.context,
                 overlays.get(monitor).and_then(Overlay::image),
                 &mut self.levels,
-            )? {
-                Some((frame, pixels)) => draw(gpu, &frame, pixels).map(|()| true),
-                None => Ok(false),
-            },
+                |frame, pixels| draw(gpu, frame, pixels),
+            ),
             Some(Source::Gdi(surface)) => {
                 let scratch = match self.scratch.take() {
                     Some(scratch) => scratch,
@@ -218,6 +216,15 @@ impl Capturer {
         match failure {
             Some(error) => Err(error),
             None => Ok(captures),
+        }
+    }
+
+    pub fn hold_frames(&mut self) {
+        let since = Instant::now();
+        for source in &mut self.sources {
+            if let Some(Source::Duplication(duplicator)) = source {
+                duplicator.hold(since);
+            }
         }
     }
 
