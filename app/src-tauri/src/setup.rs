@@ -52,7 +52,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
         }
     }) {
         Ok(platform) => {
-            platform.send(Command::SetMenuTexts(texts.menu_texts()));
+            platform.send(Command::SetMenuTexts(Box::new(texts.menu_texts())));
             platform.send(Command::SetLastRegion(settings.last_region));
             settings::send(&platform, &settings);
             // A development build would otherwise make itself start at every sign-in.

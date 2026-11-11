@@ -128,6 +128,10 @@ pub fn png(stem: &str, attempt: u32) -> String {
     numbered(&format!("{stem}.png"), attempt)
 }
 
+pub fn gif(stem: &str, attempt: u32) -> String {
+    numbered(&format!("{stem}.gif"), attempt)
+}
+
 // Windows allows 255 UTF-16 units in one name, so a stem that fills them gives way to the suffix.
 pub fn png_within_limit(stem: &str, attempt: u32) -> String {
     let full = png(stem, attempt);
@@ -272,6 +276,9 @@ mod tests {
         assert_eq!(png("Notes", 2), "Notes (2).png");
         assert_eq!(png("Notes", 10), "Notes (10).png");
         assert_eq!(png("Notes", 0), png("Notes", 1));
+        assert_eq!(gif("Notes", 1), "Notes.gif");
+        assert_eq!(gif("Notes", 2), "Notes (2).gif");
+        assert_eq!(temporary(&gif("Notes", 1)), "Notes.gif.tmp");
     }
 
     #[test]

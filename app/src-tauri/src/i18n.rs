@@ -64,6 +64,15 @@ impl Texts {
             whole_monitor: self.get("overlay-menu-whole-monitor"),
             last_region: self.get("overlay-menu-last-region"),
             cancel: self.get("overlay-menu-cancel"),
+            record: self.get("overlay-menu-record"),
+            recording: self.get("recording-title"),
+            start_recording: self.get("recording-start"),
+            pause_recording: self.get("recording-pause"),
+            resume_recording: self.get("recording-resume"),
+            finish_recording: self.get("recording-finish"),
+            restart_recording: self.get("recording-restart"),
+            cancel_recording: self.get("recording-cancel"),
+            discard_recording: self.get("recording-discard"),
             right_to_left: self.right_to_left(),
         }
     }
@@ -113,7 +122,7 @@ impl Texts {
     pub fn notice(&self, notice: &Notice) -> String {
         let mut args = FluentArgs::new();
         if let Some((name, value)) = notice.argument() {
-            args.set(name, value.to_owned());
+            args.set(name, value);
         }
         self.format(notice.locale_id(), Some(&args))
     }
@@ -138,6 +147,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use bediz_core::delivery::{CopyError, DeliveryError, SaveError};
+    use bediz_core::recording::{RecordingStop, TIME_LIMIT};
 
     use super::*;
 
@@ -152,8 +162,10 @@ mod tests {
         include_str!("../../src/about.ts"),
     ];
 
-    const USED: [&str; 32] = [
+    const USED: [&str; 43] = [
         "settings-title",
+        "tray-record",
+        "tray-record-gif",
         "tray-settings",
         "tray-check-updates",
         "tray-update-to",
@@ -176,6 +188,15 @@ mod tests {
         "overlay-menu-whole-monitor",
         "overlay-menu-last-region",
         "overlay-menu-cancel",
+        "overlay-menu-record",
+        "recording-title",
+        "recording-start",
+        "recording-pause",
+        "recording-resume",
+        "recording-finish",
+        "recording-restart",
+        "recording-cancel",
+        "recording-discard",
         "question-title",
         "question-snipping-tool",
         "question-snipping-tool-detail",
@@ -395,6 +416,10 @@ price = Costs $5
             Notice::CopiedAndSaved,
             Notice::ColourCopied("#FFA010".to_owned()),
             Notice::CaptureFailed(reason()),
+            Notice::GifSaved,
+            Notice::RecordingStopped(RecordingStop::TimeLimit(TIME_LIMIT)),
+            Notice::RecordingStopped(RecordingStop::Memory),
+            Notice::RecordingStopped(RecordingStop::Display),
         ]
         .into_iter()
         .chain(copy_errors.map(Notice::CopyFailed))

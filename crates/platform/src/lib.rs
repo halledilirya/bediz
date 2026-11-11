@@ -1,6 +1,8 @@
 mod event;
 
-pub use event::{Command, Event, Failure, HotkeyState, Label, MenuTexts};
+pub use event::{
+    Command, Event, Failure, HotkeyState, Label, MenuTexts, RecordingAction, RecordingState,
+};
 
 #[cfg(windows)]
 #[allow(unsafe_code)]

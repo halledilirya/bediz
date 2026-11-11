@@ -17,18 +17,20 @@ use crate::event::{Event, Failure};
 use crate::windows::foreground::{self, Foreground};
 use crate::windows::hotkey;
 use crate::windows::overlay_menu::{self, Choice, Offer};
+use crate::windows::recording::Timer;
 use crate::windows::scene::Scene;
-use crate::windows::session::{Action, Session};
+use crate::windows::session::{Action, Purpose, Session};
+use bediz_core::recording;
 
 const MENU_FADE_MILLISECONDS: u32 = 500;
 
 impl Runtime {
-    pub(super) fn open(&mut self, queued: Duration) {
+    pub(super) fn open(&mut self, queued: Duration, purpose: Purpose) {
         let start = self.clock.now();
         if std::mem::take(&mut self.menu_capture) {
             let _ = unsafe { KillTimer(Some(self.window.0), MENU_FADE_TIMER) };
         }
-        if self.session.is_some() || self.held {
+        if self.session.is_some() || self.held || self.recording.is_some() {
             return;
         }
         let mut notes = Vec::new();
@@ -85,6 +87,18 @@ impl Runtime {
                 )),
             }
         }
+        let live = purpose == Purpose::Recording && {
+            scene.begin_recording();
+            match scene.exclude_from_capture(true) {
+                Ok(()) => true,
+                Err(error) => {
+                    notes.push(format!(
+                        "the selection for a recording shows a still screen: {error}"
+                    ));
+                    false
+                }
+            }
+        };
         let shown = drawn.and_then(|()| scene.uncloak());
         let uncloaked = self.clock.since(start);
         let foreground = if shown.is_ok() {
@@ -93,13 +107,21 @@ impl Runtime {
             Foreground::Refused
         };
         let focused = self.clock.since(start);
-        self.session = Some(Session::new(previous, self.enter));
+        self.session = Some(Session::new(previous, self.enter, purpose));
         if let Err(error) = shown {
             self.emit_notes(notes);
             self.hide();
             self.build_scene();
             self.capture_failed(format!("the overlay could not be shown: {error}"));
             return;
+        }
+        if live {
+            match Timer::start(recording::live_interval(), recording::live_interval()) {
+                Ok(timer) => self.live = Some(timer),
+                Err(error) => notes.push(format!(
+                    "the selection for a recording shows a still screen: {error}"
+                )),
+            }
         }
         match foreground {
             Foreground::Taken => {}
@@ -152,17 +174,7 @@ impl Runtime {
 
     // The clicked menu item fades out for a moment and would be in the capture.
     pub(super) fn open_after_menu(&mut self) {
-        let mut fades = BOOL(0);
-        let fade_on = unsafe {
-            SystemParametersInfoW(
-                SPI_GETSELECTIONFADE,
-                0,
-                Some((&mut fades as *mut BOOL).cast()),
-                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-            )
-        }
-        .is_ok_and(|()| fades.as_bool());
-        let timer = fade_on
+        let timer = menu_fades()
             && unsafe {
                 SetTimer(
                     Some(self.window.0),
@@ -174,7 +186,27 @@ impl Runtime {
         if timer {
             self.menu_capture = true;
         } else {
-            self.open(Duration::ZERO);
+            self.open(Duration::ZERO, Purpose::Screenshot);
+        }
+    }
+
+    pub(super) fn on_live_tick(&mut self) {
+        let (Some(scene), Some(session)) = (self.scene.as_mut(), self.session.as_ref()) else {
+            self.live = None;
+            return;
+        };
+        let changed = match scene.refresh_live() {
+            Ok(changed) => changed,
+            Err(error) => {
+                self.live = None;
+                self.emit_notes(vec![format!(
+                    "the selection for a recording stopped following the screen: {error}"
+                )]);
+                return;
+            }
+        };
+        if let Err(error) = session.repaint(scene, &changed) {
+            self.draw_failed(&error);
         }
     }
 
@@ -185,6 +217,7 @@ impl Runtime {
         let windows = self.detect_windows.then_some(&self.windows);
         let action = session.handle(scene, windows, self.last_region, message);
         self.act(action);
+        self.place_ready_bar();
     }
 
     fn act(&mut self, action: Result<Action>) {
@@ -193,6 +226,7 @@ impl Runtime {
             Ok(Action::Cancel) => self.hide(),
             Ok(Action::Deliver(delivery)) => self.deliver(delivery),
             Ok(Action::SaveAs) => self.save_as(),
+            Ok(Action::Record) => self.record(Duration::ZERO),
             Ok(Action::CopyColour(at)) => self.copy_colour(at),
             Ok(Action::Menu(at)) => self.open_menu(at),
             Err(error) => self.draw_failed(&error),
@@ -202,10 +236,12 @@ impl Runtime {
     pub(super) fn on_hotkey(&mut self, keys: LPARAM, opens_after: Option<Duration>) {
         if self.recording_hotkey {
             (self.sink)(Event::HotkeyWhileRecording);
+        } else if self.recording.is_some() {
+            self.stop_recording(None);
         } else if self.session.is_some() {
             self.press_in_overlay(keys);
         } else if let Some(queued) = opens_after {
-            self.open(queued);
+            self.open(queued, Purpose::Screenshot);
         }
         let (change, proves_yielding) = self.hotkey.arrived();
         self.report_hotkey(change);
@@ -230,6 +266,7 @@ impl Runtime {
             Point::new(cursor.x, cursor.y),
         );
         self.act(action);
+        self.place_ready_bar();
     }
 
     fn open_menu(&mut self, at: Point) {
@@ -247,10 +284,12 @@ impl Runtime {
             selected: session.selected().is_some(),
             last_region: self.last_region.is_some(),
             enter: self.enter,
+            recording: session.purpose() == Purpose::Recording,
         };
         match overlay_menu::choose(owner, at, texts, &offer) {
             Ok(Some(Choice::Deliver(delivery))) => self.deliver(delivery),
             Ok(Some(Choice::SaveAs)) => self.save_as(),
+            Ok(Some(Choice::Record)) => self.record(menu_fade()),
             Ok(Some(Choice::CopyColour)) => self.copy_colour(at),
             Ok(Some(Choice::WholeMonitor)) => {
                 self.reselect(|session, scene| session.select_whole_monitor(scene, at));
@@ -275,6 +314,7 @@ impl Runtime {
         if let Err(error) = session.redraw(scene, windows) {
             self.draw_failed(&error);
         }
+        self.place_ready_bar();
     }
 
     pub(super) fn hide(&mut self) {
@@ -285,6 +325,14 @@ impl Runtime {
         let Some(session) = self.session.take() else {
             return HWND::default();
         };
+        self.live = None;
+        self.ready = None;
+        if session.purpose() == Purpose::Recording
+            && let Some(scene) = self.scene.as_ref()
+            && let Err(error) = scene.exclude_from_capture(false)
+        {
+            (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+        }
         let _ = unsafe { ReleaseCapture() };
         if let Some(scene) = self.scene.as_ref()
             && let Err(error) = scene.hide()
@@ -313,6 +361,27 @@ impl Runtime {
         }
         scene.rearm();
     }
+}
+
+pub(super) fn menu_fade() -> Duration {
+    if menu_fades() {
+        Duration::from_millis(u64::from(MENU_FADE_MILLISECONDS))
+    } else {
+        Duration::ZERO
+    }
+}
+
+fn menu_fades() -> bool {
+    let mut fades = BOOL(0);
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETSELECTIONFADE,
+            0,
+            Some((&mut fades as *mut BOOL).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    }
+    .is_ok_and(|()| fades.as_bool())
 }
 
 fn pointer_rect() -> Rect {

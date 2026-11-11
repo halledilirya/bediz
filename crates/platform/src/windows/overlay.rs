@@ -23,8 +23,9 @@ use windows::Win32::Graphics::Dxgi::{
 use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromRect};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, HWND_TOPMOST, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE, SetWindowPos,
-    ShowWindow, USER_DEFAULT_SCREEN_DPI, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, HWND_TOPMOST, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE,
+    SetWindowDisplayAffinity, SetWindowPos, ShowWindow, USER_DEFAULT_SCREEN_DPI,
+    WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{BOOL, Result, w};
 
@@ -236,6 +237,15 @@ impl Overlay {
 
     pub fn uncloak(&self) -> Result<()> {
         set_flag(self.window.0, DWMWA_CLOAK, false)
+    }
+
+    pub fn exclude_from_capture(&self, exclude: bool) -> Result<()> {
+        let affinity = if exclude {
+            WDA_EXCLUDEFROMCAPTURE
+        } else {
+            WDA_NONE
+        };
+        unsafe { SetWindowDisplayAffinity(self.window.0, affinity) }
     }
 
     pub fn hide(&self) -> Result<()> {

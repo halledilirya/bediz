@@ -18,11 +18,13 @@ const WHOLE_MONITOR: usize = 5;
 const LAST_REGION: usize = 6;
 const CANCEL: usize = 7;
 const SAVE_AS: usize = 8;
+const RECORD: usize = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Deliver(Delivery),
     SaveAs,
+    Record,
     CopyColour,
     WholeMonitor,
     LastRegion,
@@ -33,6 +35,7 @@ pub struct Offer {
     pub selected: bool,
     pub last_region: bool,
     pub enter: Delivery,
+    pub recording: bool,
 }
 
 struct OwnedMenu(HMENU);
@@ -64,7 +67,13 @@ impl OwnedMenu {
 
 pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Result<Option<Choice>> {
     let menu = OwnedMenu(unsafe { CreatePopupMenu() }?);
-    if offer.selected {
+    if offer.recording {
+        menu.item(RECORD, &texts.record, "Enter", offer.selected)?;
+        if offer.selected {
+            unsafe { SetMenuDefaultItem(menu.0, RECORD as u32, 0) }?;
+        }
+        menu.separator()?;
+    } else if offer.selected {
         let key = |delivery: Delivery, own: &'static str| {
             if delivery == offer.enter {
                 "Enter"
@@ -82,9 +91,13 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
         menu.item(SAVE, &texts.save, key(Delivery::SAVE, "Ctrl+S"), true)?;
         menu.item(SAVE_AS, &texts.save_as, "Ctrl+Shift+S", true)?;
         menu.separator()?;
+        menu.item(RECORD, &texts.record, "", true)?;
+        menu.separator()?;
         unsafe { SetMenuDefaultItem(menu.0, item_for(offer.enter) as u32, 0) }?;
     }
-    menu.item(COPY_COLOUR, &texts.copy_colour, "C", true)?;
+    if !offer.recording {
+        menu.item(COPY_COLOUR, &texts.copy_colour, "C", true)?;
+    }
     menu.item(WHOLE_MONITOR, &texts.whole_monitor, "Ctrl+A", true)?;
     menu.item(LAST_REGION, &texts.last_region, "R", offer.last_region)?;
     menu.separator()?;
@@ -125,6 +138,7 @@ fn choice(id: i32) -> Option<Choice> {
         COPY => Some(Choice::Deliver(Delivery::COPY)),
         SAVE => Some(Choice::Deliver(Delivery::SAVE)),
         SAVE_AS => Some(Choice::SaveAs),
+        RECORD => Some(Choice::Record),
         COPY_COLOUR => Some(Choice::CopyColour),
         WHOLE_MONITOR => Some(Choice::WholeMonitor),
         LAST_REGION => Some(Choice::LastRegion),
@@ -169,5 +183,6 @@ mod tests {
         assert_eq!(choice(COPY as i32), Some(Choice::Deliver(Delivery::COPY)));
         assert_eq!(choice(LAST_REGION as i32), Some(Choice::LastRegion));
         assert_eq!(choice(CANCEL as i32), Some(Choice::Cancel));
+        assert_eq!(choice(RECORD as i32), Some(Choice::Record));
     }
 }

@@ -1,8 +1,9 @@
-use bediz_core::capture::Allocation;
+use bediz_core::capture::{Allocation, Pixels};
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::Image;
 use bediz_core::measurement::{Memory, MonitorCapture};
 use windows::Win32::Foundation::{E_FAIL, HINSTANCE, HWND, POINT};
+use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::core::{Error, Result};
 
@@ -112,6 +113,48 @@ impl Scene {
 
     pub fn reopen_capture(&mut self) {
         self.capturer.reopen();
+    }
+
+    pub fn gpu_for(&self, monitor: usize) -> Result<&Gpu> {
+        let found = self
+            .displays
+            .monitors
+            .get(monitor)
+            .ok_or_else(|| Error::new(E_FAIL, "the monitor is gone"))?;
+        gpu(&self.displays, found.gpu)
+    }
+
+    pub fn image_of(&self, monitor: usize) -> Option<&ID3D11Texture2D> {
+        self.overlays.get(monitor)?.image()
+    }
+
+    pub fn begin_recording(&mut self) {
+        self.capturer.begin_recording();
+    }
+
+    pub fn exclude_from_capture(&self, exclude: bool) -> Result<()> {
+        every(
+            self.overlays
+                .iter()
+                .map(|overlay| overlay.exclude_from_capture(exclude)),
+        )
+    }
+
+    pub fn refresh_live(&mut self) -> Result<Vec<usize>> {
+        self.capturer.refresh(&self.displays, &self.overlays)
+    }
+
+    pub fn grab(
+        &mut self,
+        monitor: usize,
+        draw: impl FnOnce(&Gpu, &ID3D11Texture2D, Pixels) -> Result<()>,
+    ) -> Result<bool> {
+        self.capturer
+            .grab(&self.displays, &self.overlays, monitor, draw)
+    }
+
+    pub fn end_recording(&mut self, monitor: usize) {
+        self.capturer.end_recording(monitor);
     }
 
     pub fn refresh_scales(&mut self) -> Result<()> {

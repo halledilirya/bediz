@@ -134,6 +134,7 @@ impl Dispatcher {
                 self.show_label(notices, *near);
             }
             Event::SecondStart => self.open_settings(None),
+            Event::Recording(state) => self.tray.show_recording(*state),
             _ => {}
         }
     }
@@ -224,7 +225,7 @@ impl Dispatcher {
             self.tray.show(state, &self.texts, &key);
         }
         if let Some(platform) = self.app.try_state::<Platform>() {
-            platform.send(Command::SetMenuTexts(self.texts.menu_texts()));
+            platform.send(Command::SetMenuTexts(Box::new(self.texts.menu_texts())));
         }
         settings_window::retitle(&self.app, &self.texts.get("settings-title"));
         update::language_changed(&self.app);
@@ -265,7 +266,7 @@ fn record(log: &Log, event: &Event) {
         }
         Event::PrintScreenYields => log.info("print screen yields to Bediz; kept"),
         Event::HotkeyWhileRecording => log.info("hotkey pressed while a new one was asked for"),
-        Event::LastRegion(_) => {}
+        Event::LastRegion(_) | Event::Recording(_) => {}
         Event::StartWithWindows { on, failure, .. } => {
             let wanted = if *on { "on" } else { "off" };
             match failure {

@@ -49,6 +49,22 @@ pub fn save_screenshot(folder: &Path, stem: &str, png: &[u8]) -> Result<PathBuf,
     move_to_free_name(&temporary, folder, |attempt| file_name::png(stem, attempt))
 }
 
+pub fn create_recording(folder: &Path, stem: &str) -> Result<(File, PathBuf), SaveError> {
+    for attempt in 1..=LAST_ATTEMPT {
+        let path = folder.join(file_name::temporary(&file_name::gif(stem, attempt)));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((file, path)),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(io_error(&error)),
+        }
+    }
+    Err(SaveError::NoFreeName)
+}
+
+pub fn finish_recording(temporary: &Path, folder: &Path, stem: &str) -> Result<PathBuf, SaveError> {
+    move_to_free_name(temporary, folder, |attempt| file_name::gif(stem, attempt))
+}
+
 fn move_to_free_name(
     temporary: &Path,
     folder: &Path,
@@ -274,7 +290,7 @@ fn extended_wide(path: &[u16]) -> Vec<u16> {
     }
 }
 
-fn io_error(error: &io::Error) -> SaveError {
+pub fn io_error(error: &io::Error) -> SaveError {
     match error.raw_os_error() {
         Some(code) => save_error(WIN32_ERROR(code as u32).to_hresult(), error.to_string()),
         None => SaveError::Unexpected(error.to_string()),

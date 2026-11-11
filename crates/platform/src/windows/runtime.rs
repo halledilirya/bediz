@@ -2,6 +2,7 @@ mod commands;
 mod delivery;
 mod displays;
 mod hold;
+mod recording;
 mod save_as;
 mod screenshot;
 
@@ -15,7 +16,7 @@ use std::time::Duration;
 use bediz_core::capture::Allocation;
 use bediz_core::delivery::{CopyOrder, Delivery};
 use bediz_core::file_name::Pattern;
-use windows::Win32::Foundation::{HINSTANCE, HWND, WAIT_FAILED, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{HANDLE, HINSTANCE, HWND, WAIT_FAILED, WAIT_OBJECT_0};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::INFINITE;
@@ -32,14 +33,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Result, w};
 
 use bediz_core::geometry::Rect;
+use bediz_core::recording::RecordingStop;
 
 use super::clock::{self, Clock};
 use super::contrast::{Colours, contrast_colours};
 use super::desktop_switch::{self, DesktopSwitchHook};
 use super::hotkey::{self, Change, Registration};
 use super::label_window::LabelWindow;
+use super::recording::{Recording, Timer};
 use super::save_dialog::Answers;
 use super::scene::Scene;
+use super::session::Purpose;
 use super::session::Session;
 use super::virtual_desktop::VirtualDesktops;
 use super::window_class::{self, MESSAGE_CLASS, OwnedWindow};
@@ -47,6 +51,7 @@ use super::window_list::WindowList;
 use super::worker::Worker;
 use crate::event::{Command, Event, Failure, HotkeyState, Label, MenuTexts};
 use delivery::{PendingCopy, Tracked};
+use recording::{Finishing, ReadyBar};
 use save_as::{PendingSaveAs, Waiting};
 
 pub const WM_COMMANDS: u32 = WM_APP + 1;
@@ -56,6 +61,7 @@ pub const WM_SAVE_AS: u32 = WM_APP + 4;
 pub const WM_SECOND_START: u32 = WM_APP + 5;
 pub const WM_FINISH_SAVES: u32 = WM_APP + 6;
 pub const WM_HOLD: u32 = WM_APP + 7;
+pub const WM_RECORDING: u32 = WM_APP + 8;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -103,6 +109,18 @@ struct Runtime {
     keep_out_of_history: bool,
     colours: Option<Colours>,
     last_region: Option<Rect>,
+    recording: Option<Recording>,
+    finishing: Vec<Finishing>,
+    live: Option<Timer>,
+    ready: Option<ReadyBar>,
+}
+
+fn handles(event: Option<HANDLE>, timer: Option<HANDLE>) -> ([HANDLE; 2], usize) {
+    match (event, timer) {
+        (Some(event), Some(timer)) => ([event, timer], 2),
+        (Some(only), None) | (None, Some(only)) => ([only, HANDLE::default()], 1),
+        (None, None) => ([HANDLE::default(); 2], 0),
+    }
 }
 
 pub fn run(
@@ -186,6 +204,10 @@ impl Runtime {
             keep_out_of_history: false,
             colours: contrast_colours(),
             last_region: None,
+            recording: None,
+            finishing: Vec::new(),
+            live: None,
+            ready: None,
         })
     }
 
@@ -232,32 +254,37 @@ impl Runtime {
     fn pump(&mut self) {
         loop {
             let event = self.hotkey.wake_event();
+            let timer = self
+                .recording
+                .as_ref()
+                .and_then(Recording::timer)
+                .or_else(|| self.live.as_ref().map(Timer::handle));
+            let (all, count) = handles(event, timer);
+            let handles = all.get(..count).unwrap_or_default();
             let waited = unsafe {
                 MsgWaitForMultipleObjectsEx(
-                    Some(event.as_slice()),
+                    Some(handles),
                     INFINITE,
                     QS_ALLINPUT,
                     MWMO_INPUTAVAILABLE,
                 )
             };
-            match waited {
-                WAIT_OBJECT_0 if event.is_some() => {
-                    let mut notes = Vec::new();
-                    let change = self.hotkey.setting_changed(&mut notes);
-                    self.emit_notes(notes);
-                    self.report_hotkey(change);
-                }
-                WAIT_FAILED if event.is_some() => {
-                    self.hotkey.stop_watching();
-                    self.emit_notes(vec![
-                        "waiting on the Print Screen setting failed; it is no longer watched"
-                            .to_owned(),
-                    ]);
-                }
-                WAIT_FAILED => {
-                    let _ = unsafe { WaitMessage() };
-                }
-                _ => {}
+            let signalled = usize::try_from(waited.0.wrapping_sub(WAIT_OBJECT_0.0))
+                .ok()
+                .and_then(|index| handles.get(index))
+                .copied();
+            if waited == WAIT_FAILED {
+                self.wait_failed(event.is_some(), timer.is_some());
+            } else if signalled.is_some() && signalled == event {
+                let mut notes = Vec::new();
+                let change = self.hotkey.setting_changed(&mut notes);
+                self.emit_notes(notes);
+                self.report_hotkey(change);
+            } else if signalled.is_some()
+                && signalled == timer
+                && std::panic::catch_unwind(AssertUnwindSafe(|| self.on_timer())).is_err()
+            {
+                self.recover();
             }
             match std::panic::catch_unwind(AssertUnwindSafe(|| self.drain())) {
                 Ok(true) => {}
@@ -267,12 +294,38 @@ impl Runtime {
         }
     }
 
+    fn on_timer(&mut self) {
+        if self.recording.is_some() {
+            self.on_recording_tick();
+        } else {
+            self.on_live_tick();
+        }
+    }
+
+    fn wait_failed(&mut self, watching: bool, timing: bool) {
+        if watching {
+            self.hotkey.stop_watching();
+            self.emit_notes(vec![
+                "waiting on the Print Screen setting failed; it is no longer watched".to_owned(),
+            ]);
+        } else if timing {
+            self.emit_notes(vec![
+                "waiting on a recording's timer failed; it was stopped".to_owned(),
+            ]);
+            self.live = None;
+            self.stop_recording(None);
+        } else {
+            let _ = unsafe { WaitMessage() };
+        }
+    }
+
     // A panic must not end this thread: the hotkey and every overlay live on it.
     fn recover(&mut self) {
         (self.sink)(Event::Failed(Failure::Overlay(
             "an internal error was caught; the overlay was closed".to_owned(),
         )));
         window_class::guarded((), || self.hide());
+        window_class::guarded((), || self.stop_recording(None));
     }
 
     fn drain(&mut self) -> bool {
@@ -295,7 +348,7 @@ impl Runtime {
             }
             WM_TIMER if own && message.wParam.0 == MENU_FADE_TIMER => {
                 if self.menu_capture {
-                    self.open(Duration::ZERO);
+                    self.open(Duration::ZERO, Purpose::Screenshot);
                 }
             }
             WM_TIMER if own && message.wParam.0 == DISPLAY_TIMER => {
@@ -311,9 +364,19 @@ impl Runtime {
             WM_SECOND_START if own => (self.sink)(Event::SecondStart),
             WM_FINISH_SAVES if own => self.on_finish_saves(),
             WM_HOLD if own => self.on_hold(),
+            WM_RECORDING if own => self.on_recording_ended(),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
             | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.is_overlay(message.hwnd) =>
+            {
+                self.on_input(message);
+            }
+            // A click on a start button can move the keyboard focus there, away from the selection.
+            WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+                if self
+                    .ready
+                    .as_ref()
+                    .is_some_and(|bar| bar.owns(message.hwnd)) =>
             {
                 self.on_input(message);
             }
@@ -342,7 +405,11 @@ impl Runtime {
         if window_class::take_colours_changed() {
             self.on_colours_change();
         }
+        if let Some(request) = window_class::take_controls_request() {
+            self.on_controls(request);
+        }
         if desktop_switch::take_switched() {
+            self.stop_recording(Some(RecordingStop::Display));
             self.hide();
             if let Some(scene) = self.scene.as_mut() {
                 scene.reopen_capture();

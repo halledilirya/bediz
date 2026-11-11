@@ -52,7 +52,7 @@ fn release(barrier: &mut impl Barrier) {
 
 impl Barrier for Runtime {
     fn busy(&self) -> bool {
-        self.session.is_some() || self.save_as.is_some()
+        self.session.is_some() || self.save_as.is_some() || self.recording_busy()
     }
 
     fn set_held(&mut self) {

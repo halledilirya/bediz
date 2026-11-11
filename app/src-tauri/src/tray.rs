@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use bediz_core::settings::Settings;
-use bediz_platform::{Command, HotkeyState};
-use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use bediz_platform::{Command, HotkeyState, RecordingAction, RecordingState};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, Wry};
 use tauri_plugin_opener::OpenerExt;
@@ -16,6 +16,13 @@ use crate::updater;
 
 const ID: &str = "main";
 const TAKE_SCREENSHOT: &str = "tray-take-screenshot";
+const RECORD: &str = "tray-record";
+const RECORD_GIF: &str = "tray-record-gif";
+const PAUSE: &str = "recording-pause";
+const RESUME: &str = "recording-resume";
+const FINISH: &str = "recording-finish";
+const RESTART: &str = "recording-restart";
+const DISCARD: &str = "recording-discard";
 const RETRY: &str = "tray-retry";
 const TAKE_PRINT_SCREEN: &str = "tray-take-print-screen";
 const START_WITH_WINDOWS: &str = "tray-start-with-windows";
@@ -24,13 +31,20 @@ const CHECK_UPDATES: &str = "tray-check-updates";
 const UPDATE_TO: &str = "tray-update-to";
 const OPEN_LOGS: &str = "tray-open-logs";
 const QUIT: &str = "tray-quit";
-const STATUS_POSITION: usize = 2;
+const STATUS_POSITION: usize = 3;
 
 pub struct Tray {
     icon: TrayIcon<Wry>,
     menu: Menu<Wry>,
     status: MenuItem<Wry>,
     take: MenuItem<Wry>,
+    record: Submenu<Wry>,
+    record_gif: MenuItem<Wry>,
+    pause: MenuItem<Wry>,
+    resume: MenuItem<Wry>,
+    finish: MenuItem<Wry>,
+    restart: MenuItem<Wry>,
+    discard: MenuItem<Wry>,
     retry: MenuItem<Wry>,
     take_print_screen: MenuItem<Wry>,
     startup: CheckMenuItem<Wry>,
@@ -53,6 +67,14 @@ impl Tray {
     ) -> tauri::Result<Self> {
         let item = |id: &str| MenuItem::with_id(app, id, texts.get(id), true, None::<&str>);
         let take = item(TAKE_SCREENSHOT)?;
+        let record_gif = item(RECORD_GIF)?;
+        let pause = item(PAUSE)?;
+        let resume = item(RESUME)?;
+        let finish = item(FINISH)?;
+        let restart = item(RESTART)?;
+        let discard = item(DISCARD)?;
+        let record =
+            Submenu::with_id_and_items(app, RECORD, texts.get(RECORD), true, &[&record_gif])?;
         let retry = item(RETRY)?;
         let take_print_screen = item(TAKE_PRINT_SCREEN)?;
         let startup = CheckMenuItem::with_id(
@@ -70,7 +92,8 @@ impl Tray {
         let status = MenuItem::new(app, "", false, None::<&str>)?;
         let separator = PredefinedMenuItem::separator(app)?;
         let below_take = PredefinedMenuItem::separator(app)?;
-        let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&take, &below_take, &startup, &settings];
+        let mut items: Vec<&dyn IsMenuItem<Wry>> =
+            vec![&take, &record, &below_take, &startup, &settings];
         if updater::offered() {
             items.push(&updates);
         }
@@ -87,6 +110,12 @@ impl Tray {
         let icon = builder
             .on_menu_event(move |app, event| match event.id().as_ref() {
                 TAKE_SCREENSHOT => setup::send(app, Command::CaptureAfterMenu),
+                RECORD_GIF => setup::send(app, Command::RecordGif),
+                PAUSE => setup::send(app, Command::Recording(RecordingAction::Pause)),
+                RESUME => setup::send(app, Command::Recording(RecordingAction::Resume)),
+                FINISH => setup::send(app, Command::Recording(RecordingAction::Finish)),
+                RESTART => setup::send(app, Command::Recording(RecordingAction::Restart)),
+                DISCARD => setup::send(app, Command::Recording(RecordingAction::Discard)),
                 RETRY => setup::send(app, Command::RetryHotkey),
                 TAKE_PRINT_SCREEN => setup::send(app, Command::TakePrintScreen),
                 START_WITH_WINDOWS => settings::change(app, |current| Settings {
@@ -121,6 +150,13 @@ impl Tray {
             menu,
             status,
             take,
+            record,
+            record_gif,
+            pause,
+            resume,
+            finish,
+            restart,
+            discard,
             retry,
             take_print_screen,
             startup,
@@ -135,6 +171,12 @@ impl Tray {
     pub fn retext(&self, texts: &Texts) {
         let items = [
             (&self.take, TAKE_SCREENSHOT),
+            (&self.record_gif, RECORD_GIF),
+            (&self.pause, PAUSE),
+            (&self.resume, RESUME),
+            (&self.finish, FINISH),
+            (&self.restart, RESTART),
+            (&self.discard, DISCARD),
             (&self.retry, RETRY),
             (&self.take_print_screen, TAKE_PRINT_SCREEN),
             (&self.settings, SETTINGS),
@@ -145,6 +187,7 @@ impl Tray {
             let _ = item.set_text(texts.get(id));
         }
         let _ = self.startup.set_text(texts.get(START_WITH_WINDOWS));
+        let _ = self.record.set_text(texts.get(RECORD));
         let _ = self.icon.set_tooltip(Some(texts.get("tray-tooltip")));
     }
 
@@ -154,6 +197,29 @@ impl Tray {
             None => texts.get(CHECK_UPDATES),
         };
         let _ = self.updates.set_text(text);
+    }
+
+    pub fn show_recording(&self, state: RecordingState) {
+        let every: [&dyn IsMenuItem<Wry>; 6] = [
+            &self.record_gif,
+            &self.pause,
+            &self.resume,
+            &self.finish,
+            &self.restart,
+            &self.discard,
+        ];
+        for item in every {
+            let _ = self.record.remove(item);
+        }
+        let shown: [&dyn IsMenuItem<Wry>; 4] = match state {
+            RecordingState::Off => {
+                let _ = self.record.append(&self.record_gif);
+                return;
+            }
+            RecordingState::Going => [&self.pause, &self.finish, &self.restart, &self.discard],
+            RecordingState::Paused => [&self.resume, &self.finish, &self.restart, &self.discard],
+        };
+        let _ = self.record.append_items(&shown);
     }
 
     pub fn show(&self, state: HotkeyState, texts: &Texts, key: &str) {

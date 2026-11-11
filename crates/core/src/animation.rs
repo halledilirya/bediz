@@ -40,6 +40,15 @@ pub enum AnimationError {
     Gif(#[from] gif::EncodingError),
 }
 
+impl AnimationError {
+    pub fn io(&self) -> Option<&std::io::Error> {
+        match self {
+            Self::Gif(gif::EncodingError::Io(error)) => Some(error),
+            _ => None,
+        }
+    }
+}
+
 pub struct PreparedFrame {
     at: Duration,
     canvas: (u16, u16),
@@ -436,6 +445,17 @@ mod tests {
                 actual_height: 4
             })
         ));
+    }
+
+    #[test]
+    fn a_failed_write_keeps_the_system_error() {
+        let full = std::io::Error::from(std::io::ErrorKind::StorageFull);
+        let error = AnimationError::from(gif::EncodingError::from(full));
+        assert_eq!(
+            error.io().map(std::io::Error::kind),
+            Some(std::io::ErrorKind::StorageFull)
+        );
+        assert!(AnimationError::NoFrames.io().is_none());
     }
 
     #[test]

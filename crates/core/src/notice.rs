@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 use crate::delivery::{CopyError, DeliveryError, SaveError};
+use crate::recording::{RecordingStop, clock_text};
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum Notice {
@@ -20,6 +21,10 @@ pub enum Notice {
     DeliveryFailed(DeliveryError),
     #[error("capture failed: {0}")]
     CaptureFailed(String),
+    #[error("GIF saved")]
+    GifSaved,
+    #[error("recording stopped: {0}")]
+    RecordingStopped(RecordingStop),
 }
 
 impl Notice {
@@ -33,18 +38,29 @@ impl Notice {
             Self::SaveFailed(error) => error.locale_id(),
             Self::DeliveryFailed(error) => error.locale_id(),
             Self::CaptureFailed(_) => "capture-error",
+            Self::GifSaved => "label-gif-saved",
+            Self::RecordingStopped(stop) => stop.locale_id(),
         }
     }
 
     // Other holds Windows' own text in the user's language; English details stay in the log.
-    pub fn argument(&self) -> Option<(&'static str, &str)> {
+    pub fn argument(&self) -> Option<(&'static str, String)> {
         match self {
-            Self::ColourCopied(colour) => Some(("colour", colour)),
+            Self::ColourCopied(colour) => Some(("colour", colour.clone())),
             Self::CopyFailed(CopyError::Other(reason))
             | Self::SaveFailed(SaveError::Other(reason))
-            | Self::DeliveryFailed(DeliveryError::Other(reason)) => Some(("reason", reason)),
+            | Self::DeliveryFailed(DeliveryError::Other(reason)) => {
+                Some(("reason", reason.clone()))
+            }
+            Self::RecordingStopped(RecordingStop::TimeLimit(limit)) => {
+                Some(("limit", clock_text(*limit)))
+            }
             _ => None,
         }
+    }
+
+    pub fn is_announcement(&self) -> bool {
+        matches!(self, Self::RecordingStopped(_))
     }
 
     pub fn is_failure(&self) -> bool {
@@ -59,11 +75,17 @@ impl Notice {
 }
 
 pub fn worth_a_label(notices: &[Notice], confirmations: bool) -> bool {
-    !notices.is_empty() && (confirmations || notices.iter().any(Notice::is_failure))
+    !notices.is_empty()
+        && (confirmations
+            || notices
+                .iter()
+                .any(|notice| notice.is_failure() || notice.is_announcement()))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
@@ -76,17 +98,43 @@ mod tests {
     }
 
     #[test]
+    fn a_recording_that_stopped_by_itself_is_always_announced() {
+        let stopped = [
+            Notice::RecordingStopped(RecordingStop::Memory),
+            Notice::GifSaved,
+        ];
+        assert!(worth_a_label(&stopped, false));
+        assert!(!stopped.iter().any(Notice::is_failure));
+        assert!(!worth_a_label(&[Notice::GifSaved], false));
+        assert!(worth_a_label(&[Notice::GifSaved], true));
+    }
+
+    #[test]
+    fn a_time_limit_is_passed_as_minutes_and_seconds() {
+        let notice = Notice::RecordingStopped(RecordingStop::TimeLimit(Duration::from_secs(90)));
+        assert_eq!(notice.locale_id(), "recording-stopped-time-limit");
+        assert_eq!(notice.argument(), Some(("limit", "1:30".to_owned())));
+        assert_eq!(
+            Notice::RecordingStopped(RecordingStop::Display).argument(),
+            None
+        );
+    }
+
+    #[test]
     fn the_colour_is_never_in_the_log_text() {
         let notice = Notice::ColourCopied("#FFA010".to_owned());
         assert!(!notice.to_string().contains("FFA010"));
-        assert_eq!(notice.argument(), Some(("colour", "#FFA010")));
+        assert_eq!(notice.argument(), Some(("colour", "#FFA010".to_owned())));
     }
 
     #[test]
     fn reasons_are_passed_to_the_message() {
         let notice = Notice::SaveFailed(SaveError::Other("network gone".to_owned()));
         assert_eq!(notice.locale_id(), "save-error-other");
-        assert_eq!(notice.argument(), Some(("reason", "network gone")));
+        assert_eq!(
+            notice.argument(),
+            Some(("reason", "network gone".to_owned()))
+        );
         assert!(notice.is_failure());
         assert_eq!(Notice::Saved.argument(), None);
         assert!(!Notice::Saved.is_failure());

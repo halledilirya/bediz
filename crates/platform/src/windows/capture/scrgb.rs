@@ -1,13 +1,13 @@
 use windows::Win32::Foundation::E_POINTER;
 use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile};
-use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_CONSTANT_BUFFER, D3D11_BUFFER_DESC, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
     D3D11_VIEWPORT, ID3D11Buffer, ID3D11DepthStencilView, ID3D11Device, ID3D11DeviceContext,
     ID3D11PixelShader, ID3D11Texture2D, ID3D11VertexShader,
 };
-use windows::core::{Error, PCSTR, Result, s};
+use windows::core::{Error, Result, s};
+
+use crate::windows::shader;
 
 // Highlights above SDR white are clipped on purpose: an adaptive tone mapper would shift SDR content.
 const SHADER: &str = r"
@@ -35,8 +35,8 @@ pub struct Converter {
 
 impl Converter {
     pub fn new(device: &ID3D11Device) -> Result<Self> {
-        let vertex_code = compile(s!("cover"), s!("vs_4_0"))?;
-        let pixel_code = compile(s!("encode"), s!("ps_4_0"))?;
+        let vertex_code = shader::compile(SHADER, s!("cover"), s!("vs_4_0"))?;
+        let pixel_code = shader::compile(SHADER, s!("encode"), s!("ps_4_0"))?;
         let mut vertex = None;
         let mut pixel = None;
         let mut constants = None;
@@ -100,41 +100,6 @@ impl Converter {
         }
         Ok(())
     }
-}
-
-fn compile(entry: PCSTR, target: PCSTR) -> Result<Vec<u8>> {
-    let mut code = None;
-    let mut errors = None;
-    let compiled = unsafe {
-        D3DCompile(
-            SHADER.as_ptr().cast(),
-            SHADER.len(),
-            PCSTR::null(),
-            None,
-            None,
-            entry,
-            target,
-            D3DCOMPILE_OPTIMIZATION_LEVEL3,
-            0,
-            &mut code,
-            Some(&mut errors),
-        )
-    };
-    if let Err(error) = compiled {
-        let message = errors
-            .map(|errors| String::from_utf8_lossy(&bytes(&errors)).into_owned())
-            .unwrap_or_else(|| error.message());
-        return Err(Error::new(error.code(), message));
-    }
-    code.map(|code| bytes(&code))
-        .ok_or_else(|| Error::from(E_POINTER))
-}
-
-fn bytes(blob: &ID3DBlob) -> Vec<u8> {
-    unsafe {
-        std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize())
-    }
-    .to_vec()
 }
 
 #[cfg(test)]

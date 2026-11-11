@@ -7,5 +7,6 @@ pub mod hotkey;
 pub mod image;
 pub mod measurement;
 pub mod notice;
+pub mod recording;
 pub mod selection;
 pub mod settings;

@@ -98,6 +98,69 @@ impl Duplicator {
         }
     }
 
+    // The frame is held until the next call, as Microsoft advises, so updates in between are not copied.
+    pub fn next(
+        &mut self,
+        context: &ID3D11DeviceContext,
+        target: Option<&ID3D11Texture2D>,
+        levels: &mut WhiteLevels,
+    ) -> Result<Option<(ID3D11Texture2D, Pixels)>> {
+        if let Some(target) = target
+            && self.has_image
+            && self.held.is_some()
+            && !self.target_holds_image
+        {
+            self.present(context, target, levels)?;
+        }
+        self.release()?;
+        if !self.acquire(0)? {
+            return Ok(None);
+        }
+        let Some(frame) = self.held.clone() else {
+            return Ok(None);
+        };
+        if let Some(target) = target {
+            let pixels = self.present(context, target, levels)?;
+            return Ok(Some((frame, pixels)));
+        }
+        let pixels = match format(&frame) {
+            DXGI_FORMAT_B8G8R8A8_UNORM => Pixels::Bgra8,
+            DXGI_FORMAT_R16G16B16A16_FLOAT => levels.pixels(&self.name)?,
+            other => {
+                return Err(Error::new(
+                    E_FAIL,
+                    format!("the desktop image came in format {}", other.0),
+                ));
+            }
+        };
+        Ok(Some((frame, pixels)))
+    }
+
+    pub fn refresh(
+        &mut self,
+        context: &ID3D11DeviceContext,
+        target: &ID3D11Texture2D,
+        levels: &mut WhiteLevels,
+    ) -> Result<bool> {
+        self.release()?;
+        match self.acquire(0) {
+            Ok(true) => self.present(context, target, levels).map(|_| true),
+            Ok(false) => Ok(false),
+            Err(error) if is_lost(&error) => {
+                self.reopen_quietly();
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    // Opened again, a duplication was seen to bring no image while the desktop stayed still, so it is the last resort.
+    pub fn settle(&mut self) {
+        if !(self.has_image && (self.holding || self.target_holds_image)) {
+            self.reopen_quietly();
+        }
+    }
+
     pub fn reopen_quietly(&mut self) {
         let _ = self.reopen();
     }
@@ -184,6 +247,7 @@ impl Duplicator {
                 self.held = Some(resource.cast()?);
                 let fresh = info.LastPresentTime != 0;
                 self.has_image |= fresh;
+                self.target_holds_image &= !fresh;
                 Ok(fresh)
             }
             Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => Ok(false),

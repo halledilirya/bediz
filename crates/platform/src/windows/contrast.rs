@@ -39,7 +39,7 @@ pub fn apps_use_dark_mode() -> bool {
     status == ERROR_SUCCESS && light == 0 && !high_contrast()
 }
 
-fn high_contrast() -> bool {
+pub fn high_contrast() -> bool {
     let mut contrast = HIGHCONTRASTW {
         cbSize: size_of::<HIGHCONTRASTW>() as u32,
         ..Default::default()

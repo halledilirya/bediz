@@ -36,6 +36,12 @@ pub fn read(gpu: &Gpu, source: &ID3D11Texture2D, area: Rect) -> Result<Image> {
         gpu.context
             .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
     }?;
+    let image = mapped_image(&mapped, width, height);
+    unsafe { gpu.context.Unmap(&staging, 0) };
+    image
+}
+
+pub fn mapped_image(mapped: &D3D11_MAPPED_SUBRESOURCE, width: u32, height: u32) -> Result<Image> {
     let row_bytes = width as usize * 4;
     let mut pixels = Vec::with_capacity(row_bytes * height as usize);
     let base = mapped.pData.cast::<u8>().cast_const();
@@ -43,7 +49,6 @@ pub fn read(gpu: &Gpu, source: &ID3D11Texture2D, area: Rect) -> Result<Image> {
         let start = unsafe { base.add(row * mapped.RowPitch as usize) };
         pixels.extend_from_slice(unsafe { std::slice::from_raw_parts(start, row_bytes) });
     }
-    unsafe { gpu.context.Unmap(&staging, 0) };
     Image::from_bgra(width, height, pixels)
         .map_err(|error| Error::new(E_INVALIDARG, error.to_string()))
 }

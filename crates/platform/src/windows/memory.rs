@@ -7,8 +7,19 @@ use windows::Win32::Graphics::Dxgi::{
 use windows::Win32::System::ProcessStatus::{
     GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
 };
+use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows::Win32::System::Threading::GetCurrentProcess;
 use windows::core::Interface;
+
+pub fn available_physical() -> Option<u64> {
+    let mut status = MEMORYSTATUSEX {
+        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    unsafe { GlobalMemoryStatusEx(&mut status) }
+        .ok()
+        .map(|()| status.ullAvailPhys)
+}
 
 pub fn measure<'a>(adapters: impl Iterator<Item = &'a IDXGIAdapter1>) -> Memory {
     let counters = process_counters();

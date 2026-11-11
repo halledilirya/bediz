@@ -1,4 +1,5 @@
 use bediz_core::capture::Allocation;
+use bediz_core::recording::RecordingStop;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
 use super::{DISPLAY_SETTLE_MILLISECONDS, DISPLAY_TIMER, Runtime};
@@ -8,6 +9,7 @@ use crate::windows::scene::Scene;
 
 impl Runtime {
     pub(super) fn on_display_change(&mut self) {
+        self.stop_recording(Some(RecordingStop::Display));
         self.hide();
         self.displays_changed = true;
         let timer = unsafe {

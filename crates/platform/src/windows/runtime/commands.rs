@@ -8,6 +8,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::{LABEL_MILLISECONDS, LABEL_TIMER, Runtime};
 use crate::event::{Command, Event, Label};
+use crate::windows::session::Purpose;
 use crate::windows::startup;
 
 impl Runtime {
@@ -16,8 +17,14 @@ impl Runtime {
             std::mem::take(&mut *self.commands.lock().unwrap_or_else(PoisonError::into_inner));
         for command in commands {
             match command {
-                Command::Capture => self.open(Duration::ZERO),
+                Command::Capture | Command::CaptureAfterMenu | Command::RecordGif
+                    if self.recording.is_some() =>
+                {
+                    self.stop_recording(None);
+                }
+                Command::Capture => self.open(Duration::ZERO, Purpose::Screenshot),
                 Command::CaptureAfterMenu => self.open_after_menu(),
+                Command::RecordGif => self.open(Duration::ZERO, Purpose::Recording),
                 Command::RetryHotkey => {
                     let change = self.hotkey.refresh();
                     self.report_hotkey(change);
@@ -46,8 +53,9 @@ impl Runtime {
                     self.start_with_windows(on, request);
                 }
                 Command::ShowLabel(label) => self.show_label(label),
-                Command::SetMenuTexts(texts) => self.menu_texts = Some(texts),
+                Command::SetMenuTexts(texts) => self.menu_texts = Some(*texts),
                 Command::Resume => self.resume(),
+                Command::Recording(action) => self.on_recording_action(action),
             }
         }
     }

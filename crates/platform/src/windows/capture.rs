@@ -14,6 +14,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::core::{Error, Result};
 
 use super::displays::{Displays, Monitor};
+use super::gpu::Gpu;
 use super::overlay::Overlay;
 use duplication::Duplicator;
 use gdi::GdiSurface;
@@ -26,6 +27,8 @@ enum Source {
 
 pub struct Capturer {
     sources: Vec<Option<Source>>,
+    levels: WhiteLevels,
+    scratch: Option<ID3D11Texture2D>,
 }
 
 impl Capturer {
@@ -35,7 +38,91 @@ impl Capturer {
             .iter()
             .map(|monitor| source(displays, monitor, notes))
             .collect();
-        Self { sources }
+        Self {
+            sources,
+            levels: WhiteLevels::default(),
+            scratch: None,
+        }
+    }
+
+    pub fn begin_recording(&mut self) {
+        self.levels = WhiteLevels::default();
+        self.scratch = None;
+    }
+
+    pub fn grab(
+        &mut self,
+        displays: &Displays,
+        overlays: &[Overlay],
+        monitor: usize,
+        draw: impl FnOnce(&Gpu, &ID3D11Texture2D, Pixels) -> Result<()>,
+    ) -> Result<bool> {
+        let (Some(found), Some(source)) = (
+            displays.monitors.get(monitor),
+            self.sources.get_mut(monitor),
+        ) else {
+            return Err(Error::new(E_FAIL, "the recorded monitor is gone"));
+        };
+        let gpu = displays
+            .gpus
+            .get(found.gpu)
+            .ok_or_else(|| Error::new(E_FAIL, "the monitor has no device"))?;
+        match source {
+            Some(Source::Duplication(duplicator)) => match duplicator.next(
+                &gpu.context,
+                overlays.get(monitor).and_then(Overlay::image),
+                &mut self.levels,
+            )? {
+                Some((frame, pixels)) => draw(gpu, &frame, pixels).map(|()| true),
+                None => Ok(false),
+            },
+            Some(Source::Gdi(surface)) => {
+                let scratch = match self.scratch.take() {
+                    Some(scratch) => scratch,
+                    None => gpu.image_texture(found.rect.width(), found.rect.height())?,
+                };
+                let scratch = self.scratch.insert(scratch);
+                surface.capture(found.rect, &gpu.context, scratch)?;
+                draw(gpu, scratch, Pixels::Bgra8).map(|()| true)
+            }
+            None => Err(Error::new(E_FAIL, "the monitor has no capture source")),
+        }
+    }
+
+    pub fn refresh(&mut self, displays: &Displays, overlays: &[Overlay]) -> Result<Vec<usize>> {
+        let mut changed = Vec::new();
+        let parts = self
+            .sources
+            .iter_mut()
+            .zip(&displays.monitors)
+            .zip(overlays)
+            .enumerate();
+        for (index, ((source, monitor), overlay)) in parts {
+            let (Some(gpu), Some(image)) = (displays.gpus.get(monitor.gpu), overlay.image()) else {
+                continue;
+            };
+            let fresh = match source {
+                Some(Source::Duplication(duplicator)) => {
+                    duplicator.refresh(&gpu.context, image, &mut self.levels)?
+                }
+                Some(Source::Gdi(surface)) => {
+                    surface.capture(monitor.rect, &gpu.context, image)?;
+                    true
+                }
+                None => false,
+            };
+            if fresh {
+                changed.push(index);
+            }
+        }
+        Ok(changed)
+    }
+
+    pub fn end_recording(&mut self, monitor: usize) {
+        self.scratch = None;
+        if let Some(Some(Source::Duplication(duplicator))) = self.sources.get_mut(monitor) {
+            duplicator.settle();
+        }
     }
 
     pub fn capture(

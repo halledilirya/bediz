@@ -25,8 +25,15 @@ pub enum Action {
     Cancel,
     Deliver(Delivery),
     SaveAs,
+    Record,
     CopyColour(Point),
     Menu(Point),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Purpose {
+    Screenshot,
+    Recording,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +63,7 @@ struct Click {
 pub struct Session {
     previous: HWND,
     enter: Delivery,
+    purpose: Purpose,
     selection: Option<Selection>,
     click: Option<Click>,
     pointer: Option<Point>,
@@ -63,7 +71,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(previous: HWND, enter: Delivery) -> Self {
+    pub fn new(previous: HWND, enter: Delivery, purpose: Purpose) -> Self {
         show_cursor(IDC_CROSS);
         let mut cursor = POINT::default();
         let pointer = unsafe { GetCursorPos(&mut cursor) }
@@ -72,6 +80,7 @@ impl Session {
         Self {
             previous,
             enter,
+            purpose,
             selection: None,
             click: None,
             pointer,
@@ -83,8 +92,28 @@ impl Session {
         self.previous
     }
 
+    pub fn purpose(&self) -> Purpose {
+        self.purpose
+    }
+
+    pub fn repaint(&self, scene: &Scene, monitors: &[usize]) -> Result<()> {
+        for &index in monitors {
+            if let Some(view) = self.views.get(index) {
+                scene.draw_one(index, view)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn selected(&self) -> Option<Rect> {
         self.selection?.rect()
+    }
+
+    pub fn settled(&self) -> Option<Rect> {
+        if self.click.is_some() || self.is_dragging() {
+            return None;
+        }
+        self.selected()
     }
 
     pub fn handle(
@@ -100,7 +129,7 @@ impl Session {
         }
         let changed = match message.message {
             WM_LBUTTONDBLCLK if self.inside_selection(scene, point) => {
-                return Ok(Action::Deliver(self.enter));
+                return Ok(confirm(self.purpose, self.enter));
             }
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
                 self.press(scene, windows, point);
@@ -235,7 +264,7 @@ impl Session {
         press: KeyPress,
         point: Point,
     ) -> Option<Action> {
-        match respond(press, self.selected().is_some(), self.enter)? {
+        match respond(press, self.selected().is_some(), self.enter, self.purpose)? {
             Response::Act(action) => Some(action),
             Response::Move { dx, dy, resize } => {
                 let selection = self.selection.as_mut()?;
@@ -317,29 +346,41 @@ impl Session {
     }
 }
 
-fn respond(press: KeyPress, selected: bool, enter: Delivery) -> Option<Response> {
+fn confirm(purpose: Purpose, enter: Delivery) -> Action {
+    match purpose {
+        Purpose::Screenshot => Action::Deliver(enter),
+        Purpose::Recording => Action::Record,
+    }
+}
+
+fn respond(press: KeyPress, selected: bool, enter: Delivery, purpose: Purpose) -> Option<Response> {
     let step = if press.shift { 10 } else { 1 };
     let moved = |dx, dy| Response::Move {
         dx,
         dy,
         resize: press.control,
     };
+    let screenshot = purpose == Purpose::Screenshot;
     let response = match press.key {
         VK_ESCAPE => Response::Act(Action::Cancel),
         VK_F4 if press.alt => Response::Act(Action::Cancel),
-        VK_RETURN if selected => Response::Act(Action::Deliver(enter)),
-        VK_C if press.control && selected => Response::Act(Action::Deliver(Delivery::COPY)),
-        VK_S if press.control && !press.shift && selected => {
+        VK_RETURN if selected => Response::Act(confirm(purpose, enter)),
+        VK_C if press.control && selected && screenshot => {
+            Response::Act(Action::Deliver(Delivery::COPY))
+        }
+        VK_S if press.control && !press.shift && selected && screenshot => {
             Response::Act(Action::Deliver(Delivery::SAVE))
         }
-        VK_S if press.control && press.shift && selected => Response::Act(Action::SaveAs),
+        VK_S if press.control && press.shift && selected && screenshot => {
+            Response::Act(Action::SaveAs)
+        }
         VK_LEFT => moved(-step, 0),
         VK_RIGHT => moved(step, 0),
         VK_UP => moved(0, -step),
         VK_DOWN => moved(0, step),
         VK_A if press.control => Response::WholeMonitor,
         VK_R if !press.control => Response::LastRegion,
-        VK_C if !press.control => Response::CopyColour,
+        VK_C if !press.control && screenshot => Response::CopyColour,
         VK_APPS => Response::Menu,
         VK_F10 if press.shift => Response::Menu,
         VK_SHIFT | VK_MENU => Response::Modifiers,
@@ -399,19 +440,64 @@ mod tests {
     use bediz_core::delivery::Delivery;
     use windows::Win32::Foundation::LPARAM;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, VIRTUAL_KEY, VK_C, VK_F4, VK_LEFT, VK_S,
+        HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, VIRTUAL_KEY, VK_A, VK_C, VK_ESCAPE,
+        VK_F4, VK_LEFT, VK_RETURN, VK_S,
     };
 
-    use super::{Action, Response, respond};
+    use super::{Action, Purpose, Response, respond};
     use crate::windows::hotkey::as_key_press;
+
+    fn replayed_for(
+        purpose: Purpose,
+        modifiers: HOT_KEY_MODIFIERS,
+        key: VIRTUAL_KEY,
+        selected: bool,
+    ) -> Option<Response> {
+        let keys = LPARAM(((key.0 as isize) << 16) | modifiers.0 as isize);
+        respond(
+            as_key_press(keys),
+            selected,
+            Delivery::COPY_AND_SAVE,
+            purpose,
+        )
+    }
 
     fn replayed(
         modifiers: HOT_KEY_MODIFIERS,
         key: VIRTUAL_KEY,
         selected: bool,
     ) -> Option<Response> {
-        let keys = LPARAM(((key.0 as isize) << 16) | modifiers.0 as isize);
-        respond(as_key_press(keys), selected, Delivery::COPY_AND_SAVE)
+        replayed_for(Purpose::Screenshot, modifiers, key, selected)
+    }
+
+    #[test]
+    fn enter_starts_a_recording_and_screenshot_keys_do_nothing_there() {
+        let recording = |modifiers, key| replayed_for(Purpose::Recording, modifiers, key, true);
+        assert_eq!(
+            recording(HOT_KEY_MODIFIERS(0), VK_RETURN),
+            Some(Response::Act(Action::Record))
+        );
+        assert_eq!(recording(MOD_CONTROL, VK_C), None);
+        assert_eq!(recording(MOD_CONTROL, VK_S), None);
+        assert_eq!(recording(MOD_CONTROL | MOD_SHIFT, VK_S), None);
+        assert_eq!(recording(HOT_KEY_MODIFIERS(0), VK_C), None);
+        assert_eq!(recording(MOD_CONTROL, VK_A), Some(Response::WholeMonitor));
+        assert_eq!(
+            recording(HOT_KEY_MODIFIERS(0), VK_ESCAPE),
+            Some(Response::Act(Action::Cancel))
+        );
+        assert_eq!(
+            replayed_for(Purpose::Recording, HOT_KEY_MODIFIERS(0), VK_RETURN, false),
+            None
+        );
+    }
+
+    #[test]
+    fn enter_in_a_screenshot_does_what_the_setting_says() {
+        assert_eq!(
+            replayed(HOT_KEY_MODIFIERS(0), VK_RETURN, true),
+            Some(Response::Act(Action::Deliver(Delivery::COPY_AND_SAVE)))
+        );
     }
 
     #[test]

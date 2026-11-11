@@ -1,30 +1,44 @@
 use std::cell::Cell;
 use std::panic::AssertUnwindSafe;
 
+use std::ffi::c_void;
+
 use windows::Win32::Foundation::{
     ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM,
 };
-use windows::Win32::Graphics::Gdi::ValidateRect;
+use windows::Win32::Graphics::Gdi::{
+    CreateSolidBrush, HDC, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE, RedrawWindow, ValidateRect,
+};
+use windows::Win32::System::SystemServices::MK_LBUTTON;
+use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HCURSOR, HTCLIENT, IDC_CROSS, LoadCursorW,
-    RegisterClassExW, SetCursor, WM_APP, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE, WM_ERASEBKGND,
-    WM_GETOBJECT, WM_HOTKEY, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE,
-    WNDCLASSEXW,
+    BN_CLICKED, CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HCURSOR, HTCLIENT,
+    HTTRANSPARENT, IDC_ARROW, IDC_CROSS, IDC_SIZEALL, LoadCursorW, MA_NOACTIVATE, RegisterClassExW,
+    SetCursor, WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY,
+    WM_DISPLAYCHANGE, WM_DRAWITEM, WM_ERASEBKGND, WM_GETOBJECT, WM_HOTKEY, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
+    WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
 use super::hotkey::HOTKEY;
 use super::label_window::automation;
+use super::recording::border;
+use super::recording::controls::{self, drag, paint};
 use super::runtime::WM_STOP;
 
 pub const MESSAGE_CLASS: PCWSTR = w!("BedizMessage");
 pub const OVERLAY_CLASS: PCWSTR = w!("BedizOverlay");
 pub const LABEL_CLASS: PCWSTR = w!("BedizLabel");
+pub const BORDER_CLASS: PCWSTR = w!("BedizRecordingBorder");
+pub const CONTROLS_CLASS: PCWSTR = w!("BedizRecordingControls");
+pub const MOVABLE_CONTROLS_CLASS: PCWSTR = w!("BedizMovableRecordingControls");
 
 thread_local! {
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CLOSE_REQUESTED: Cell<bool> = const { Cell::new(false) };
     static LABEL_CLOSE_REQUESTED: Cell<bool> = const { Cell::new(false) };
+    static CONTROLS_REQUEST: Cell<Option<controls::Request>> = const { Cell::new(None) };
     static COLOURS_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CURSOR: Cell<Option<HCURSOR>> = const { Cell::new(None) };
     static MISSED: Cell<Vec<u32>> = const { Cell::new(Vec::new()) };
@@ -68,6 +82,10 @@ pub fn take_colours_changed() -> bool {
     COLOURS_CHANGED.with(|flag| flag.replace(false))
 }
 
+pub fn take_controls_request() -> Option<controls::Request> {
+    CONTROLS_REQUEST.with(Cell::take)
+}
+
 pub fn register(instance: HINSTANCE) -> Result<()> {
     let message = WNDCLASSEXW {
         cbSize: size_of::<WNDCLASSEXW>() as u32,
@@ -94,7 +112,35 @@ pub fn register(instance: HINSTANCE) -> Result<()> {
         lpszClassName: LABEL_CLASS,
         ..Default::default()
     };
-    register_class(&label)
+    register_class(&label)?;
+    let border = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(border_procedure),
+        hInstance: instance,
+        lpszClassName: BORDER_CLASS,
+        ..Default::default()
+    };
+    register_class(&border)?;
+    let controls = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(controls_procedure),
+        hInstance: instance,
+        hCursor: unsafe { LoadCursorW(None, IDC_ARROW) }?,
+        hbrBackground: unsafe { CreateSolidBrush(paint::GROUND) },
+        lpszClassName: CONTROLS_CLASS,
+        ..Default::default()
+    };
+    register_class(&controls)?;
+    let movable = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(movable_controls_procedure),
+        hInstance: instance,
+        hCursor: unsafe { LoadCursorW(None, IDC_SIZEALL) }?,
+        hbrBackground: unsafe { CreateSolidBrush(paint::GROUND) },
+        lpszClassName: MOVABLE_CONTROLS_CLASS,
+        ..Default::default()
+    };
+    register_class(&movable)
 }
 
 fn register_class(class: &WNDCLASSEXW) -> Result<()> {
@@ -169,6 +215,112 @@ unsafe extern "system" fn label_procedure(
         }
         unsafe { DefWindowProcW(window, message, wparam, lparam) }
     })
+}
+
+unsafe extern "system" fn border_procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    guarded(LRESULT(0), || {
+        match message {
+            WM_DISPLAYCHANGE => DISPLAY_CHANGED.with(|flag| flag.set(true)),
+            WM_NCHITTEST => return LRESULT(HTTRANSPARENT as isize),
+            WM_ERASEBKGND => {
+                border::erase(window, HDC(wparam.0 as *mut c_void));
+                return LRESULT(1);
+            }
+            _ => {}
+        }
+        unsafe { DefWindowProcW(window, message, wparam, lparam) }
+    })
+}
+
+unsafe extern "system" fn controls_procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    guarded(LRESULT(0), || {
+        on_controls_message(window, message, wparam, lparam, false)
+    })
+}
+
+unsafe extern "system" fn movable_controls_procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    guarded(LRESULT(0), || {
+        on_controls_message(window, message, wparam, lparam, true)
+    })
+}
+
+fn on_controls_message(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    movable: bool,
+) -> LRESULT {
+    match message {
+        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        // The frames come from the runtime's pump, which the system's modal move loop would stop.
+        WM_LBUTTONDOWN if movable => {
+            drag::begin(window);
+            LRESULT(0)
+        }
+        WM_MOUSEMOVE if movable => {
+            drag::follow(window, wparam.0 & MK_LBUTTON.0 as usize != 0);
+            LRESULT(0)
+        }
+        WM_LBUTTONUP | WM_CAPTURECHANGED if movable => {
+            drag::end();
+            LRESULT(0)
+        }
+        WM_COMMAND if (wparam.0 >> 16) as u32 == BN_CLICKED => {
+            if let Some(button) = controls::Button::from_id((wparam.0 & 0xFFFF) as u16) {
+                CONTROLS_REQUEST
+                    .with(|request| request.set(Some(controls::Request::Press(button))));
+            }
+            LRESULT(0)
+        }
+        WM_DRAWITEM => {
+            if let Some(item) = unsafe { (lparam.0 as *const DRAWITEMSTRUCT).as_ref() } {
+                paint::draw_button(item);
+            }
+            LRESULT(1)
+        }
+        WM_CTLCOLORSTATIC => paint::colour_static(window, HDC(wparam.0 as *mut c_void)),
+        WM_ERASEBKGND => {
+            paint::erase(window, HDC(wparam.0 as *mut c_void), movable);
+            LRESULT(1)
+        }
+        // The runtime owns the controls, so a close asked through UI Automation is left to it.
+        WM_CLOSE => {
+            CONTROLS_REQUEST.with(|request| request.set(Some(controls::Request::Close)));
+            LRESULT(0)
+        }
+        WM_DISPLAYCHANGE => {
+            DISPLAY_CHANGED.with(|flag| flag.set(true));
+            LRESULT(0)
+        }
+        WM_SETTINGCHANGE | WM_SYSCOLORCHANGE => {
+            let _ = unsafe {
+                RedrawWindow(
+                    Some(window),
+                    None,
+                    None,
+                    RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+                )
+            };
+            unsafe { DefWindowProcW(window, message, wparam, lparam) }
+        }
+        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
+    }
 }
 
 unsafe extern "system" fn overlay_procedure(

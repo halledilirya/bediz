@@ -153,14 +153,7 @@ impl Gpu {
     }
 
     pub fn image_texture(&self, width: u32, height: u32) -> Result<ID3D11Texture2D> {
-        texture(
-            &self.device,
-            &D3D11_TEXTURE2D_DESC {
-                Usage: D3D11_USAGE_DEFAULT,
-                BindFlags: (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET).0 as u32,
-                ..texture_description(width, height)
-            },
-        )
+        image_texture(&self.device, width, height)
     }
 
     pub fn staging_texture(&self, width: u32, height: u32) -> Result<ID3D11Texture2D> {
@@ -196,6 +189,17 @@ impl Gpu {
                 .CreateBitmapFromDxgiSurface(surface, Some(&properties))
         }
     }
+}
+
+pub fn image_texture(device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D> {
+    texture(
+        device,
+        &D3D11_TEXTURE2D_DESC {
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET).0 as u32,
+            ..texture_description(width, height)
+        },
+    )
 }
 
 fn texture(device: &ID3D11Device, description: &D3D11_TEXTURE2D_DESC) -> Result<ID3D11Texture2D> {

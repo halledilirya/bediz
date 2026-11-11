@@ -13,6 +13,7 @@ use thiserror::Error;
 pub enum Command {
     Capture,
     CaptureAfterMenu,
+    RecordGif,
     RetryHotkey,
     TakePrintScreen,
     SetHotkey {
@@ -34,8 +35,25 @@ pub enum Command {
         request: u64,
     },
     ShowLabel(Label),
-    SetMenuTexts(MenuTexts),
+    SetMenuTexts(Box<MenuTexts>),
     Resume,
+    Recording(RecordingAction),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordingAction {
+    Pause,
+    Resume,
+    Finish,
+    Restart,
+    Discard,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordingState {
+    Off,
+    Going,
+    Paused,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -48,6 +66,15 @@ pub struct MenuTexts {
     pub whole_monitor: String,
     pub last_region: String,
     pub cancel: String,
+    pub record: String,
+    pub recording: String,
+    pub start_recording: String,
+    pub pause_recording: String,
+    pub resume_recording: String,
+    pub finish_recording: String,
+    pub restart_recording: String,
+    pub cancel_recording: String,
+    pub discard_recording: String,
     pub right_to_left: bool,
 }
 
@@ -95,4 +122,5 @@ pub enum Event {
     Note(String),
     Failed(Failure),
     SecondStart,
+    Recording(RecordingState),
 }

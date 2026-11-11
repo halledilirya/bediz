@@ -187,6 +187,7 @@ impl Runtime {
             let result = save::save_beside(&path, &png).map(drop);
             self.save_settled(job, result);
         }
+        self.finish_recordings();
     }
 
     pub(super) fn retry_clipboard(&mut self) {
