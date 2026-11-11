@@ -28,7 +28,7 @@ use super::memory;
 use super::save;
 use super::scene::Scene;
 use crate::event::MenuTexts;
-use border::Border;
+use border::{Border, Line};
 use controls::{Controls, Stage};
 use pipeline::Output;
 pub use pipeline::{Ended, Pipeline};
@@ -47,6 +47,7 @@ pub struct Request<'a> {
     pub stem: &'a str,
     pub texts: &'a MenuTexts,
     pub first_capture: Duration,
+    pub moved_bar: Option<Rect>,
 }
 
 pub enum StartError {
@@ -110,8 +111,14 @@ impl Recording {
         };
         let (dpi, work) = monitor_metrics(area);
         let scale = dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32;
-        let border = Border::create(request.instance, area, request.monitor_rect, scale)
-            .map_err(StartError::Capture)?;
+        let border = Border::create(
+            request.instance,
+            area,
+            request.monitor_rect,
+            scale,
+            Line::Solid,
+        )
+        .map_err(StartError::Capture)?;
         let controls = Controls::create(
             request.instance,
             Stage::Recording,
@@ -119,6 +126,7 @@ impl Recording {
             work,
             dpi,
             request.texts,
+            request.moved_bar,
         )
         .map_err(StartError::Capture)?;
         let folder = save::folder(request.folder).map_err(StartError::Save)?;
@@ -186,7 +194,7 @@ impl Recording {
         self.started = self.clock.now();
         self.pauses = Pauses::default();
         self.shown = 0;
-        self.controls.show_paused(false);
+        self.controls.show_toggled(false);
         let mut note = format!("the recording started over, {workers}");
         if let Err(error) = self
             .controls
@@ -209,7 +217,7 @@ impl Recording {
             self.timer = Some(Timer::start(Duration::ZERO, recording::frame_interval())?);
             self.pauses.resume(now);
         }
-        self.controls.show_paused(paused);
+        self.controls.show_toggled(paused);
         Ok(())
     }
 

@@ -13,8 +13,8 @@ use windows::Win32::System::SystemServices::MK_LBUTTON;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HCURSOR, HTCLIENT,
-    HTTRANSPARENT, IDC_ARROW, IDC_CROSS, IDC_SIZEALL, LoadCursorW, MA_NOACTIVATE, RegisterClassExW,
-    SetCursor, WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY,
+    HTTRANSPARENT, IDC_CROSS, IDC_SIZEALL, LoadCursorW, MA_NOACTIVATE, RegisterClassExW, SetCursor,
+    WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY,
     WM_DISPLAYCHANGE, WM_DRAWITEM, WM_ERASEBKGND, WM_GETOBJECT, WM_HOTKEY, WM_LBUTTONDOWN,
     WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
     WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
@@ -23,7 +23,7 @@ use windows::core::{Error, PCWSTR, Result, w};
 
 use super::hotkey::HOTKEY;
 use super::label_window::automation;
-use super::recording::border;
+use super::recording::border::{self, Line};
 use super::recording::controls::{self, drag, paint};
 use super::runtime::WM_STOP;
 
@@ -31,8 +31,8 @@ pub const MESSAGE_CLASS: PCWSTR = w!("BedizMessage");
 pub const OVERLAY_CLASS: PCWSTR = w!("BedizOverlay");
 pub const LABEL_CLASS: PCWSTR = w!("BedizLabel");
 pub const BORDER_CLASS: PCWSTR = w!("BedizRecordingBorder");
+pub const DASHED_BORDER_CLASS: PCWSTR = w!("BedizLockedAreaBorder");
 pub const CONTROLS_CLASS: PCWSTR = w!("BedizRecordingControls");
-pub const MOVABLE_CONTROLS_CLASS: PCWSTR = w!("BedizMovableRecordingControls");
 
 thread_local! {
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
@@ -121,26 +121,24 @@ pub fn register(instance: HINSTANCE) -> Result<()> {
         ..Default::default()
     };
     register_class(&border)?;
+    let dashed = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(dashed_border_procedure),
+        hInstance: instance,
+        lpszClassName: DASHED_BORDER_CLASS,
+        ..Default::default()
+    };
+    register_class(&dashed)?;
     let controls = WNDCLASSEXW {
         cbSize: size_of::<WNDCLASSEXW>() as u32,
         lpfnWndProc: Some(controls_procedure),
         hInstance: instance,
-        hCursor: unsafe { LoadCursorW(None, IDC_ARROW) }?,
+        hCursor: unsafe { LoadCursorW(None, IDC_SIZEALL) }?,
         hbrBackground: unsafe { CreateSolidBrush(paint::GROUND) },
         lpszClassName: CONTROLS_CLASS,
         ..Default::default()
     };
-    register_class(&controls)?;
-    let movable = WNDCLASSEXW {
-        cbSize: size_of::<WNDCLASSEXW>() as u32,
-        lpfnWndProc: Some(movable_controls_procedure),
-        hInstance: instance,
-        hCursor: unsafe { LoadCursorW(None, IDC_SIZEALL) }?,
-        hbrBackground: unsafe { CreateSolidBrush(paint::GROUND) },
-        lpszClassName: MOVABLE_CONTROLS_CLASS,
-        ..Default::default()
-    };
-    register_class(&movable)
+    register_class(&controls)
 }
 
 fn register_class(class: &WNDCLASSEXW) -> Result<()> {
@@ -224,17 +222,41 @@ unsafe extern "system" fn border_procedure(
     lparam: LPARAM,
 ) -> LRESULT {
     guarded(LRESULT(0), || {
-        match message {
-            WM_DISPLAYCHANGE => DISPLAY_CHANGED.with(|flag| flag.set(true)),
-            WM_NCHITTEST => return LRESULT(HTTRANSPARENT as isize),
-            WM_ERASEBKGND => {
-                border::erase(window, HDC(wparam.0 as *mut c_void));
-                return LRESULT(1);
-            }
-            _ => {}
-        }
-        unsafe { DefWindowProcW(window, message, wparam, lparam) }
+        on_border_message(window, message, wparam, lparam, Line::Solid)
     })
+}
+
+unsafe extern "system" fn dashed_border_procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    guarded(LRESULT(0), || {
+        on_border_message(window, message, wparam, lparam, Line::Dashed)
+    })
+}
+
+fn on_border_message(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    line: Line,
+) -> LRESULT {
+    match message {
+        WM_DISPLAYCHANGE => DISPLAY_CHANGED.with(|flag| flag.set(true)),
+        WM_NCHITTEST => return LRESULT(HTTRANSPARENT as isize),
+        WM_ERASEBKGND => {
+            border::erase(window, HDC(wparam.0 as *mut c_void), line);
+            return LRESULT(1);
+        }
+        WM_SETTINGCHANGE | WM_SYSCOLORCHANGE => {
+            let _ = unsafe { RedrawWindow(Some(window), None, None, RDW_INVALIDATE | RDW_ERASE) };
+        }
+        _ => {}
+    }
+    unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }
 
 unsafe extern "system" fn controls_procedure(
@@ -244,40 +266,23 @@ unsafe extern "system" fn controls_procedure(
     lparam: LPARAM,
 ) -> LRESULT {
     guarded(LRESULT(0), || {
-        on_controls_message(window, message, wparam, lparam, false)
+        on_controls_message(window, message, wparam, lparam)
     })
 }
 
-unsafe extern "system" fn movable_controls_procedure(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    guarded(LRESULT(0), || {
-        on_controls_message(window, message, wparam, lparam, true)
-    })
-}
-
-fn on_controls_message(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    movable: bool,
-) -> LRESULT {
+fn on_controls_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match message {
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         // The frames come from the runtime's pump, which the system's modal move loop would stop.
-        WM_LBUTTONDOWN if movable => {
+        WM_LBUTTONDOWN => {
             drag::begin(window);
             LRESULT(0)
         }
-        WM_MOUSEMOVE if movable => {
+        WM_MOUSEMOVE => {
             drag::follow(window, wparam.0 & MK_LBUTTON.0 as usize != 0);
             LRESULT(0)
         }
-        WM_LBUTTONUP | WM_CAPTURECHANGED if movable => {
+        WM_LBUTTONUP | WM_CAPTURECHANGED => {
             drag::end();
             LRESULT(0)
         }
@@ -296,7 +301,7 @@ fn on_controls_message(
         }
         WM_CTLCOLORSTATIC => paint::colour_static(window, HDC(wparam.0 as *mut c_void)),
         WM_ERASEBKGND => {
-            paint::erase(window, HDC(wparam.0 as *mut c_void), movable);
+            paint::erase(window, HDC(wparam.0 as *mut c_void));
             LRESULT(1)
         }
         // The runtime owns the controls, so a close asked through UI Automation is left to it.

@@ -49,21 +49,19 @@ const DARK: Palette = Palette {
     grip: 0x0090_9090,
 };
 
-pub fn erase(window: HWND, dc: HDC, grip: bool) {
+pub fn erase(window: HWND, dc: HDC) {
     let mut client = RECT::default();
     if unsafe { GetClientRect(window, &mut client) }.is_err() {
         return;
     }
     unsafe { FillRect(dc, &client, ground_brush(window)) };
-    if grip {
-        let scale = scale(unsafe { GetDpiForWindow(window) });
-        draw_grip(
-            dc,
-            grip_at(scale, client.bottom - client.top),
-            scale,
-            palette().grip,
-        );
-    }
+    let scale = scale(unsafe { GetDpiForWindow(window) });
+    draw_grip(
+        dc,
+        grip_at(scale, client.bottom - client.top),
+        scale,
+        palette().grip,
+    );
 }
 
 pub fn colour_static(window: HWND, dc: HDC) -> LRESULT {

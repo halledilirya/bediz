@@ -122,6 +122,14 @@ pub fn border(area: Rect, monitor: Rect, thickness: i32) -> [Rect; 4] {
     ]
 }
 
+pub fn dashes(length: i32, dash: i32) -> impl Iterator<Item = (i32, i32)> {
+    let dash = dash.max(1);
+    let period = usize::try_from(dash.saturating_mul(2)).unwrap_or(2);
+    (0..length.max(0))
+        .step_by(period)
+        .map(move |start| (start, start.saturating_add(dash).min(length)))
+}
+
 pub fn controls_at(area: Rect, work: Rect, width: u32, height: u32, gap: i32) -> Point {
     let width = i32::try_from(width).unwrap_or(i32::MAX);
     let height = i32::try_from(height).unwrap_or(i32::MAX);
@@ -141,6 +149,20 @@ pub fn controls_at(area: Rect, work: Rect, width: u32, height: u32, gap: i32) ->
             .max(work.top)
     };
     Point::new(x, y)
+}
+
+pub fn controls_replacing(previous: Rect, width: u32, height: u32, work: Rect) -> Point {
+    let width = i32::try_from(width).unwrap_or(i32::MAX);
+    let height = i32::try_from(height).unwrap_or(i32::MAX);
+    let centre = previous
+        .left
+        .saturating_add(i32::try_from(previous.width() / 2).unwrap_or(0));
+    keep_within(
+        Point::new(centre.saturating_sub(width / 2), previous.top),
+        width,
+        height,
+        work,
+    )
 }
 
 pub fn keep_within(at: Point, width: i32, height: i32, work: Rect) -> Point {
@@ -246,6 +268,17 @@ mod tests {
     }
 
     #[test]
+    fn dashes_and_gaps_alternate_and_the_last_dash_stops_at_the_end() {
+        let all = |length, dash| dashes(length, dash).collect::<Vec<_>>();
+        assert_eq!(all(20, 4), [(0, 4), (8, 12), (16, 20)]);
+        assert_eq!(all(18, 4), [(0, 4), (8, 12), (16, 18)]);
+        assert_eq!(all(3, 4), [(0, 3)]);
+        assert!(all(0, 4).is_empty());
+        assert!(all(-5, 4).is_empty());
+        assert_eq!(all(5, 0), [(0, 1), (2, 3), (4, 5)]);
+    }
+
+    #[test]
     fn the_controls_go_below_the_area_then_above_then_inside() {
         let work = Rect::new(0, 0, 1920, 1040);
         assert_eq!(
@@ -294,6 +327,23 @@ mod tests {
         assert_eq!(
             keep_within(Point::new(1000, 0), 200, 40, second),
             Point::new(1920, 0)
+        );
+    }
+
+    #[test]
+    fn the_recording_controls_take_the_place_of_the_moved_ones() {
+        let work = Rect::new(0, 0, 1920, 1040);
+        assert_eq!(
+            controls_replacing(Rect::new(700, 300, 900, 340), 240, 40, work),
+            Point::new(680, 300)
+        );
+        assert_eq!(
+            controls_replacing(Rect::new(1720, 1000, 1920, 1040), 240, 40, work),
+            Point::new(1680, 1000)
+        );
+        assert_eq!(
+            controls_replacing(Rect::new(0, 0, 200, 40), 240, 40, work),
+            Point::new(0, 0)
         );
     }
 

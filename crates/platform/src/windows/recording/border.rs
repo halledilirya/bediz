@@ -2,35 +2,77 @@ use bediz_core::geometry::Rect;
 use bediz_core::recording;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
-    COLOR_HIGHLIGHT, CreateSolidBrush, DeleteObject, FillRect, GetSysColorBrush, HDC,
+    COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, CreateSolidBrush, DeleteObject, FillRect, GetSysColor,
+    HDC,
 };
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, GetClientRect, HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOSIZE, SWP_SHOWWINDOW, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowPos,
-    WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP,
+    USER_DEFAULT_SCREEN_DPI, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{Result, w};
 
 use crate::windows::contrast::high_contrast;
-use crate::windows::window_class::{BORDER_CLASS, OwnedWindow};
+use crate::windows::window_class::{BORDER_CLASS, DASHED_BORDER_CLASS, OwnedWindow};
 
 const THICKNESS: f32 = 2.0;
+const DASH: f32 = 6.0;
 const COLOUR: COLORREF = COLORREF(0x0023_11E8);
+const LOCKED_COLOUR: COLORREF = COLORREF(0x0000_C8FF);
+const LOCKED_GAP: COLORREF = COLORREF(0x0020_2020);
 
-pub fn erase(window: HWND, dc: HDC) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Line {
+    Solid,
+    Dashed,
+}
+
+pub fn erase(window: HWND, dc: HDC, line: Line) {
     let mut client = RECT::default();
     if unsafe { GetClientRect(window, &mut client) }.is_err() {
         return;
     }
-    unsafe {
-        if high_contrast() {
-            FillRect(dc, &client, GetSysColorBrush(COLOR_HIGHLIGHT));
+    let contrast = high_contrast();
+    let system = |index| COLORREF(unsafe { GetSysColor(index) });
+    let (ink, gap) = match (line, contrast) {
+        (Line::Solid, false) => (COLOUR, COLOUR),
+        (Line::Solid, true) => (system(COLOR_HIGHLIGHT), system(COLOR_HIGHLIGHT)),
+        (Line::Dashed, false) => (LOCKED_COLOUR, LOCKED_GAP),
+        (Line::Dashed, true) => (system(COLOR_HIGHLIGHT), system(COLOR_HIGHLIGHTTEXT)),
+    };
+    fill(dc, &client, gap);
+    if line == Line::Solid {
+        return;
+    }
+    let scale = unsafe { GetDpiForWindow(window) } as f32 / USER_DEFAULT_SCREEN_DPI as f32;
+    let dash = (DASH * scale).round() as i32;
+    let across = client.right >= client.bottom;
+    let length = if across { client.right } else { client.bottom };
+    for (start, end) in recording::dashes(length, dash) {
+        let part = if across {
+            RECT {
+                left: start,
+                right: end,
+                ..client
+            }
         } else {
-            let brush = CreateSolidBrush(COLOUR);
-            FillRect(dc, &client, brush);
-            let _ = DeleteObject(brush.into());
-        }
+            RECT {
+                top: start,
+                bottom: end,
+                ..client
+            }
+        };
+        fill(dc, &part, ink);
+    }
+}
+
+fn fill(dc: HDC, rect: &RECT, colour: COLORREF) {
+    unsafe {
+        let brush = CreateSolidBrush(colour);
+        FillRect(dc, rect, brush);
+        let _ = DeleteObject(brush.into());
     }
 }
 
@@ -39,8 +81,18 @@ pub struct Border {
 }
 
 impl Border {
-    pub fn create(instance: HINSTANCE, area: Rect, monitor: Rect, scale: f32) -> Result<Self> {
+    pub fn create(
+        instance: HINSTANCE,
+        area: Rect,
+        monitor: Rect,
+        scale: f32,
+        line: Line,
+    ) -> Result<Self> {
         let thickness = ((THICKNESS * scale).round() as i32).max(1);
+        let class = match line {
+            Line::Solid => BORDER_CLASS,
+            Line::Dashed => DASHED_BORDER_CLASS,
+        };
         let mut windows = Vec::with_capacity(4);
         for side in recording::border(area, monitor, thickness) {
             let window = OwnedWindow(unsafe {
@@ -50,7 +102,7 @@ impl Border {
                         | WS_EX_TOPMOST
                         | WS_EX_TOOLWINDOW
                         | WS_EX_NOACTIVATE,
-                    BORDER_CLASS,
+                    class,
                     w!(""),
                     WS_POPUP,
                     side.left,

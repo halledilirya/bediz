@@ -2,6 +2,7 @@ mod commands;
 mod delivery;
 mod displays;
 mod hold;
+mod ready;
 mod recording;
 mod save_as;
 mod screenshot;
@@ -51,7 +52,8 @@ use super::window_list::WindowList;
 use super::worker::Worker;
 use crate::event::{Command, Event, Failure, HotkeyState, Label, MenuTexts};
 use delivery::{PendingCopy, Tracked};
-use recording::{Finishing, ReadyBar};
+use ready::ReadyBar;
+use recording::Finishing;
 use save_as::{PendingSaveAs, Waiting};
 
 pub const WM_COMMANDS: u32 = WM_APP + 1;
@@ -367,7 +369,7 @@ impl Runtime {
             WM_RECORDING if own => self.on_recording_ended(),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
             | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
-                if self.is_overlay(message.hwnd) =>
+                if self.is_overlay(message.hwnd) && !self.locked() =>
             {
                 self.on_input(message);
             }
@@ -376,7 +378,7 @@ impl Runtime {
                 if self
                     .ready
                     .as_ref()
-                    .is_some_and(|bar| bar.owns(message.hwnd)) =>
+                    .is_some_and(|bar| bar.owns(message.hwnd) && !bar.is_locked()) =>
             {
                 self.on_input(message);
             }

@@ -92,6 +92,10 @@ impl Session {
         self.previous
     }
 
+    pub fn set_previous(&mut self, previous: HWND) {
+        self.previous = previous;
+    }
+
     pub fn purpose(&self) -> Purpose {
         self.purpose
     }

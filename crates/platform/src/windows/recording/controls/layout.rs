@@ -30,7 +30,7 @@ pub(super) fn grip_at(scale: f32, height: i32) -> Rect {
     Rect::new(gap, 0, gap + pixels(GRIP, scale), height)
 }
 
-pub(super) fn layout(scale: f32, grip: bool, time_text: Option<i32>, slots: &[Content]) -> Layout {
+pub(super) fn layout(scale: f32, time_text: Option<i32>, slots: &[Content]) -> Layout {
     let height = pixels(HEIGHT, scale);
     let button = pixels(BUTTON_HEIGHT, scale);
     let gap = pixels(GAP, scale);
@@ -38,11 +38,7 @@ pub(super) fn layout(scale: f32, grip: bool, time_text: Option<i32>, slots: &[Co
     let mark = pixels(MARK, scale) + pixels(MARK_GAP, scale);
     let icon = pixels(ICON_WIDTH, scale);
     let top = (height - button) / 2;
-    let mut right = if grip {
-        grip_at(scale, height).right
-    } else {
-        0
-    };
+    let mut right = grip_at(scale, height).right;
     let time = time_text.map(|text| {
         let rect = Rect::new(right + gap, 0, right + gap + text + gap, height);
         right = rect.right;
@@ -81,12 +77,12 @@ mod tests {
     #[test]
     fn the_controls_sit_in_one_row_sized_to_their_texts() {
         assert_eq!(
-            layout(1.0, false, Some(30), &[text(30, true), text(50, false)]),
+            layout(1.0, Some(30), &[text(30, true), text(50, false)]),
             Layout {
-                width: 214,
+                width: 232,
                 height: 40,
-                time: Some(Rect::new(8, 0, 46, 40)),
-                buttons: vec![Rect::new(54, 6, 124, 34), Rect::new(132, 6, 206, 34)],
+                time: Some(Rect::new(26, 0, 64, 40)),
+                buttons: vec![Rect::new(72, 6, 142, 34), Rect::new(150, 6, 224, 34)],
             }
         );
     }
@@ -96,7 +92,6 @@ mod tests {
         assert_eq!(
             layout(
                 1.0,
-                true,
                 Some(30),
                 &[Content::Icon, Content::Icon, Content::Icon, Content::Icon]
             ),
@@ -116,25 +111,29 @@ mod tests {
     }
 
     #[test]
-    fn before_the_recording_the_buttons_start_at_the_edge() {
+    fn before_the_recording_the_buttons_follow_the_grip_without_a_clock() {
         assert_eq!(
-            layout(1.0, false, None, &[text(40, true), Content::Icon]),
+            layout(1.0, None, &[text(40, true), Content::Icon, Content::Icon]),
             Layout {
-                width: 136,
+                width: 194,
                 height: 40,
                 time: None,
-                buttons: vec![Rect::new(8, 6, 88, 34), Rect::new(96, 6, 128, 34)],
+                buttons: vec![
+                    Rect::new(26, 6, 106, 34),
+                    Rect::new(114, 6, 146, 34),
+                    Rect::new(154, 6, 186, 34),
+                ],
             }
         );
     }
 
     #[test]
     fn the_controls_grow_with_the_display_scale() {
-        let larger = layout(1.5, true, Some(45), &[text(45, true), Content::Icon]);
+        let larger = layout(1.5, Some(45), &[text(45, true), Content::Icon]);
         assert_eq!(larger.height, 60);
         assert_eq!(larger.buttons.first().map(Rect::height), Some(42));
         assert_eq!(larger.buttons.get(1).map(Rect::width), Some(48));
-        let smaller = layout(1.0, true, Some(30), &[text(30, true), Content::Icon]);
+        let smaller = layout(1.0, Some(30), &[text(30, true), Content::Icon]);
         assert!(larger.width > smaller.width * 3 / 2 - 2);
     }
 }

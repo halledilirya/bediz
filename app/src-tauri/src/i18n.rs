@@ -73,6 +73,8 @@ impl Texts {
             restart_recording: self.get("recording-restart"),
             cancel_recording: self.get("recording-cancel"),
             discard_recording: self.get("recording-discard"),
+            lock_area: self.get("recording-lock"),
+            unlock_area: self.get("recording-unlock"),
             right_to_left: self.right_to_left(),
         }
     }
@@ -162,7 +164,7 @@ mod tests {
         include_str!("../../src/about.ts"),
     ];
 
-    const USED: [&str; 43] = [
+    const USED: [&str; 45] = [
         "settings-title",
         "tray-record",
         "tray-record-gif",
@@ -197,6 +199,8 @@ mod tests {
         "recording-restart",
         "recording-cancel",
         "recording-discard",
+        "recording-lock",
+        "recording-unlock",
         "question-title",
         "question-snipping-tool",
         "question-snipping-tool-detail",

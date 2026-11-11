@@ -3,16 +3,13 @@ use std::time::Duration;
 use bediz_core::geometry::Rect;
 use bediz_core::notice::Notice;
 use bediz_core::recording::{self, RecordingStop};
-use windows::Win32::Foundation::HWND;
 
 use super::Runtime;
+use super::ready::ReadyBar;
 use crate::event::{Event, RecordingAction, RecordingState};
 use crate::windows::clock;
-use crate::windows::recording::controls::{self, Button, Controls, Stage};
-use crate::windows::recording::{
-    Ended, Next, Pipeline, Recording, Request, StartError, monitor_metrics,
-};
-use crate::windows::session::{Purpose, Session};
+use crate::windows::recording::controls::{self, Button};
+use crate::windows::recording::{Ended, Next, Pipeline, Recording, Request, StartError};
 
 pub(super) struct Finishing {
     pipeline: Pipeline,
@@ -20,83 +17,15 @@ pub(super) struct Finishing {
     near: Rect,
 }
 
-pub(super) struct ReadyBar {
-    controls: Controls,
-    placed: Option<Rect>,
-}
-
-impl ReadyBar {
-    pub(super) fn owns(&self, window: HWND) -> bool {
-        self.controls.owns(window)
-    }
-}
-
 impl Runtime {
-    pub(super) fn place_ready_bar(&mut self) {
-        let area = self
-            .session
-            .as_ref()
-            .filter(|session| session.purpose() == Purpose::Recording)
-            .and_then(Session::settled)
-            .zip(self.scene.as_ref())
-            .and_then(|(selection, scene)| {
-                recording::area_on_one_monitor(selection, scene.monitor_rects())
-            })
-            .map(|(_, area)| area);
-        let Some(area) = area else {
-            if let Some(bar) = self.ready.as_mut()
-                && bar.placed.take().is_some()
-            {
-                bar.controls.hide();
-            }
-            return;
-        };
-        if self
-            .ready
-            .as_ref()
-            .is_some_and(|bar| bar.placed == Some(area))
-        {
-            return;
-        }
-        let Some(texts) = self.menu_texts.as_ref() else {
-            return;
-        };
-        let (dpi, work) = monitor_metrics(area);
-        if self
-            .ready
-            .as_ref()
-            .is_none_or(|bar| bar.controls.dpi() != dpi)
-        {
-            self.ready = None;
-            match Controls::create(self.instance, Stage::Ready, area, work, dpi, texts) {
-                Ok(created) => {
-                    self.ready = Some(ReadyBar {
-                        controls: created,
-                        placed: None,
-                    });
-                }
-                Err(error) => {
-                    self.emit_notes(vec![format!(
-                        "the buttons to start a recording could not be shown: {error}"
-                    )]);
-                    return;
-                }
-            }
-        }
-        let Some(bar) = self.ready.as_mut() else {
-            return;
-        };
-        match bar.controls.place(area, work) {
-            Ok(()) => bar.placed = Some(area),
-            Err(error) => self.emit_notes(vec![format!(
-                "the buttons to start a recording could not be moved: {error}"
-            )]),
-        }
-    }
-
     pub(super) fn on_controls(&mut self, request: controls::Request) {
+        if self.locked() {
+            self.remember_users_window();
+        }
         match request {
             controls::Request::Press(Button::Start) => self.record(Duration::ZERO),
+            controls::Request::Press(Button::Lock) => self.lock_area(),
+            controls::Request::Press(Button::Unlock) => self.unlock_area(),
             controls::Request::Press(Button::Pause) => self.set_paused(true),
             controls::Request::Press(Button::Resume) => self.set_paused(false),
             controls::Request::Press(Button::Finish) => self.stop_recording(None),
@@ -166,6 +95,7 @@ impl Runtime {
     }
 
     pub(super) fn record(&mut self, first_capture: Duration) {
+        let locked = self.locked();
         let (Some(scene), Some(session), Some(texts)) = (
             self.scene.as_mut(),
             self.session.as_ref(),
@@ -185,6 +115,13 @@ impl Runtime {
         };
         let (width, height) = recording::output_size(area.width(), area.height());
         let stem = self.file_name.stem(&clock::local_time(), width, height);
+        let mut notes = Vec::new();
+        // The selection's image becomes the first frame, and while locked it stopped following the screen.
+        if locked && let Err(error) = scene.refresh_live() {
+            notes.push(format!(
+                "the recording's first frame may show the screen as it was when locked: {error}"
+            ));
+        }
         let request = Request {
             instance: self.instance,
             window: self.window.0,
@@ -196,9 +133,11 @@ impl Runtime {
             stem: &stem,
             texts,
             first_capture,
+            moved_bar: self.ready.as_ref().and_then(ReadyBar::moved),
         };
         let started = Recording::start(scene, &request);
         self.hide();
+        self.emit_notes(notes);
         let recording = match started {
             Ok(recording) => recording,
             Err(error) => {

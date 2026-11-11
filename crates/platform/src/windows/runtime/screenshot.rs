@@ -239,7 +239,9 @@ impl Runtime {
         } else if self.recording.is_some() {
             self.stop_recording(None);
         } else if self.session.is_some() {
-            self.press_in_overlay(keys);
+            if !self.locked() {
+                self.press_in_overlay(keys);
+            }
         } else if let Some(queued) = opens_after {
             self.open(queued, Purpose::Screenshot);
         }
@@ -325,6 +327,7 @@ impl Runtime {
         let Some(session) = self.session.take() else {
             return HWND::default();
         };
+        let locked = self.locked();
         self.live = None;
         self.ready = None;
         if session.purpose() == Purpose::Recording
@@ -339,7 +342,10 @@ impl Runtime {
         {
             (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
         }
-        if give_back {
+        // A locked region left the screen to the user, so the app they are in keeps the foreground.
+        if give_back && locked {
+            foreground::give_back_from_us(session.previous());
+        } else if give_back {
             foreground::give_back(session.previous());
         }
         self.rest_scene();

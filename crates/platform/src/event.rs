@@ -75,6 +75,8 @@ pub struct MenuTexts {
     pub restart_recording: String,
     pub cancel_recording: String,
     pub discard_recording: String,
+    pub lock_area: String,
+    pub unlock_area: String,
     pub right_to_left: bool,
 }
 

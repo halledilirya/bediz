@@ -6,9 +6,9 @@ mod tooltips;
 
 use std::ffi::c_void;
 
-use bediz_core::geometry::Rect;
+use bediz_core::geometry::{Point, Rect};
 use bediz_core::recording;
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWM_WINDOW_CORNER_PREFERENCE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
     DwmSetWindowAttribute,
@@ -16,7 +16,7 @@ use windows::Win32::Graphics::Dwm::{
 use windows::Win32::Graphics::Gdi::HFONT;
 use windows::Win32::System::SystemServices::{SS_CENTER, SS_CENTERIMAGE};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BS_OWNERDRAW, CreateWindowExW, HMENU, HWND_TOPMOST, IsChild, SW_HIDE, SW_SHOWNA,
+    BS_OWNERDRAW, CreateWindowExW, GetWindowRect, HMENU, HWND_TOPMOST, IsChild, SW_HIDE, SW_SHOWNA,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SendMessageW, SetWindowDisplayAffinity,
     SetWindowPos, SetWindowTextW, ShowWindow, USER_DEFAULT_SCREEN_DPI, WDA_EXCLUDEFROMCAPTURE,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYOUTRTL,
@@ -25,7 +25,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, PCWSTR, Result, w};
 
 use crate::event::MenuTexts;
-use crate::windows::window_class::{CONTROLS_CLASS, MOVABLE_CONTROLS_CLASS, OwnedWindow};
+use crate::windows::window_class::{CONTROLS_CLASS, OwnedWindow};
 use fonts::{Font, icon_font, measure, message_font};
 use layout::{Content, layout};
 
@@ -47,6 +47,8 @@ pub enum Button {
     Restart = 5,
     Cancel = 6,
     Discard = 7,
+    Lock = 8,
+    Unlock = 9,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,7 +67,11 @@ enum Face {
 impl Stage {
     fn slots(self) -> &'static [&'static [Button]] {
         match self {
-            Self::Ready => &[&[Button::Start], &[Button::Cancel]],
+            Self::Ready => &[
+                &[Button::Start],
+                &[Button::Lock, Button::Unlock],
+                &[Button::Cancel],
+            ],
             Self::Recording => &[
                 &[Button::Pause, Button::Resume],
                 &[Button::Finish],
@@ -74,14 +80,10 @@ impl Stage {
             ],
         }
     }
-
-    fn movable(self) -> bool {
-        self == Self::Recording
-    }
 }
 
 impl Button {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 9] = [
         Self::Start,
         Self::Pause,
         Self::Resume,
@@ -89,6 +91,8 @@ impl Button {
         Self::Restart,
         Self::Cancel,
         Self::Discard,
+        Self::Lock,
+        Self::Unlock,
     ];
 
     pub fn from_id(id: u16) -> Option<Self> {
@@ -108,6 +112,8 @@ impl Button {
             Self::Restart => Face::Glyph(0xE72C),
             Self::Cancel => Face::Glyph(0xE711),
             Self::Discard => Face::Glyph(0xE74D),
+            Self::Lock => Face::Glyph(0xE72E),
+            Self::Unlock => Face::Glyph(0xE785),
         }
     }
 
@@ -120,6 +126,8 @@ impl Button {
             Self::Restart => &texts.restart_recording,
             Self::Cancel => &texts.cancel_recording,
             Self::Discard => &texts.discard_recording,
+            Self::Lock => &texts.lock_area,
+            Self::Unlock => &texts.unlock_area,
         }
     }
 }
@@ -127,13 +135,15 @@ impl Button {
 pub struct Controls {
     window: OwnedWindow,
     time: Option<HWND>,
-    pause: Option<(HWND, HWND)>,
+    toggle: Option<(HWND, HWND)>,
     _font: Font,
     _icons: Option<Font>,
     _tips: Vec<Vec<u16>>,
     dpi: u32,
     width: u32,
     height: u32,
+    at: Point,
+    work: Rect,
 }
 
 impl Controls {
@@ -144,6 +154,7 @@ impl Controls {
         work: Rect,
         dpi: u32,
         texts: &MenuTexts,
+        replacing: Option<Rect>,
     ) -> Result<Self> {
         let scale = scale(dpi);
         let font = message_font(dpi)?;
@@ -159,13 +170,16 @@ impl Controls {
                 .copied()
                 .unwrap_or(0)
         });
-        let layout = layout(scale, stage.movable(), time_width, &contents);
+        let layout = layout(scale, time_width, &contents);
         let width = u32::try_from(layout.width).unwrap_or(0);
         let height = u32::try_from(layout.height).unwrap_or(0);
-        let at = recording::controls_at(area, work, width, height, pixels(DISTANCE, scale));
-        let (title, class) = match stage {
-            Stage::Ready => (&texts.record, CONTROLS_CLASS),
-            Stage::Recording => (&texts.recording, MOVABLE_CONTROLS_CLASS),
+        let at = match replacing {
+            Some(previous) => recording::controls_replacing(previous, width, height, work),
+            None => recording::controls_at(area, work, width, height, pixels(DISTANCE, scale)),
+        };
+        let title = match stage {
+            Stage::Ready => &texts.record,
+            Stage::Recording => &texts.recording,
         };
         let mut extended = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
         if texts.right_to_left {
@@ -174,7 +188,7 @@ impl Controls {
         let window = OwnedWindow(unsafe {
             CreateWindowExW(
                 extended,
-                class,
+                CONTROLS_CLASS,
                 &HSTRING::from(title.as_str()),
                 WS_POPUP | WS_CLIPCHILDREN,
                 at.x,
@@ -202,8 +216,9 @@ impl Controls {
         let owner_drawn = WINDOW_STYLE(BS_OWNERDRAW as u32);
         let mut fonts: Vec<(HWND, HFONT)> = time.map(|time| (time, font.0)).into_iter().collect();
         let mut tools: Vec<(HWND, &str)> = Vec::new();
-        let (mut pause, mut resume) = (None, None);
+        let mut toggle = None;
         for (slot, rect) in slots.iter().zip(&layout.buttons) {
+            let mut sharing = Vec::with_capacity(slot.len());
             for (index, &button) in slot.iter().enumerate() {
                 let style = if index == 0 {
                     owner_drawn | WS_VISIBLE
@@ -227,11 +242,10 @@ impl Controls {
                 if button.face() != Face::Labelled {
                     tools.push((created, button.text(texts)));
                 }
-                match button {
-                    Button::Pause => pause = Some(created),
-                    Button::Resume => resume = Some(created),
-                    _ => {}
-                }
+                sharing.push(created);
+            }
+            if let [first, second] = sharing.as_slice() {
+                toggle = Some((*first, *second));
             }
         }
         for (control, chosen) in fonts {
@@ -259,13 +273,15 @@ impl Controls {
         Ok(Self {
             window,
             time,
-            pause: pause.zip(resume),
+            toggle,
             _font: font,
             _icons: icons,
             _tips: tips,
             dpi,
             width,
             height,
+            at,
+            work,
         })
     }
 
@@ -275,6 +291,17 @@ impl Controls {
 
     pub fn dpi(&self) -> u32 {
         self.dpi
+    }
+
+    pub fn work(&self) -> Rect {
+        self.work
+    }
+
+    pub fn moved(&self) -> Option<Rect> {
+        let mut bounds = RECT::default();
+        unsafe { GetWindowRect(self.window.0, &mut bounds) }.ok()?;
+        (bounds.left != self.at.x || bounds.top != self.at.y)
+            .then(|| Rect::new(bounds.left, bounds.top, bounds.right, bounds.bottom))
     }
 
     pub fn owns(&self, window: HWND) -> bool {
@@ -295,7 +322,7 @@ impl Controls {
         }
     }
 
-    pub fn place(&self, area: Rect, work: Rect) -> Result<()> {
+    pub fn place(&mut self, area: Rect, work: Rect) -> Result<()> {
         let distance = pixels(DISTANCE, scale(self.dpi));
         let at = recording::controls_at(area, work, self.width, self.height, distance);
         unsafe {
@@ -308,7 +335,10 @@ impl Controls {
                 0,
                 SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             )
-        }
+        }?;
+        self.at = at;
+        self.work = work;
+        Ok(())
     }
 
     pub fn hide(&self) {
@@ -322,14 +352,14 @@ impl Controls {
         }
     }
 
-    pub fn show_paused(&self, paused: bool) {
-        let Some((pause, resume)) = self.pause else {
+    pub fn show_toggled(&self, toggled: bool) {
+        let Some((first, second)) = self.toggle else {
             return;
         };
-        let (shown, hidden) = if paused {
-            (resume, pause)
+        let (shown, hidden) = if toggled {
+            (second, first)
         } else {
-            (pause, resume)
+            (first, second)
         };
         unsafe {
             let _ = ShowWindow(hidden, SW_HIDE);
@@ -401,14 +431,18 @@ mod tests {
             assert_eq!(Button::from_id(button.id()), Some(button));
         }
         assert_eq!(Button::from_id(0), None);
-        assert_eq!(Button::from_id(8), None);
+        assert_eq!(Button::from_id(10), None);
     }
 
     #[test]
     fn the_stages_offer_their_buttons() {
         assert_eq!(
             Stage::Ready.slots(),
-            [[Button::Start].as_slice(), [Button::Cancel].as_slice()]
+            [
+                [Button::Start].as_slice(),
+                [Button::Lock, Button::Unlock].as_slice(),
+                [Button::Cancel].as_slice(),
+            ]
         );
         assert_eq!(
             Stage::Recording.slots(),
@@ -419,8 +453,22 @@ mod tests {
                 [Button::Discard].as_slice(),
             ]
         );
-        assert!(Stage::Recording.movable());
-        assert!(!Stage::Ready.movable());
+    }
+
+    #[test]
+    fn a_slot_holds_one_button_or_a_pair_that_takes_turns() {
+        for stage in [Stage::Ready, Stage::Recording] {
+            assert!(
+                stage
+                    .slots()
+                    .iter()
+                    .all(|slot| (1..=2).contains(&slot.len()))
+            );
+            assert_eq!(
+                stage.slots().iter().filter(|slot| slot.len() == 2).count(),
+                1
+            );
+        }
     }
 
     #[test]
@@ -432,5 +480,7 @@ mod tests {
         assert_eq!(Button::Finish.face(), Face::Square);
         assert_eq!(Button::Pause.face(), Face::Glyph(0xE769));
         assert_eq!(Button::Resume.face(), Face::Glyph(0xE768));
+        assert_eq!(Button::Lock.face(), Face::Glyph(0xE72E));
+        assert_eq!(Button::Unlock.face(), Face::Glyph(0xE785));
     }
 }
