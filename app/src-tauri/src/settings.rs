@@ -249,6 +249,11 @@ pub fn apply(app: &AppHandle, before: &Settings, after: &Settings) {
 }
 
 pub fn send(platform: &Platform, settings: &Settings) {
+    // A region key moving to the GIF key's place finds it let go only if the GIF key goes first.
+    platform.send(Command::SetGifHotkey {
+        hotkey: settings.distinct_gif_hotkey(),
+        yields: settings.print_screen_yields,
+    });
     platform.send(Command::SetHotkey {
         hotkey: settings.hotkey,
         yields: settings.print_screen_yields,

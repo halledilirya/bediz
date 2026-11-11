@@ -13,6 +13,7 @@ use super::session::KeyPress;
 use crate::event::HotkeyState;
 
 pub const HOTKEY: i32 = 1;
+pub const GIF_HOTKEY: i32 = 2;
 
 pub struct Change {
     pub state: HotkeyState,
@@ -21,6 +22,7 @@ pub struct Change {
 
 pub struct Registration {
     window: HWND,
+    id: i32,
     hotkey: Option<Hotkey>,
     yields: bool,
     registered: bool,
@@ -30,9 +32,10 @@ pub struct Registration {
 }
 
 impl Registration {
-    pub fn new(window: HWND) -> Self {
+    pub fn new(window: HWND, id: i32) -> Self {
         Self {
             window,
+            id,
             hotkey: None,
             yields: false,
             registered: false,
@@ -66,6 +69,17 @@ impl Registration {
         self.hotkey = Some(hotkey);
         self.yields = yields;
         self.refresh()
+    }
+
+    pub fn set_or_clear(&mut self, hotkey: Option<Hotkey>, yields: bool) -> Option<Change> {
+        match hotkey {
+            Some(hotkey) => self.set(hotkey, yields),
+            None => {
+                self.unregister();
+                self.hotkey = None;
+                None
+            }
+        }
     }
 
     pub fn setting_changed(&mut self, notes: &mut Vec<String>) -> Option<Change> {
@@ -118,7 +132,7 @@ impl Registration {
 
     pub fn unregister(&mut self) {
         if std::mem::take(&mut self.registered) {
-            let _ = unsafe { UnregisterHotKey(Some(self.window), HOTKEY) };
+            let _ = unsafe { UnregisterHotKey(Some(self.window), self.id) };
         }
         self.arrived = false;
         self.state = None;
@@ -128,7 +142,7 @@ impl Registration {
         unsafe {
             RegisterHotKey(
                 Some(self.window),
-                HOTKEY,
+                self.id,
                 modifiers(hotkey),
                 u32::from(virtual_key(hotkey.key).0),
             )
@@ -150,10 +164,15 @@ impl Registration {
         let error = error.map_or_else(String::new, |error| {
             format!(" error={:#010x}", error.code().0)
         });
+        let name = if self.id == GIF_HOTKEY {
+            "gif hotkey"
+        } else {
+            "hotkey"
+        };
         Some(Change {
             state,
             note: format!(
-                "hotkey {hotkey} registered={} arrived={} yields={} snipping_tool_setting={setting}{error}",
+                "{name} {hotkey} registered={} arrived={} yields={} snipping_tool_setting={setting}{error}",
                 self.registered, self.arrived, self.yields
             ),
         })

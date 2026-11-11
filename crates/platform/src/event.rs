@@ -20,6 +20,10 @@ pub enum Command {
         hotkey: Hotkey,
         yields: bool,
     },
+    SetGifHotkey {
+        hotkey: Option<Hotkey>,
+        yields: bool,
+    },
     RecordHotkey(bool),
     SetAllocation(Allocation),
     SetWindowDetection(bool),
@@ -96,6 +100,12 @@ pub enum HotkeyState {
     Taken,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shortcut {
+    Region,
+    Gif,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum Failure {
     #[error("starting the displays failed: {0}")]
@@ -107,8 +117,9 @@ pub enum Failure {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     Hotkey(HotkeyState),
+    GifHotkey(HotkeyState),
     PrintScreenYields,
-    HotkeyWhileRecording,
+    HotkeyWhileRecording(Shortcut),
     LastRegion(Rect),
     StartWithWindows {
         on: bool,

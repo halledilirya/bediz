@@ -13,6 +13,7 @@ export interface Settings {
   theme: string;
   accent: string;
   hotkey: string;
+  gifHotkey: string | null;
   askAboutHotkey: boolean;
   printScreenYields: boolean;
   detectWindows: boolean;
@@ -151,6 +152,7 @@ export async function showSettings(
       theme: value("theme"),
       accent: value("accent"),
       hotkey: value("hotkey"),
+      gifHotkey: value("gifHotkey") || null,
       askAboutHotkey: checked("askAboutHotkey"),
       detectWindows: checked("detectWindows"),
       successLabels: checked("successLabels"),
@@ -184,7 +186,7 @@ export async function showSettings(
       facts.printScreenYields = settings.printScreenYields;
       facts.lastRegion = settings.lastRegion;
       facts.checkForUpdates = settings.checkForUpdates;
-      shortcuts.show(settings.hotkey);
+      shortcuts.show(settings.hotkey, settings.gifHotkey ?? "");
       folder.show(settings.saveFolder);
       fileName.show(settings.fileName);
     },

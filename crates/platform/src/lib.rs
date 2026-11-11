@@ -2,6 +2,7 @@ mod event;
 
 pub use event::{
     Command, Event, Failure, HotkeyState, Label, MenuTexts, RecordingAction, RecordingState,
+    Shortcut,
 };
 
 #[cfg(windows)]

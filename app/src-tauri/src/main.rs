@@ -35,6 +35,7 @@ fn main() {
             commands::start_with_windows_problem,
             commands::start_turned_off_by_user,
             commands::hotkey_state,
+            commands::gif_hotkey_state,
             commands::record_hotkey,
             commands::take_print_screen,
             commands::retry_hotkey,

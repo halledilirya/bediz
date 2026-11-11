@@ -13,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, Error, Result};
 
 use super::{MENU_FADE_TIMER, Runtime};
-use crate::event::{Event, Failure};
+use crate::event::{Event, Failure, Shortcut};
 use crate::windows::foreground::{self, Foreground};
 use crate::windows::hotkey;
 use crate::windows::overlay_menu::{self, Choice, Offer};
@@ -235,7 +235,7 @@ impl Runtime {
 
     pub(super) fn on_hotkey(&mut self, keys: LPARAM, opens_after: Option<Duration>) {
         if self.recording_hotkey {
-            (self.sink)(Event::HotkeyWhileRecording);
+            (self.sink)(Event::HotkeyWhileRecording(Shortcut::Region));
         } else if self.recording.is_some() {
             self.stop_recording(None);
         } else if self.session.is_some() {
@@ -247,6 +247,25 @@ impl Runtime {
         }
         let (change, proves_yielding) = self.hotkey.arrived();
         self.report_hotkey(change);
+        if proves_yielding {
+            (self.sink)(Event::PrintScreenYields);
+        }
+    }
+
+    pub(super) fn on_gif_hotkey(&mut self, queued: Duration) {
+        if self.recording_hotkey {
+            (self.sink)(Event::HotkeyWhileRecording(Shortcut::Gif));
+        } else if self.recording.is_some() {
+            self.stop_recording(None);
+        } else if let Some(session) = &self.session {
+            if session.settled().is_some() {
+                self.record(Duration::ZERO);
+            }
+        } else {
+            self.open(queued, Purpose::Recording);
+        }
+        let (change, proves_yielding) = self.gif_hotkey.arrived();
+        self.report_gif_hotkey(change);
         if proves_yielding {
             (self.sink)(Event::PrintScreenYields);
         }

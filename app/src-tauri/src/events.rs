@@ -6,7 +6,7 @@ use bediz_core::geometry::Rect;
 use bediz_core::measurement::BUDGET;
 use bediz_core::notice::{self, Notice};
 use bediz_core::settings::Settings;
-use bediz_platform::{Command, Event, HotkeyState, Label, Platform};
+use bediz_platform::{Command, Event, HotkeyState, Label, Platform, Shortcut};
 use tauri::{AppHandle, Manager};
 
 use crate::i18n::{Language, Texts};
@@ -37,15 +37,29 @@ pub struct Events {
 pub struct Messages(pub Sender<Message>);
 
 #[derive(Default)]
-pub struct HotkeyStatus(Mutex<Option<HotkeyState>>);
+pub struct HotkeyStatus(Mutex<States>);
+
+#[derive(Clone, Copy, Default)]
+struct States {
+    region: Option<HotkeyState>,
+    gif: Option<HotkeyState>,
+}
 
 impl HotkeyStatus {
-    pub fn get(&self) -> Option<HotkeyState> {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    pub fn get(&self, shortcut: Shortcut) -> Option<HotkeyState> {
+        let states = *self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        match shortcut {
+            Shortcut::Region => states.region,
+            Shortcut::Gif => states.gif,
+        }
     }
 
-    fn set(&self, state: HotkeyState) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(state);
+    fn set(&self, shortcut: Shortcut, state: HotkeyState) {
+        let mut states = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        match shortcut {
+            Shortcut::Region => states.region = Some(state),
+            Shortcut::Gif => states.gif = Some(state),
+        }
     }
 }
 
@@ -112,11 +126,17 @@ impl Dispatcher {
     fn on_event(&mut self, event: &Event) {
         match event {
             Event::Hotkey(state) => self.on_hotkey(*state),
+            Event::GifHotkey(state) => {
+                if let Some(status) = self.app.try_state::<HotkeyStatus>() {
+                    status.set(Shortcut::Gif, *state);
+                }
+                update::gif_hotkey_state(&self.app, *state);
+            }
             Event::PrintScreenYields => settings::change(&self.app, |current| Settings {
                 print_screen_yields: true,
                 ..current.clone()
             }),
-            Event::HotkeyWhileRecording => update::hotkey_pressed(&self.app),
+            Event::HotkeyWhileRecording(shortcut) => update::hotkey_pressed(&self.app, *shortcut),
             Event::StartWithWindows {
                 request, failure, ..
             } => {
@@ -144,7 +164,7 @@ impl Dispatcher {
         self.tray
             .show(state, &self.texts, &settings.hotkey.to_string());
         if let Some(status) = self.app.try_state::<HotkeyStatus>() {
-            status.set(state);
+            status.set(Shortcut::Region, state);
         }
         update::hotkey_state(&self.app, state);
         let first = !std::mem::replace(&mut self.started, true);
@@ -219,7 +239,7 @@ impl Dispatcher {
         if let Some(state) = self
             .app
             .try_state::<HotkeyStatus>()
-            .and_then(|status| status.get())
+            .and_then(|status| status.get(Shortcut::Region))
         {
             let key = current(&self.app).hotkey.to_string();
             self.tray.show(state, &self.texts, &key);
@@ -264,8 +284,19 @@ fn record(log: &Log, event: &Event) {
                 log.warn(&line);
             }
         }
+        Event::GifHotkey(state) => {
+            let line = format!("gif hotkey {}", update::state_name(*state));
+            if *state == HotkeyState::Registered {
+                log.info(&line);
+            } else {
+                log.warn(&line);
+            }
+        }
         Event::PrintScreenYields => log.info("print screen yields to Bediz; kept"),
-        Event::HotkeyWhileRecording => log.info("hotkey pressed while a new one was asked for"),
+        Event::HotkeyWhileRecording(shortcut) => log.info(&format!(
+            "{} hotkey pressed while a new one was asked for",
+            update::shortcut_name(*shortcut)
+        )),
         Event::LastRegion(_) | Event::Recording(_) => {}
         Event::StartWithWindows { on, failure, .. } => {
             let wanted = if *on { "on" } else { "off" };

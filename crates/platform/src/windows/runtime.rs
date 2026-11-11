@@ -82,6 +82,7 @@ struct Runtime {
     menu_capture: bool,
     held: bool,
     hotkey: Registration,
+    gif_hotkey: Registration,
     recording_hotkey: bool,
     desktop_switch: Option<DesktopSwitchHook>,
     desktops: Option<VirtualDesktops>,
@@ -176,7 +177,8 @@ impl Runtime {
             displays_changed: false,
             menu_capture: false,
             held: false,
-            hotkey: Registration::new(window),
+            hotkey: Registration::new(window, hotkey::HOTKEY),
+            gif_hotkey: Registration::new(window, hotkey::GIF_HOTKEY),
             recording_hotkey: false,
             desktop_switch: DesktopSwitchHook::install(),
             desktops: None,
@@ -249,6 +251,7 @@ impl Runtime {
     fn stop(&mut self) {
         self.hide();
         self.hotkey.unregister();
+        self.gif_hotkey.unregister();
         self.finish_saves();
         self.scene = None;
     }
@@ -280,8 +283,10 @@ impl Runtime {
             } else if signalled.is_some() && signalled == event {
                 let mut notes = Vec::new();
                 let change = self.hotkey.setting_changed(&mut notes);
+                let gif_change = self.gif_hotkey.setting_changed(&mut notes);
                 self.emit_notes(notes);
                 self.report_hotkey(change);
+                self.report_gif_hotkey(gif_change);
             } else if signalled.is_some()
                 && signalled == timer
                 && std::panic::catch_unwind(AssertUnwindSafe(|| self.on_timer())).is_err()
@@ -347,6 +352,9 @@ impl Runtime {
             WM_STOP if own => return false,
             WM_HOTKEY if own && message.wParam.0 == hotkey::HOTKEY as usize => {
                 self.on_hotkey(message.lParam, Some(clock::message_age(message.time)));
+            }
+            WM_HOTKEY if own && message.wParam.0 == hotkey::GIF_HOTKEY as usize => {
+                self.on_gif_hotkey(clock::message_age(message.time));
             }
             WM_TIMER if own && message.wParam.0 == MENU_FADE_TIMER => {
                 if self.menu_capture {
@@ -418,6 +426,8 @@ impl Runtime {
             }
             let change = self.hotkey.refresh();
             self.report_hotkey(change);
+            let change = self.gif_hotkey.refresh();
+            self.report_gif_hotkey(change);
         }
         // A press the overlay's menu took acts in the overlay still open, but never opens a new one.
         if let Some(keys) = window_class::take_missed_hotkey() {
@@ -439,6 +449,15 @@ impl Runtime {
                 (self.sink)(Event::Note(change.note));
             }
             (self.sink)(Event::Hotkey(change.state));
+        }
+    }
+
+    fn report_gif_hotkey(&self, change: Option<Change>) {
+        if let Some(change) = change {
+            if change.state != HotkeyState::Registered {
+                (self.sink)(Event::Note(change.note));
+            }
+            (self.sink)(Event::GifHotkey(change.state));
         }
     }
 

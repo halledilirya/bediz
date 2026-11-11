@@ -28,16 +28,24 @@ impl Runtime {
                 Command::RetryHotkey => {
                     let change = self.hotkey.refresh();
                     self.report_hotkey(change);
+                    let change = self.gif_hotkey.refresh();
+                    self.report_gif_hotkey(change);
                 }
                 Command::TakePrintScreen => {
                     let mut notes = Vec::new();
                     let change = self.hotkey.take_from_snipping_tool(&mut notes);
+                    let gif_change = self.gif_hotkey.setting_changed(&mut notes);
                     self.emit_notes(notes);
                     self.report_hotkey(change);
+                    self.report_gif_hotkey(gif_change);
                 }
                 Command::SetHotkey { hotkey, yields } => {
                     let change = self.hotkey.set(hotkey, yields);
                     self.report_hotkey(change);
+                }
+                Command::SetGifHotkey { hotkey, yields } => {
+                    let change = self.gif_hotkey.set_or_clear(hotkey, yields);
+                    self.report_gif_hotkey(change);
                 }
                 Command::RecordHotkey(recording) => self.recording_hotkey = recording,
                 Command::SetAllocation(allocation) => self.set_allocation(allocation),

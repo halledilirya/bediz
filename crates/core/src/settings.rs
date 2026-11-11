@@ -18,6 +18,7 @@ pub struct Settings {
     pub theme: Theme,
     pub accent: Accent,
     pub hotkey: Hotkey,
+    pub gif_hotkey: Option<Hotkey>,
     pub ask_about_hotkey: bool,
     pub print_screen_yields: bool,
     pub detect_windows: bool,
@@ -77,6 +78,7 @@ impl Default for Settings {
             theme: Theme::System,
             accent: Accent::Blue,
             hotkey: Hotkey::PRINT_SCREEN,
+            gif_hotkey: None,
             ask_about_hotkey: true,
             print_screen_yields: false,
             detect_windows: false,
@@ -116,6 +118,11 @@ impl Settings {
         serde_json::to_string_pretty(self).map_err(|error| InvalidSettings(error.to_string()))
     }
 
+    // A file edited by hand can give both actions one key, which Windows registers only once.
+    pub fn distinct_gif_hotkey(&self) -> Option<Hotkey> {
+        self.gif_hotkey.filter(|gif| *gif != self.hotkey)
+    }
+
     pub const fn allocation(&self) -> Allocation {
         if self.release_gpu_while_idle {
             Allocation::OnHotkey
@@ -143,6 +150,7 @@ impl Settings {
             theme: pick(&self.theme, &shown.theme, &wanted.theme),
             accent: pick(&self.accent, &shown.accent, &wanted.accent),
             hotkey: pick(&self.hotkey, &shown.hotkey, &wanted.hotkey),
+            gif_hotkey: pick(&self.gif_hotkey, &shown.gif_hotkey, &wanted.gif_hotkey),
             ask_about_hotkey: pick(
                 &self.ask_about_hotkey,
                 &shown.ask_about_hotkey,
@@ -213,6 +221,7 @@ mod tests {
         assert_eq!(settings.accent, Accent::Blue);
         assert_eq!(settings.last_region, None);
         assert_eq!(settings.hotkey, Hotkey::PRINT_SCREEN);
+        assert_eq!(settings.gif_hotkey, None);
         assert!(settings.ask_about_hotkey);
         assert!(!settings.print_screen_yields);
         assert!(!settings.detect_windows);
@@ -248,6 +257,7 @@ mod tests {
         for (field, value) in [
             ("detectWindows", r#""yes""#),
             ("hotkey", r#""Q""#),
+            ("gifHotkey", r#""Shift+G""#),
             ("fileName", r#""a/b""#),
             ("enter", r#""copyAndUpload""#),
             ("theme", r#""sepia""#),
@@ -299,6 +309,12 @@ mod tests {
                 shift: true,
                 key: Key::Letter('A'),
             },
+            gif_hotkey: Some(Hotkey {
+                ctrl: true,
+                alt: true,
+                shift: false,
+                key: Key::Letter('G'),
+            }),
             ask_about_hotkey: false,
             print_screen_yields: true,
             detect_windows: true,
@@ -315,6 +331,7 @@ mod tests {
         assert!(json.contains(r#""theme": "dark""#), "{json}");
         assert!(json.contains(r#""left": -1920"#), "{json}");
         assert!(json.contains(r#""hotkey": "Ctrl+Shift+A""#), "{json}");
+        assert!(json.contains(r#""gifHotkey": "Ctrl+Alt+G""#), "{json}");
         assert!(json.contains(r#""enter": "copy""#), "{json}");
         assert!(json.contains(r#""releaseGpuWhileIdle": true"#), "{json}");
         assert!(json.contains(r#""checkForUpdates": true"#), "{json}");
@@ -376,6 +393,12 @@ mod tests {
                 shift: false,
                 key: Key::Letter('B'),
             },
+            gif_hotkey: Some(Hotkey {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                key: Key::Function(9),
+            }),
             ask_about_hotkey: false,
             detect_windows: true,
             success_labels: true,
@@ -392,6 +415,33 @@ mod tests {
             Settings::default().with_changes(&wanted, &wanted),
             Settings::default()
         );
+    }
+
+    #[test]
+    fn a_gif_key_is_none_by_default_and_can_be_taken_away_again() {
+        let set = parse(r#"{ "gifHotkey": "Ctrl+Shift+G" }"#);
+        assert_eq!(set.gif_hotkey, Some("Ctrl+Shift+G".parse().unwrap()));
+        assert_eq!(parse(r#"{ "gifHotkey": null }"#).gif_hotkey, None);
+        assert!(
+            set.to_json()
+                .unwrap()
+                .contains(r#""gifHotkey": "Ctrl+Shift+G""#)
+        );
+        assert!(
+            Settings::default()
+                .to_json()
+                .unwrap()
+                .contains(r#""gifHotkey": null"#)
+        );
+    }
+
+    #[test]
+    fn a_gif_key_that_is_also_the_region_key_is_not_used() {
+        let both = parse(r#"{ "hotkey": "F9", "gifHotkey": "F9" }"#);
+        assert_eq!(both.distinct_gif_hotkey(), None);
+        let apart = parse(r#"{ "hotkey": "F9", "gifHotkey": "F10" }"#);
+        assert_eq!(apart.distinct_gif_hotkey(), Some("F10".parse().unwrap()));
+        assert_eq!(Settings::default().distinct_gif_hotkey(), None);
     }
 
     #[test]

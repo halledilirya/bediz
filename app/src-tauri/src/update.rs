@@ -1,4 +1,4 @@
-use bediz_platform::HotkeyState;
+use bediz_platform::{HotkeyState, Shortcut};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -7,6 +7,7 @@ use crate::settings_window;
 const SETTINGS_NOT_SAVED: &str = "settings-not-saved";
 const SETTINGS_CHANGED: &str = "settings-changed";
 const HOTKEY_STATE: &str = "hotkey-state";
+const GIF_HOTKEY_STATE: &str = "gif-hotkey-state";
 const HOTKEY_PRESSED: &str = "hotkey-pressed";
 const LANGUAGE_CHANGED: &str = "language-changed";
 const START_WITH_WINDOWS_PROBLEM: &str = "start-with-windows-problem";
@@ -87,12 +88,20 @@ pub fn hotkey_state(app: &AppHandle, state: HotkeyState) {
     let _ = app.emit_to(settings_window::LABEL, HOTKEY_STATE, state_name(state));
 }
 
+pub fn gif_hotkey_state(app: &AppHandle, state: HotkeyState) {
+    let _ = app.emit_to(settings_window::LABEL, GIF_HOTKEY_STATE, state_name(state));
+}
+
 pub fn language_changed(app: &AppHandle) {
     let _ = app.emit_to(settings_window::LABEL, LANGUAGE_CHANGED, ());
 }
 
-pub fn hotkey_pressed(app: &AppHandle) {
-    let _ = app.emit_to(settings_window::LABEL, HOTKEY_PRESSED, ());
+pub fn hotkey_pressed(app: &AppHandle, shortcut: Shortcut) {
+    let _ = app.emit_to(
+        settings_window::LABEL,
+        HOTKEY_PRESSED,
+        shortcut_name(shortcut),
+    );
 }
 
 pub fn start_with_windows_problem(app: &AppHandle, problem: Option<&str>) {
@@ -112,6 +121,13 @@ pub const fn state_name(state: HotkeyState) -> &'static str {
         HotkeyState::Registered => "registered",
         HotkeyState::SnippingTool => "snipping-tool",
         HotkeyState::Taken => "taken",
+    }
+}
+
+pub const fn shortcut_name(shortcut: Shortcut) -> &'static str {
+    match shortcut {
+        Shortcut::Region => "region",
+        Shortcut::Gif => "gif",
     }
 }
 
@@ -181,6 +197,13 @@ mod tests {
         assert_eq!(downloading.available(), Some("0.2.0"));
         assert_eq!(UpdateStatus::UpToDate.available(), None);
         assert_eq!(UpdateStatus::Checking.available(), None);
+    }
+
+    #[test]
+    fn the_window_tells_the_shortcuts_apart_by_name() {
+        assert_eq!(shortcut_name(Shortcut::Region), "region");
+        assert_eq!(shortcut_name(Shortcut::Gif), "gif");
+        assert_eq!(state_name(HotkeyState::SnippingTool), "snipping-tool");
     }
 
     #[test]

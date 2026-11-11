@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use bediz_core::delivery::SaveError;
 use bediz_core::settings::Settings;
-use bediz_platform::Command;
+use bediz_platform::{Command, Shortcut};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
@@ -57,7 +57,12 @@ pub fn take_section(section: State<'_, Section>) -> Option<&'static str> {
 
 #[tauri::command]
 pub fn hotkey_state(status: State<'_, HotkeyStatus>) -> Option<&'static str> {
-    status.get().map(update::state_name)
+    status.get(Shortcut::Region).map(update::state_name)
+}
+
+#[tauri::command]
+pub fn gif_hotkey_state(status: State<'_, HotkeyStatus>) -> Option<&'static str> {
+    status.get(Shortcut::Gif).map(update::state_name)
 }
 
 #[tauri::command]

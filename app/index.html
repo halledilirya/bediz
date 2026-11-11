@@ -257,6 +257,59 @@
                 </span>
               </span>
             </div>
+            <div class="row status" id="gif-hotkey-status" hidden>
+              <div class="row-text">
+                <span class="chip" id="gif-hotkey-chip"></span>
+                <p id="gif-hotkey-detail"></p>
+              </div>
+              <button
+                type="button"
+                class="button primary"
+                id="gif-take-print-screen"
+                data-l10n-id="settings-hotkey-take"
+                hidden
+              ></button>
+              <button
+                type="button"
+                class="button"
+                id="gif-retry-hotkey"
+                data-l10n-id="settings-hotkey-retry"
+                hidden
+              ></button>
+            </div>
+            <div class="row" data-search="settings-hotkey-gif">
+              <div class="row-text">
+                <span data-l10n-id="settings-hotkey-gif"></span>
+                <p data-l10n-id="settings-hotkey-gif-detail"></p>
+              </div>
+              <div class="hotkey">
+                <span
+                  class="keys"
+                  id="gif-hotkey-keys"
+                  aria-live="polite"
+                ></span>
+                <button
+                  type="button"
+                  class="button"
+                  id="record-gif-hotkey"
+                  data-l10n-id="settings-hotkey-change"
+                ></button>
+                <button
+                  type="button"
+                  class="button"
+                  id="remove-gif-hotkey"
+                  data-l10n-id="settings-hotkey-remove"
+                  hidden
+                ></button>
+              </div>
+              <input type="hidden" name="gifHotkey" />
+              <p
+                class="row-error"
+                id="gif-hotkey-error"
+                role="alert"
+                hidden
+              ></p>
+            </div>
             <div class="row note info">
               <svg viewBox="0 0 16 16" aria-hidden="true">
                 <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" />
