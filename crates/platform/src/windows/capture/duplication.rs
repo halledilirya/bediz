@@ -30,9 +30,16 @@ pub struct Duplicator {
     holding: bool,
     has_image: bool,
     target_holds_image: bool,
+    pointer: PointerReport,
     pixels: Pixels,
     converter: Option<Converter>,
     refresh_milliseconds: u32,
+}
+
+// Until this duplication reports the pointer apart, the image may already hold it.
+#[derive(Default)]
+struct PointerReport {
+    apart: bool,
 }
 
 impl Duplicator {
@@ -46,6 +53,7 @@ impl Duplicator {
             holding: false,
             has_image: false,
             target_holds_image: false,
+            pointer: PointerReport::default(),
             pixels: Pixels::Bgra8,
             converter: None,
             refresh_milliseconds: refresh_period(0, 0),
@@ -169,6 +177,10 @@ impl Duplicator {
         self.target_holds_image = false;
     }
 
+    pub fn pointer_apart(&self) -> bool {
+        self.pointer.apart
+    }
+
     fn present(
         &mut self,
         context: &ID3D11DeviceContext,
@@ -213,6 +225,7 @@ impl Duplicator {
         self.held = None;
         self.holding = false;
         self.has_image = false;
+        self.pointer = PointerReport::default();
         self.duplication = None;
         // A driver refusing the float format must not cost the monitor its duplication.
         let duplicate =
@@ -245,6 +258,7 @@ impl Duplicator {
                 self.holding = true;
                 let resource = resource.ok_or_else(|| Error::from(E_POINTER))?;
                 self.held = Some(resource.cast()?);
+                self.pointer.update(&info);
                 let fresh = info.LastPresentTime != 0;
                 self.has_image |= fresh;
                 self.target_holds_image &= !fresh;
@@ -272,6 +286,15 @@ fn format(texture: &ID3D11Texture2D) -> DXGI_FORMAT {
     description.Format
 }
 
+impl PointerReport {
+    // The pointer is reported only with a mouse update, and as not visible when the image already holds it.
+    fn update(&mut self, info: &DXGI_OUTDUPL_FRAME_INFO) {
+        if info.LastMouseUpdateTime != 0 {
+            self.apart = info.PointerPosition.Visible.as_bool();
+        }
+    }
+}
+
 fn no_image() -> Error {
     Error::new(E_POINTER, "the duplication has no desktop image yet")
 }
@@ -290,7 +313,47 @@ fn refresh_period(numerator: u32, denominator: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::refresh_period;
+    use windows::Win32::Graphics::Dxgi::{DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTDUPL_POINTER_POSITION};
+
+    use super::{PointerReport, refresh_period};
+
+    fn frame(present: i64, mouse_update: i64, visible: bool) -> DXGI_OUTDUPL_FRAME_INFO {
+        DXGI_OUTDUPL_FRAME_INFO {
+            LastPresentTime: present,
+            LastMouseUpdateTime: mouse_update,
+            PointerPosition: DXGI_OUTDUPL_POINTER_POSITION {
+                Visible: visible.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_duplication_holds_the_pointer_in_its_image_until_it_reports_it_apart() {
+        let mut report = PointerReport::default();
+        assert!(!report.apart);
+        report.update(&frame(5, 0, true));
+        assert!(!report.apart);
+        report.update(&frame(0, 6, true));
+        assert!(report.apart);
+        report.update(&frame(7, 0, false));
+        assert!(report.apart);
+        report.update(&frame(8, 8, false));
+        assert!(!report.apart);
+        report.update(&frame(0, 9, true));
+        assert!(report.apart);
+    }
+
+    #[test]
+    fn a_reopened_duplication_forgets_the_last_report() {
+        let mut report = PointerReport::default();
+        report.update(&frame(1, 1, true));
+        assert!(report.apart);
+        report = PointerReport::default();
+        report.update(&frame(2, 0, true));
+        assert!(!report.apart);
+    }
 
     #[test]
     fn refresh_period_rounds_up_and_stays_in_range() {

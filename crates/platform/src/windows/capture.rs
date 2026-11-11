@@ -118,6 +118,13 @@ impl Capturer {
         Ok(changed)
     }
 
+    pub fn pointer_apart(&self, monitor: usize) -> bool {
+        match self.sources.get(monitor) {
+            Some(Some(Source::Duplication(duplicator))) => duplicator.pointer_apart(),
+            _ => true,
+        }
+    }
+
     pub fn end_recording(&mut self, monitor: usize) {
         self.scratch = None;
         if let Some(Some(Source::Duplication(duplicator))) = self.sources.get_mut(monitor) {

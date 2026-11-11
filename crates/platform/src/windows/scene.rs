@@ -153,6 +153,10 @@ impl Scene {
             .grab(&self.displays, &self.overlays, monitor, draw)
     }
 
+    pub fn pointer_apart(&self, monitor: usize) -> bool {
+        self.capturer.pointer_apart(monitor)
+    }
+
     pub fn end_recording(&mut self, monitor: usize) {
         self.capturer.end_recording(monitor);
     }

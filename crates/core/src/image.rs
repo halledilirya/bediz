@@ -93,6 +93,10 @@ impl Image {
         &self.bgra
     }
 
+    pub(crate) fn bgra_mut(&mut self) -> &mut [u8] {
+        &mut self.bgra
+    }
+
     pub fn opaque_bottom_up_bgra(&self) -> Vec<u8> {
         let mut pixels = Vec::with_capacity(self.bgra.len());
         for row in self.bgra.chunks_exact(self.width as usize * 4).rev() {

@@ -9,6 +9,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::DXGI_ERROR_WAS_STILL_DRAWING;
 use windows::core::Result;
 
+use super::pointer::Sample;
 use crate::windows::gpu::Gpu;
 use crate::windows::readback;
 
@@ -16,7 +17,7 @@ const SLOTS: usize = 3;
 
 pub struct Ring {
     slots: Vec<ID3D11Texture2D>,
-    pending: VecDeque<(usize, Duration)>,
+    pending: VecDeque<(usize, Duration, Option<Sample>)>,
     next: usize,
     width: u32,
     height: u32,
@@ -42,14 +43,15 @@ impl Ring {
         context: &ID3D11DeviceContext,
         source: &ID3D11Texture2D,
         at: Duration,
+        pointer: Option<Sample>,
     ) {
         let slot = self.next;
         let Some(texture) = self.slots.get(slot) else {
             return;
         };
-        self.pending.retain(|(waiting, _)| *waiting != slot);
+        self.pending.retain(|(waiting, _, _)| *waiting != slot);
         unsafe { context.CopyResource(texture, source) };
-        self.pending.push_back((slot, at));
+        self.pending.push_back((slot, at, pointer));
         self.next = (slot + 1) % SLOTS;
     }
 
@@ -61,14 +63,14 @@ impl Ring {
         &mut self,
         context: &ID3D11DeviceContext,
         wait: bool,
-    ) -> Result<Vec<(Image, Duration)>> {
+    ) -> Result<Vec<(Image, Duration, Option<Sample>)>> {
         let flags = if wait {
             0
         } else {
             D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32
         };
         let mut ready = Vec::new();
-        while let Some(&(slot, at)) = self.pending.front() {
+        while let Some(&(slot, at, _)) = self.pending.front() {
             let Some(texture) = self.slots.get(slot) else {
                 self.pending.pop_front();
                 continue;
@@ -78,8 +80,8 @@ impl Ring {
                 Ok(()) => {
                     let image = readback::mapped_image(&mapped, self.width, self.height);
                     unsafe { context.Unmap(texture, 0) };
-                    self.pending.pop_front();
-                    ready.push((image?, at));
+                    let pointer = self.pending.pop_front().and_then(|(_, _, pointer)| pointer);
+                    ready.push((image?, at, pointer));
                 }
                 Err(error) if error.code() == DXGI_ERROR_WAS_STILL_DRAWING => break,
                 Err(error) => return Err(error),

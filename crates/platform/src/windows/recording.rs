@@ -1,6 +1,7 @@
 pub mod border;
 pub mod controls;
 mod pipeline;
+mod pointer;
 mod ring;
 mod scaler;
 mod timer;
@@ -11,6 +12,7 @@ use std::time::Duration;
 
 use bediz_core::animation::AnimationError;
 use bediz_core::capture::Pixels;
+use bediz_core::cursor::Placement;
 use bediz_core::delivery::SaveError;
 use bediz_core::geometry::Rect;
 use bediz_core::notice::Notice;
@@ -32,6 +34,7 @@ use border::{Border, Line};
 use controls::{Controls, Stage};
 use pipeline::Output;
 pub use pipeline::{Ended, Pipeline};
+use pointer::{Pointer, Sample};
 use ring::Ring;
 use scaler::Scaler;
 pub use timer::Timer;
@@ -69,6 +72,9 @@ pub struct Recording {
     previous: HWND,
     scaler: Scaler,
     ring: Ring,
+    pointer: Pointer,
+    placement: Placement,
+    drawn: Option<Sample>,
     pipeline: Pipeline,
     timer: Option<Timer>,
     border: Border,
@@ -93,6 +99,13 @@ impl Recording {
     pub fn start(scene: &mut Scene, request: &Request) -> Result<Self, StartError> {
         let area = request.area;
         let (width, height) = recording::output_size(area.width(), area.height());
+        let placement = Placement::new(area, width, height);
+        let mut pointer = Pointer::default();
+        let drawn = visible(
+            pointer.sample(),
+            scene.pointer_apart(request.monitor),
+            &placement,
+        );
         let (scaler, ring) = {
             let gpu = scene
                 .gpu_for(request.monitor)
@@ -105,7 +118,7 @@ impl Recording {
                 scaler
                     .draw(&gpu.context, frozen, Pixels::Bgra8)
                     .map_err(StartError::Capture)?;
-                ring.submit(&gpu.context, scaler.target(), Duration::ZERO);
+                ring.submit(&gpu.context, scaler.target(), Duration::ZERO, drawn.clone());
             }
             (scaler, ring)
         };
@@ -146,6 +159,9 @@ impl Recording {
             previous: request.previous,
             scaler,
             ring,
+            pointer,
+            placement,
+            drawn,
             pipeline,
             timer: Some(timer),
             border,
@@ -187,9 +203,18 @@ impl Recording {
         let previous = std::mem::replace(&mut self.pipeline, pipeline);
         previous.cancel();
         self.ring.discard();
+        self.drawn = visible(
+            self.pointer.sample(),
+            scene.pointer_apart(self.monitor),
+            &self.placement,
+        );
         if let Ok(gpu) = scene.gpu_for(self.monitor) {
-            self.ring
-                .submit(&gpu.context, self.scaler.target(), Duration::ZERO);
+            self.ring.submit(
+                &gpu.context,
+                self.scaler.target(),
+                Duration::ZERO,
+                self.drawn.clone(),
+            );
         }
         self.started = self.clock.now();
         self.pauses = Pauses::default();
@@ -253,17 +278,28 @@ impl Recording {
         if elapsed >= TIME_LIMIT {
             return Next::Stop(Some(RecordingStop::TimeLimit(TIME_LIMIT)));
         }
-        let (scaler, ring) = (&self.scaler, &mut self.ring);
+        let sample = self.pointer.sample();
+        let scaler = &self.scaler;
         let grabbed = scene.grab(self.monitor, |gpu, frame, pixels| {
-            scaler.draw(&gpu.context, frame, pixels)?;
-            ring.submit(&gpu.context, scaler.target(), elapsed);
-            Ok(())
+            scaler.draw(&gpu.context, frame, pixels)
         });
-        if let Err(error) = grabbed {
-            notes.push(format!(
-                "the recording stopped; the screen could not be captured: {error}"
-            ));
-            return Next::Stop(Some(RecordingStop::Display));
+        let pointer = visible(sample, scene.pointer_apart(self.monitor), &self.placement);
+        match grabbed {
+            // A pointer that moved over a still screen still needs a frame of its own.
+            Ok(fresh) if fresh || !same(&pointer, &self.drawn) => {
+                if let Ok(gpu) = scene.gpu_for(self.monitor) {
+                    self.ring
+                        .submit(&gpu.context, self.scaler.target(), elapsed, pointer.clone());
+                    self.drawn = pointer;
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                notes.push(format!(
+                    "the recording stopped; the screen could not be captured: {error}"
+                ));
+                return Next::Stop(Some(RecordingStop::Display));
+            }
         }
         let seconds = elapsed.as_secs();
         if seconds != self.shown {
@@ -339,7 +375,10 @@ impl Recording {
             notes.push(format!("a recorded frame could not be read back: {error}"));
             Some(RecordingStop::Display)
         })?;
-        for (image, at) in frames {
+        for (mut image, at, pointer) in frames {
+            if let Some(pointer) = pointer {
+                pointer.cursor.draw(&mut image, pointer.at, &self.placement);
+            }
             match self.pipeline.push(&image, at) {
                 Ok(()) => {}
                 Err(AnimationError::Budget { .. }) => return Err(Some(RecordingStop::Memory)),
@@ -383,6 +422,18 @@ fn open_pipeline(
     Ok((pipeline, workers))
 }
 
+fn visible(sample: Option<Sample>, apart: bool, placement: &Placement) -> Option<Sample> {
+    sample.filter(|sample| apart && sample.cursor.shows_in(sample.at, placement))
+}
+
+fn same(sample: &Option<Sample>, other: &Option<Sample>) -> bool {
+    match (sample, other) {
+        (Some(sample), Some(other)) => sample.same_as(other),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 pub fn monitor_metrics(area: Rect) -> (u32, Rect) {
     let half = |side: u32| i32::try_from(side / 2).unwrap_or(0);
     let centre = POINT {
@@ -406,4 +457,43 @@ pub fn monitor_metrics(area: Rect) -> (u32, Rect) {
         _ => USER_DEFAULT_SCREEN_DPI,
     };
     (dpi, work)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use bediz_core::cursor::{Cursor, Placement};
+    use bediz_core::geometry::{Point, Rect};
+    use bediz_core::image::Image;
+
+    use super::pointer::Sample;
+    use super::visible;
+
+    fn screen() -> Image {
+        Image::from_bgra(4, 4, [100, 100, 100, 255].repeat(16)).unwrap()
+    }
+
+    fn recorded(mut image: Image, sample: &Sample, apart: bool, placement: &Placement) -> Image {
+        if let Some(pointer) = visible(Some(sample.clone()), apart, placement) {
+            pointer.cursor.draw(&mut image, pointer.at, placement);
+        }
+        image
+    }
+
+    #[test]
+    fn the_pointer_is_drawn_once_whether_or_not_the_capture_holds_it() {
+        let half_red = [0, 0, 255, 128].repeat(4);
+        let cursor = Cursor::from_colour(2, 2, Point::new(0, 0), &half_red, &[]).unwrap();
+        let sample = Sample {
+            at: Point::new(11, 11),
+            cursor: Rc::new(cursor),
+        };
+        let placement = Placement::new(Rect::new(10, 10, 14, 14), 4, 4);
+        let mut once = screen();
+        sample.cursor.draw(&mut once, sample.at, &placement);
+        assert_ne!(once, screen());
+        assert_eq!(recorded(once.clone(), &sample, false, &placement), once);
+        assert_eq!(recorded(screen(), &sample, true, &placement), once);
+    }
 }
