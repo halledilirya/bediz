@@ -1,28 +1,29 @@
-use std::collections::BTreeMap;
-use std::ffi::c_void;
+mod pace;
+mod writer;
+
 use std::fs::{self, File};
 use std::io::BufWriter;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{Builder, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bediz_core::animation::{AnimationError, FrameStore, GifEncoder, PreparedFrame};
 use bediz_core::delivery::SaveError;
 use bediz_core::image::Image;
 use bediz_core::recording;
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_BELOW_NORMAL,
     THREAD_PRIORITY_NORMAL,
 };
-use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use crate::event::SavedGif;
-use crate::windows::runtime::WM_RECORDING;
 use crate::windows::save;
+use pace::Span;
+use writer::Writing;
 
 const INTERNAL_ERROR: &str = "an internal error was caught while writing the GIF";
 const FRAMES_PER_THREAD: u64 = 2;
@@ -35,7 +36,7 @@ pub struct Output {
 }
 
 pub enum Ended {
-    Saved(SavedGif),
+    Saved(SavedGif, String),
     Failed(SaveError),
     Cancelled,
 }
@@ -43,7 +44,7 @@ pub enum Ended {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Phase {
     Recording,
-    Finishing(Duration),
+    Finishing(Duration, Instant),
     Cancelled,
     Failed,
 }
@@ -83,16 +84,24 @@ impl Shared {
         self.frames.notify_all();
     }
 
+    // Taken under the lock, so a frame the writer finishes after this time always sees it.
     fn finish(&self, end: Duration) {
         self.change(|phase| match phase {
-            Phase::Recording => Phase::Finishing(end),
+            Phase::Recording => Phase::Finishing(end, Instant::now()),
             other => other,
         });
     }
 
+    fn stopped(&self) -> Option<Instant> {
+        match self.phase() {
+            Phase::Finishing(_, at) => Some(at),
+            _ => None,
+        }
+    }
+
     fn cancel(&self) {
         self.change(|phase| match phase {
-            Phase::Recording | Phase::Finishing(_) => Phase::Cancelled,
+            Phase::Recording | Phase::Finishing(..) => Phase::Cancelled,
             other => other,
         });
     }
@@ -111,7 +120,7 @@ impl Shared {
 
     fn written_share(&self) -> Option<(u64, u64)> {
         let state = self.lock();
-        let Phase::Finishing(_) = state.phase else {
+        let Phase::Finishing(..) = state.phase else {
             return None;
         };
         let waiting = u64::try_from(state.store.waiting()).unwrap_or(u64::MAX);
@@ -124,7 +133,12 @@ impl Shared {
     }
 }
 
-type Prepared = (u64, Result<PreparedFrame, SaveError>);
+struct Prepared {
+    number: u64,
+    frame: Result<PreparedFrame, SaveError>,
+    preparing: Span,
+    changed: u64,
+}
 
 pub struct Pipeline {
     shared: Arc<Shared>,
@@ -178,6 +192,7 @@ impl Pipeline {
             folder,
             stem,
             size: (width, height),
+            threads: preparing,
             ended: Arc::clone(&ended),
             window: window.0 as isize,
         };
@@ -199,9 +214,10 @@ impl Pipeline {
         for number in 0..preparing {
             let shared = Arc::clone(&pipeline.shared);
             let frames = sender.clone();
+            let rises = recording::raised_after_stop(number);
             let spawned = Builder::new()
                 .name(format!("bediz-gif-prepare-{number}"))
-                .spawn(move || prepare(&shared, &frames));
+                .spawn(move || prepare(&shared, &frames, rises));
             match spawned {
                 Ok(thread) => pipeline.threads.push(thread),
                 Err(error) => {
@@ -279,9 +295,9 @@ impl Drop for Pipeline {
     }
 }
 
-fn prepare(shared: &Shared, sender: &Sender<Prepared>) {
+fn prepare(shared: &Shared, sender: &Sender<Prepared>, rises: bool) {
     set_priority(THREAD_PRIORITY_BELOW_NORMAL);
-    let mut raised = false;
+    let mut rise = rises;
     loop {
         let (number, frame, finishing) = {
             let mut state = shared.lock();
@@ -305,132 +321,26 @@ fn prepare(shared: &Shared, sender: &Sender<Prepared>) {
                     .unwrap_or_else(PoisonError::into_inner);
             }
         };
-        if finishing && !raised {
+        if finishing && rise {
             set_priority(THREAD_PRIORITY_NORMAL);
-            raised = true;
+            rise = false;
         }
+        let start = Instant::now();
         let prepared = catch_unwind(AssertUnwindSafe(|| PreparedFrame::new(&frame)))
             .map_err(|_| SaveError::Unexpected(INTERNAL_ERROR.to_owned()))
             .and_then(|prepared| prepared.map_err(|error| save_error(&error)));
-        if sender.send((number, prepared)).is_err() {
+        let prepared = Prepared {
+            number,
+            frame: prepared,
+            preparing: Span {
+                start,
+                end: Instant::now(),
+            },
+            changed: frame.changed_area(),
+        };
+        if sender.send(prepared).is_err() {
             return;
         }
-    }
-}
-
-struct Writing {
-    receiver: Receiver<Prepared>,
-    encoder: GifEncoder<BufWriter<File>>,
-    shared: Arc<Shared>,
-    temporary: PathBuf,
-    folder: PathBuf,
-    stem: String,
-    size: (u32, u32),
-    ended: Arc<Mutex<Option<Ended>>>,
-    window: isize,
-}
-
-impl Writing {
-    fn run(self) {
-        let Self {
-            receiver,
-            encoder,
-            shared,
-            temporary,
-            folder,
-            stem,
-            size,
-            ended,
-            window,
-        } = self;
-        set_priority(THREAD_PRIORITY_BELOW_NORMAL);
-        let written = catch_unwind(AssertUnwindSafe(|| {
-            write(
-                receiver, encoder, &shared, &temporary, &folder, &stem, window,
-            )
-        }))
-        .unwrap_or_else(|_| Err(SaveError::Unexpected(INTERNAL_ERROR.to_owned())));
-        let outcome = match written {
-            Ok(Some((path, bytes, length))) => Ended::Saved(SavedGif {
-                path,
-                bytes,
-                length,
-                width: size.0,
-                height: size.1,
-            }),
-            Ok(None) => Ended::Cancelled,
-            Err(_) if shared.phase() == Phase::Cancelled => Ended::Cancelled,
-            Err(error) => {
-                shared.fail();
-                Ended::Failed(error)
-            }
-        };
-        if !matches!(outcome, Ended::Saved(_)) {
-            let _ = fs::remove_file(&temporary);
-        }
-        *ended.lock().unwrap_or_else(PoisonError::into_inner) = Some(outcome);
-        tell(window);
-    }
-}
-
-fn tell(window: isize) {
-    let window = HWND(window as *mut c_void);
-    let _ = unsafe { PostMessageW(Some(window), WM_RECORDING, WPARAM(0), LPARAM(0)) };
-}
-
-fn write(
-    receiver: Receiver<Prepared>,
-    mut encoder: GifEncoder<BufWriter<File>>,
-    shared: &Shared,
-    temporary: &Path,
-    folder: &Path,
-    stem: &str,
-    window: isize,
-) -> Result<Option<(PathBuf, u64, Duration)>, SaveError> {
-    let mut waiting = BTreeMap::new();
-    let mut wanted = 0u64;
-    let mut raised = false;
-    let mut told = None;
-    for (number, prepared) in receiver {
-        waiting.insert(number, prepared);
-        let before = wanted;
-        while let Some(prepared) = waiting.remove(&wanted) {
-            let written =
-                prepared.and_then(|frame| encoder.push(frame).map_err(|error| save_error(&error)));
-            if let Err(error) = written {
-                shared.fail();
-                return Err(error);
-            }
-            wanted += 1;
-        }
-        if wanted != before {
-            shared.written(wanted);
-            let percent = shared.written_percent();
-            if percent.is_some() && percent != told {
-                told = percent;
-                tell(window);
-            }
-        }
-        if !raised && matches!(shared.phase(), Phase::Finishing(_)) {
-            set_priority(THREAD_PRIORITY_NORMAL);
-            raised = true;
-        }
-    }
-    match shared.phase() {
-        Phase::Cancelled => Ok(None),
-        Phase::Finishing(end) if waiting.is_empty() => {
-            let writer = encoder.finish(end).map_err(|error| save_error(&error))?;
-            let file = writer
-                .into_inner()
-                .map_err(|error| save::io_error(error.error()))?;
-            file.sync_all().map_err(|error| save::io_error(&error))?;
-            let bytes = file.metadata().map_or(0, |metadata| metadata.len());
-            drop(file);
-            save::finish_recording(temporary, folder, stem).map(|path| Some((path, bytes, end)))
-        }
-        _ => Err(SaveError::Unexpected(
-            "the recording ended before all of its frames were written".to_owned(),
-        )),
     }
 }
 
@@ -453,6 +363,8 @@ fn set_priority(priority: THREAD_PRIORITY) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc::Receiver;
+
     use super::*;
 
     const WAIT: Duration = Duration::from_secs(10);
@@ -483,7 +395,7 @@ mod tests {
         let (finished, done) = mpsc::channel();
         let shared = Arc::clone(shared);
         std::thread::spawn(move || {
-            prepare(&shared, &sender);
+            prepare(&shared, &sender, true);
             let _ = finished.send(());
         });
         (frames, done)
@@ -493,12 +405,12 @@ mod tests {
     fn frames_stay_in_the_store_while_the_writer_falls_behind() {
         let shared = shared(6, 2);
         let (frames, done) = start_preparing(&shared);
-        assert_eq!(frames.recv_timeout(WAIT).unwrap().0, 0);
-        assert_eq!(frames.recv_timeout(WAIT).unwrap().0, 1);
+        assert_eq!(frames.recv_timeout(WAIT).unwrap().number, 0);
+        assert_eq!(frames.recv_timeout(WAIT).unwrap().number, 1);
         assert!(frames.recv_timeout(NOTHING_MORE).is_err());
         assert_eq!(shared.lock().handed_out, 2);
         shared.written(1);
-        assert_eq!(frames.recv_timeout(WAIT).unwrap().0, 2);
+        assert_eq!(frames.recv_timeout(WAIT).unwrap().number, 2);
         assert!(frames.recv_timeout(NOTHING_MORE).is_err());
         shared.cancel();
         done.recv_timeout(WAIT).unwrap();
@@ -511,9 +423,10 @@ mod tests {
         shared.finish(Duration::from_secs(1));
         let (frames, done) = start_preparing(&shared);
         for number in 0..3 {
-            let (handed, prepared) = frames.recv_timeout(WAIT).unwrap();
-            assert_eq!(handed, number);
-            assert!(prepared.is_ok());
+            let prepared = frames.recv_timeout(WAIT).unwrap();
+            assert_eq!(prepared.number, number);
+            assert!(prepared.frame.is_ok());
+            assert_eq!(prepared.changed, 16);
             shared.written(number + 1);
         }
         done.recv_timeout(WAIT).unwrap();
@@ -542,5 +455,6 @@ mod tests {
     fn the_window_grows_with_the_preparing_threads() {
         assert_eq!(in_flight(1), 2);
         assert_eq!(in_flight(3), 6);
+        assert_eq!(in_flight(6), 12);
     }
 }

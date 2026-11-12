@@ -15,7 +15,9 @@ const MEGABYTE: u64 = 1 << 20;
 const GITHUB_LIMIT: u64 = 10 * MEGABYTE;
 const X_LIMIT: u64 = 15 * MEGABYTE;
 const LARGEST_BUDGET: u64 = 1 << 30;
-const MOST_PREPARING_THREADS: usize = 3;
+const MOST_PREPARING_THREADS: usize = 6;
+// The rest stay below normal after the stop, so other apps keep coming first on those cores.
+const RAISED_AFTER_STOP: usize = 3;
 const THREADS_KEPT_FREE: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
@@ -130,6 +132,10 @@ pub fn preparing_threads(available: usize) -> usize {
     available
         .saturating_sub(THREADS_KEPT_FREE)
         .clamp(1, MOST_PREPARING_THREADS)
+}
+
+pub fn raised_after_stop(thread: usize) -> bool {
+    thread < RAISED_AFTER_STOP
 }
 
 pub fn area_on_one_monitor(selection: Rect, monitors: &[Rect]) -> Option<(usize, Rect)> {
@@ -298,7 +304,14 @@ mod tests {
         assert_eq!(preparing_threads(2), 1);
         assert_eq!(preparing_threads(4), 2);
         assert_eq!(preparing_threads(5), 3);
-        assert_eq!(preparing_threads(12), 3);
+        assert_eq!(preparing_threads(8), 6);
+        assert_eq!(preparing_threads(12), 6);
+    }
+
+    #[test]
+    fn only_the_first_three_preparing_threads_rise_to_normal_after_the_stop() {
+        let raised: Vec<bool> = (0..6).map(raised_after_stop).collect();
+        assert_eq!(raised, [true, true, true, false, false, false]);
     }
 
     #[test]

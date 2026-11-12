@@ -328,7 +328,8 @@ impl Runtime {
         }
         let mut notices: Vec<Notice> = stop.map(Notice::RecordingStopped).into_iter().collect();
         match ended {
-            Ended::Saved(saved) => {
+            Ended::Saved(saved, pace) => {
+                self.emit_notes(vec![pace]);
                 let path = saved.path.clone();
                 if let Some(id) = gif {
                     (self.sink)(Event::Gif(GifEvent::Saved { id, gif: saved }));
@@ -356,7 +357,7 @@ impl Runtime {
 // The writer may have finished the GIF just as it was told to stop, and then it is deleted after all.
 fn left_behind(ended: &Ended, discarded: bool) -> Option<&Path> {
     match ended {
-        Ended::Saved(saved) if discarded => Some(&saved.path),
+        Ended::Saved(saved, _) if discarded => Some(&saved.path),
         _ => None,
     }
 }
@@ -372,13 +373,16 @@ mod tests {
     use crate::event::SavedGif;
 
     fn saved() -> Ended {
-        Ended::Saved(SavedGif {
-            path: PathBuf::from(r"C:\GIFs\Bediz 2026-11-12 640x360.gif"),
-            bytes: 1,
-            length: Duration::from_secs(1),
-            width: 640,
-            height: 360,
-        })
+        Ended::Saved(
+            SavedGif {
+                path: PathBuf::from(r"C:\GIFs\Bediz 2026-11-12 640x360.gif"),
+                bytes: 1,
+                length: Duration::from_secs(1),
+                width: 640,
+                height: 360,
+            },
+            String::new(),
+        )
     }
 
     #[test]

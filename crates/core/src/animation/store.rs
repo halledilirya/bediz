@@ -14,6 +14,10 @@ pub struct StoredFrame {
 }
 
 impl StoredFrame {
+    pub fn changed_area(&self) -> u64 {
+        u64::from(self.area.width) * u64::from(self.area.height)
+    }
+
     pub(super) fn cut(&self) -> Option<Cut> {
         let pixel_count = usize::from(self.area.width) * usize::from(self.area.height);
         codec::decompress(&self.data, pixel_count)
@@ -160,6 +164,7 @@ mod tests {
         assert_eq!(frame.at, Duration::from_millis(40));
         assert_eq!(frame.canvas, (3, 2));
         assert_eq!(frame.area, Area::whole(3, 2));
+        assert_eq!(frame.changed_area(), 6);
         let cut = frame.cut().unwrap();
         assert!(cut.changed.iter().all(|changed| *changed));
         assert_eq!(cut.pixels, [BLACK, RED, BLACK, BLACK, RED, BLACK]);
@@ -200,6 +205,7 @@ mod tests {
                 height: 2
             }
         );
+        assert_eq!(frame.changed_area(), 6);
         let cut = frame.cut().unwrap();
         assert_eq!(cut.changed, [true, false, false, false, false, true]);
         assert_eq!(cut.pixels[0], RED);
