@@ -9,6 +9,7 @@ use bediz_core::settings::Settings;
 use bediz_platform::{Command, Event, HotkeyState, Label, Platform, Shortcut};
 use tauri::{AppHandle, Manager};
 
+use crate::gif_window;
 use crate::i18n::{Language, Texts};
 use crate::log::Log;
 use crate::question;
@@ -148,13 +149,18 @@ impl Dispatcher {
                     update::start_with_windows_problem(&self.app, failure.as_deref());
                 }
             }
-            Event::Notice { notices, near }
-                if notice::worth_a_label(notices, current(&self.app).success_labels) =>
-            {
-                self.show_label(notices, *near);
+            Event::Notice { notices, near } => {
+                let settings = current(&self.app);
+                let notices = notice::beside_gif_window(notices.clone(), settings.gif_window);
+                if notice::worth_a_label(&notices, settings.success_labels) {
+                    self.show_label(&notices, *near);
+                }
             }
             Event::SecondStart => self.open_settings(None),
             Event::Recording(state) => self.tray.show_recording(*state),
+            Event::Gif(event) => {
+                gif_window::on_event(&self.app, event, &self.texts.get("gif-title"), &self.sender);
+            }
             _ => {}
         }
     }
@@ -249,6 +255,7 @@ impl Dispatcher {
         }
         settings_window::retitle(&self.app, &self.texts.get("settings-title"));
         update::language_changed(&self.app);
+        gif_window::language_changed(&self.app, &self.texts.get("gif-title"));
     }
 
     fn show_label(&self, notices: &[Notice], near: Rect) {
@@ -297,7 +304,7 @@ fn record(log: &Log, event: &Event) {
             "{} hotkey pressed while a new one was asked for",
             update::shortcut_name(*shortcut)
         )),
-        Event::LastRegion(_) | Event::Recording(_) => {}
+        Event::LastRegion(_) | Event::Recording(_) | Event::Gif(_) => {}
         Event::StartWithWindows { on, failure, .. } => {
             let wanted = if *on { "on" } else { "off" };
             match failure {

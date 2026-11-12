@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use bediz_core::delivery::{CopyError, Delivery, DeliveryError, Report, SaveError};
 use bediz_core::file_name::LocalTime;
 use bediz_core::geometry::{Point, Rect};
@@ -6,7 +8,7 @@ use bediz_core::notice::Notice;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
 use super::{CLIPBOARD_TIMER, Runtime};
-use crate::event::Event;
+use crate::event::{Event, GifEvent};
 use crate::windows::clipboard::{self, Contents, Placed};
 use crate::windows::clock;
 use crate::windows::save;
@@ -20,12 +22,26 @@ pub(super) struct PendingCopy {
     ticket: u64,
     contents: Contents,
     copied: Copied,
+    unchanged_since: Option<u32>,
     attempts: u32,
 }
 
 enum Copied {
-    Image { job: u64 },
-    Colour { hex: String, near: Rect },
+    Image {
+        job: u64,
+    },
+    Colour {
+        hex: String,
+        near: Rect,
+    },
+    RecordedGif {
+        gif: Option<u64>,
+        notices: Vec<Notice>,
+        near: Rect,
+    },
+    Gif {
+        gif: u64,
+    },
 }
 
 pub(super) struct Tracked {
@@ -115,17 +131,41 @@ impl Runtime {
         let near = Rect::spanning(at, at);
         match colour {
             Some(colour) => {
-                let ticket = self.copies.upcoming();
-                self.copies.accept(ticket);
+                let ticket = self.copies.reserve();
                 let hex = hex_colour(colour);
                 let contents = Contents::text(&hex);
-                self.place_on_clipboard(ticket, contents, Copied::Colour { hex, near });
+                self.place_on_clipboard(ticket, contents, Copied::Colour { hex, near }, None);
             }
             None => {
                 let error = CopyError::Unexpected("no colour under the pointer".to_owned());
                 self.notify(vec![Notice::CopyFailed(error)], near);
             }
         }
+    }
+
+    // A GIF can take minutes to write, and whatever was copied elsewhere meanwhile is not replaced.
+    pub(super) fn copy_recorded_gif(
+        &mut self,
+        (ticket, unchanged_since): (u64, u32),
+        gif: Option<u64>,
+        path: &Path,
+        notices: Vec<Notice>,
+        near: Rect,
+    ) {
+        let copied = Copied::RecordedGif { gif, notices, near };
+        self.place_on_clipboard(ticket, Contents::file(path), copied, Some(unchanged_since));
+    }
+
+    // The window's file check runs off this thread, so the copy takes its place when it is asked.
+    pub(super) fn reserve_gif_copy(&mut self, gif: u64) {
+        self.gif_copy = Some((gif, self.copies.reserve()));
+    }
+
+    pub(super) fn copy_gif(&mut self, gif: u64, path: &Path) {
+        let Some((_, ticket)) = self.gif_copy.take_if(|(asked, _)| *asked == gif) else {
+            return;
+        };
+        self.place_on_clipboard(ticket, Contents::file(path), Copied::Gif { gif }, None);
     }
 
     pub(super) fn on_outcomes(&mut self) {
@@ -144,7 +184,7 @@ impl Runtime {
                     job,
                     ticket,
                     contents,
-                } => self.place_on_clipboard(ticket, contents, Copied::Image { job }),
+                } => self.place_on_clipboard(ticket, contents, Copied::Image { job }, None),
                 Outcome::Saved { job, result } => self.save_settled(job, result),
                 Outcome::Appeared {
                     job,
@@ -201,10 +241,20 @@ impl Runtime {
             return;
         }
         pending.attempts += 1;
-        match clipboard::place(self.window.0, &pending.contents, self.keep_out_of_history) {
+        let placed = clipboard::place(
+            self.window.0,
+            &pending.contents,
+            self.keep_out_of_history,
+            pending.unchanged_since,
+        );
+        match placed {
             Ok(Placed::Done) => {
                 self.stop_clipboard_timer();
                 self.copy_settled(pending.copied, Ok(()));
+            }
+            Ok(Placed::Changed) => {
+                self.stop_clipboard_timer();
+                self.supersede(pending.copied);
             }
             Ok(Placed::Busy) => {
                 let scheduled = pending.attempts < CLIPBOARD_ATTEMPTS
@@ -230,7 +280,13 @@ impl Runtime {
         }
     }
 
-    fn place_on_clipboard(&mut self, ticket: u64, contents: Contents, copied: Copied) {
+    fn place_on_clipboard(
+        &mut self,
+        ticket: u64,
+        contents: Contents,
+        copied: Copied,
+        unchanged_since: Option<u32>,
+    ) {
         if !self.copies.is_latest(ticket) {
             self.supersede(copied);
             return;
@@ -242,6 +298,7 @@ impl Runtime {
             ticket,
             contents,
             copied,
+            unchanged_since,
             attempts: 0,
         });
         self.retry_clipboard();
@@ -262,6 +319,24 @@ impl Runtime {
                 };
                 self.notify(vec![notice], near);
             }
+            Copied::RecordedGif {
+                gif,
+                mut notices,
+                near,
+            } => {
+                match &result {
+                    Ok(()) => notices.push(Notice::GifCopiedAndSaved),
+                    Err(error) => {
+                        notices.push(Notice::GifSaved);
+                        notices.push(Notice::CopyFailed(error.clone()));
+                    }
+                }
+                if let Some(gif) = gif {
+                    (self.sink)(Event::Gif(GifEvent::Copied { id: gif, result }));
+                }
+                self.notify(notices, near);
+            }
+            Copied::Gif { gif } => (self.sink)(Event::Gif(GifEvent::Copied { id: gif, result })),
         }
     }
 
@@ -273,8 +348,15 @@ impl Runtime {
     }
 
     fn supersede(&mut self, copied: Copied) {
-        if let Copied::Image { job } = copied {
-            self.update(job, Report::superseded);
+        match copied {
+            Copied::Image { job } => self.update(job, Report::superseded),
+            Copied::RecordedGif {
+                mut notices, near, ..
+            } => {
+                notices.push(Notice::GifSaved);
+                self.notify(notices, near);
+            }
+            Copied::Colour { .. } | Copied::Gif { .. } => {}
         }
     }
 

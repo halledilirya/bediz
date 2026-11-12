@@ -34,7 +34,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Result, w};
 
 use bediz_core::geometry::Rect;
-use bediz_core::recording::RecordingStop;
+use bediz_core::recording::{RecordingOptions, RecordingStop};
 
 use super::clock::{self, Clock};
 use super::contrast::{Colours, contrast_colours};
@@ -113,7 +113,11 @@ struct Runtime {
     colours: Option<Colours>,
     last_region: Option<Rect>,
     recording: Option<Recording>,
+    recording_options: RecordingOptions,
     finishing: Vec<Finishing>,
+    gifs: u64,
+    gif_copy: Option<(u64, u64)>,
+    quitting: bool,
     live: Option<Timer>,
     ready: Option<ReadyBar>,
 }
@@ -209,7 +213,11 @@ impl Runtime {
             colours: contrast_colours(),
             last_region: None,
             recording: None,
+            recording_options: RecordingOptions::default(),
             finishing: Vec::new(),
+            gifs: 0,
+            gif_copy: None,
+            quitting: false,
             live: None,
             ready: None,
         })

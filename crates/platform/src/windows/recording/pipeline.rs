@@ -12,6 +12,7 @@ use std::time::Duration;
 use bediz_core::animation::{AnimationError, FrameStore, GifEncoder, PreparedFrame};
 use bediz_core::delivery::SaveError;
 use bediz_core::image::Image;
+use bediz_core::recording;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_BELOW_NORMAL,
@@ -19,6 +20,7 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
+use crate::event::SavedGif;
 use crate::windows::runtime::WM_RECORDING;
 use crate::windows::save;
 
@@ -33,7 +35,7 @@ pub struct Output {
 }
 
 pub enum Ended {
-    Saved,
+    Saved(SavedGif),
     Failed(SaveError),
     Cancelled,
 }
@@ -106,6 +108,16 @@ impl Shared {
         self.lock().written = count;
         self.frames.notify_all();
     }
+
+    fn written_percent(&self) -> Option<u8> {
+        let state = self.lock();
+        let Phase::Finishing(_) = state.phase else {
+            return None;
+        };
+        let waiting = u64::try_from(state.store.waiting()).unwrap_or(u64::MAX);
+        let total = state.handed_out.saturating_add(waiting);
+        Some(recording::written_percent(state.written, total))
+    }
 }
 
 type Prepared = (u64, Result<PreparedFrame, SaveError>);
@@ -161,6 +173,7 @@ impl Pipeline {
             temporary: temporary.clone(),
             folder,
             stem,
+            size: (width, height),
             ended: Arc::clone(&ended),
             window: window.0 as isize,
         };
@@ -212,6 +225,10 @@ impl Pipeline {
 
     pub fn failed(&self) -> bool {
         self.shared.phase() == Phase::Failed
+    }
+
+    pub fn written_percent(&self) -> Option<u8> {
+        self.shared.written_percent()
     }
 
     pub fn finish(&self, end: Duration) {
@@ -300,6 +317,7 @@ struct Writing {
     temporary: PathBuf,
     folder: PathBuf,
     stem: String,
+    size: (u32, u32),
     ended: Arc<Mutex<Option<Ended>>>,
     window: isize,
 }
@@ -313,30 +331,43 @@ impl Writing {
             temporary,
             folder,
             stem,
+            size,
             ended,
             window,
         } = self;
         set_priority(THREAD_PRIORITY_BELOW_NORMAL);
         let written = catch_unwind(AssertUnwindSafe(|| {
-            write(receiver, encoder, &shared, &temporary, &folder, &stem)
+            write(
+                receiver, encoder, &shared, &temporary, &folder, &stem, window,
+            )
         }))
         .unwrap_or_else(|_| Err(SaveError::Unexpected(INTERNAL_ERROR.to_owned())));
         let outcome = match written {
-            Ok(true) => Ended::Saved,
-            Ok(false) => Ended::Cancelled,
+            Ok(Some((path, bytes, length))) => Ended::Saved(SavedGif {
+                path,
+                bytes,
+                length,
+                width: size.0,
+                height: size.1,
+            }),
+            Ok(None) => Ended::Cancelled,
             Err(_) if shared.phase() == Phase::Cancelled => Ended::Cancelled,
             Err(error) => {
                 shared.fail();
                 Ended::Failed(error)
             }
         };
-        if !matches!(outcome, Ended::Saved) {
+        if !matches!(outcome, Ended::Saved(_)) {
             let _ = fs::remove_file(&temporary);
         }
         *ended.lock().unwrap_or_else(PoisonError::into_inner) = Some(outcome);
-        let window = HWND(window as *mut c_void);
-        let _ = unsafe { PostMessageW(Some(window), WM_RECORDING, WPARAM(0), LPARAM(0)) };
+        tell(window);
     }
+}
+
+fn tell(window: isize) {
+    let window = HWND(window as *mut c_void);
+    let _ = unsafe { PostMessageW(Some(window), WM_RECORDING, WPARAM(0), LPARAM(0)) };
 }
 
 fn write(
@@ -346,10 +377,12 @@ fn write(
     temporary: &Path,
     folder: &Path,
     stem: &str,
-) -> Result<bool, SaveError> {
+    window: isize,
+) -> Result<Option<(PathBuf, u64, Duration)>, SaveError> {
     let mut waiting = BTreeMap::new();
     let mut wanted = 0u64;
     let mut raised = false;
+    let mut told = None;
     for (number, prepared) in receiver {
         waiting.insert(number, prepared);
         let before = wanted;
@@ -364,6 +397,11 @@ fn write(
         }
         if wanted != before {
             shared.written(wanted);
+            let percent = shared.written_percent();
+            if percent.is_some() && percent != told {
+                told = percent;
+                tell(window);
+            }
         }
         if !raised && matches!(shared.phase(), Phase::Finishing(_)) {
             set_priority(THREAD_PRIORITY_NORMAL);
@@ -371,15 +409,16 @@ fn write(
         }
     }
     match shared.phase() {
-        Phase::Cancelled => Ok(false),
+        Phase::Cancelled => Ok(None),
         Phase::Finishing(end) if waiting.is_empty() => {
             let writer = encoder.finish(end).map_err(|error| save_error(&error))?;
             let file = writer
                 .into_inner()
                 .map_err(|error| save::io_error(error.error()))?;
             file.sync_all().map_err(|error| save::io_error(&error))?;
+            let bytes = file.metadata().map_or(0, |metadata| metadata.len());
             drop(file);
-            save::finish_recording(temporary, folder, stem).map(|_| true)
+            save::finish_recording(temporary, folder, stem).map(|path| Some((path, bytes, end)))
         }
         _ => Err(SaveError::Unexpected(
             "the recording ended before all of its frames were written".to_owned(),
@@ -470,6 +509,23 @@ mod tests {
             shared.written(number + 1);
         }
         done.recv_timeout(WAIT).unwrap();
+    }
+
+    #[test]
+    fn the_share_written_counts_frames_taken_and_still_waiting_once_finishing() {
+        let shared = shared(4, 2);
+        assert_eq!(shared.written_percent(), None);
+        shared.finish(Duration::from_secs(1));
+        assert_eq!(shared.written_percent(), Some(0));
+        let mut state = shared.lock();
+        state.store.pop().unwrap();
+        state.store.pop().unwrap();
+        state.handed_out = 2;
+        drop(state);
+        shared.written(1);
+        assert_eq!(shared.written_percent(), Some(25));
+        shared.cancel();
+        assert_eq!(shared.written_percent(), None);
     }
 
     #[test]

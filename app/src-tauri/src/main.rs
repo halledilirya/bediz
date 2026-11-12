@@ -2,6 +2,7 @@
 
 mod commands;
 mod events;
+mod gif_window;
 mod i18n;
 mod log;
 mod question;
@@ -42,6 +43,12 @@ fn main() {
             commands::save_folder,
             commands::open_save_folder,
             commands::choose_save_folder,
+            commands::gif,
+            commands::gif_preview,
+            commands::copy_gif,
+            commands::show_gif,
+            commands::open_gif,
+            commands::delete_gif,
         ])
         .setup(setup::setup)
         .build(tauri::generate_context!());

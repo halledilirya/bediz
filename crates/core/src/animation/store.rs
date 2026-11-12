@@ -108,6 +108,10 @@ impl FrameStore {
     pub fn used(&self) -> usize {
         self.used
     }
+
+    pub fn waiting(&self) -> usize {
+        self.frames.len()
+    }
 }
 
 fn cost(data: usize) -> usize {
@@ -210,11 +214,13 @@ mod tests {
                 .push(&noise(n as u32), Duration::from_millis(millis))
                 .unwrap();
         }
+        assert_eq!(store.waiting(), 3);
         let times: Vec<Duration> = std::iter::from_fn(|| store.pop())
             .map(|frame| frame.at)
             .collect();
         assert_eq!(times, [0, 67, 133].map(Duration::from_millis));
         assert_eq!(store.used(), 0);
+        assert_eq!(store.waiting(), 0);
         assert!(store.pop().is_none());
     }
 

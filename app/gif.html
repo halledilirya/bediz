@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bediz</title>
+    <script type="module" src="/src/gif.ts"></script>
+  </head>
+  <body>
+    <main class="gif" hidden>
+      <div class="preview">
+        <img id="picture" alt="" hidden />
+        <p id="waiting" role="status" data-l10n-id="gif-saving"></p>
+        <p id="no-preview" data-l10n-id="gif-preview-failed" hidden></p>
+      </div>
+      <div class="facts">
+        <p class="name" id="name" dir="auto"></p>
+        <p class="details" id="details"></p>
+        <p class="note warn" id="warning" role="status" hidden></p>
+        <p class="note ok" id="copied" role="status" hidden></p>
+        <p class="note error" id="problem" role="alert" hidden></p>
+      </div>
+      <div class="actions">
+        <button
+          type="button"
+          class="button primary"
+          id="copy"
+          data-l10n-id="gif-copy"
+        ></button>
+        <button
+          type="button"
+          class="button"
+          id="show"
+          data-l10n-id="gif-show"
+        ></button>
+        <button
+          type="button"
+          class="button"
+          id="open"
+          data-l10n-id="gif-open"
+        ></button>
+        <button
+          type="button"
+          class="button"
+          id="delete"
+          data-l10n-id="gif-delete"
+        ></button>
+      </div>
+    </main>
+  </body>
+</html>

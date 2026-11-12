@@ -56,6 +56,9 @@ impl Runtime {
                     self.file_name = file_name;
                 }
                 Command::KeepOutOfHistory(keep_out) => self.keep_out_of_history = keep_out,
+                Command::SetRecordingOptions(options) => self.recording_options = options,
+                Command::ReserveGifCopy { id } => self.reserve_gif_copy(id),
+                Command::CopyGif { id, path } => self.copy_gif(id, &path),
                 Command::SetLastRegion(region) => self.last_region = region,
                 Command::SetStartWithWindows { on, request } => {
                     self.start_with_windows(on, request);

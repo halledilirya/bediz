@@ -10,5 +10,8 @@ export default defineConfig({
   },
   build: {
     license: { fileName: "licences/frontend.txt" },
+    rolldownOptions: {
+      input: { settings: "index.html", gif: "gif.html" },
+    },
   },
 });

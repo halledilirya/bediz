@@ -38,6 +38,11 @@
         ></button>
         <button
           type="button"
+          data-section="recording"
+          data-l10n-id="settings-section-recording"
+        ></button>
+        <button
+          type="button"
           data-section="memory"
           data-l10n-id="settings-section-memory"
         ></button>
@@ -501,6 +506,149 @@
                   role="switch"
                   id="keep-out-of-history"
                   name="keepOutOfHistory"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+          </div>
+        </section>
+        <section class="group" id="recording">
+          <h2 data-l10n-id="settings-section-recording"></h2>
+          <div class="card">
+            <div class="row" data-search="settings-gif-frame-rate">
+              <div class="row-text">
+                <label
+                  for="gif-frame-rate"
+                  data-l10n-id="settings-gif-frame-rate"
+                ></label>
+                <p data-l10n-id="settings-gif-frame-rate-detail"></p>
+              </div>
+              <span class="select">
+                <select id="gif-frame-rate" name="gifFrameRate">
+                  <option value="10">10</option>
+                  <option value="15">15</option>
+                  <option value="20">20</option>
+                  <option value="25">25</option>
+                  <option value="30">30</option>
+                </select>
+              </span>
+            </div>
+            <div class="row" data-search="settings-gif-longest-side">
+              <div class="row-text">
+                <label
+                  for="gif-longest-side"
+                  data-l10n-id="settings-gif-longest-side"
+                ></label>
+                <p data-l10n-id="settings-gif-longest-side-detail"></p>
+              </div>
+              <span class="select">
+                <select id="gif-longest-side" name="gifLongestSide">
+                  <option value="640"></option>
+                  <option value="960"></option>
+                  <option value="1280"></option>
+                  <option value="1920"></option>
+                  <option
+                    value=""
+                    data-l10n-id="settings-gif-longest-side-kept"
+                  ></option>
+                </select>
+              </span>
+            </div>
+            <div class="row" data-search="settings-gif-time-limit">
+              <div class="row-text">
+                <label
+                  for="gif-time-limit"
+                  data-l10n-id="settings-gif-time-limit"
+                ></label>
+                <p data-l10n-id="settings-gif-time-limit-detail"></p>
+              </div>
+              <span class="select">
+                <select id="gif-time-limit" name="gifTimeLimit">
+                  <option value="15"></option>
+                  <option value="30"></option>
+                  <option value="60"></option>
+                  <option value="120"></option>
+                  <option value="300"></option>
+                </select>
+              </span>
+            </div>
+            <div class="row" data-search="settings-gif-cursor">
+              <div class="row-text">
+                <label
+                  for="gif-cursor"
+                  data-l10n-id="settings-gif-cursor"
+                ></label>
+                <p data-l10n-id="settings-gif-cursor-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="gif-cursor"
+                  name="gifCursor"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+            <div class="row" data-search="settings-gif-countdown">
+              <div class="row-text">
+                <label
+                  for="gif-countdown"
+                  data-l10n-id="settings-gif-countdown"
+                ></label>
+                <p data-l10n-id="settings-gif-countdown-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="gif-countdown"
+                  name="gifCountdown"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+            <div class="row" data-search="settings-gif-copy">
+              <div class="row-text">
+                <label for="gif-copy" data-l10n-id="settings-gif-copy"></label>
+                <p data-l10n-id="settings-gif-copy-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="gif-copy"
+                  name="gifCopy"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+            <div class="row" data-search="settings-gif-window">
+              <div class="row-text">
+                <label
+                  for="gif-window"
+                  data-l10n-id="settings-gif-window"
+                ></label>
+                <p data-l10n-id="settings-gif-window-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="gif-window"
+                  name="gifWindow"
                 />
                 <span class="switch-text" aria-hidden="true">
                   <span class="on" data-l10n-id="settings-on"></span>

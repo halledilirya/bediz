@@ -25,6 +25,7 @@ mod save_dialog;
 mod scene;
 mod session;
 mod shader;
+mod shell;
 mod single_instance;
 mod startup;
 mod virtual_desktop;
@@ -43,6 +44,7 @@ pub use save::{
     FileId, SavedAs, file_id, folder as save_folder, keep_beside, replace_own_file, save_beside,
     save_chosen, save_screenshot,
 };
+pub use shell::{move_to_recycle_bin, show_in_folder};
 pub use single_instance::{FirstInstance, first_instance};
 pub use startup::start_turned_off_by_user;
 pub use webview::make_webview_an_app;

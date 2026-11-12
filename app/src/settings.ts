@@ -3,8 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { enableFileName } from "./file-name";
 import { enableFolder } from "./folder";
 import { isolated, languageName, languages, onLanguage, text } from "./i18n";
+import { applyLook } from "./look";
+import { enableRecordingOptions } from "./recording-options";
 import { saveChanges } from "./saving";
 import { enableShortcuts } from "./shortcuts";
+import "./styles/button.css";
 import "./styles/settings.css";
 
 export interface Settings {
@@ -22,6 +25,13 @@ export interface Settings {
   saveFolder: string | null;
   fileName: string;
   keepOutOfHistory: boolean;
+  gifFrameRate: number;
+  gifLongestSide: number | null;
+  gifTimeLimit: number;
+  gifCursor: boolean;
+  gifCountdown: boolean;
+  gifCopy: boolean;
+  gifWindow: boolean;
   releaseGpuWhileIdle: boolean;
   checkForUpdates: boolean;
   lastRegion: unknown;
@@ -33,26 +43,16 @@ const SWITCHES = [
   "detectWindows",
   "successLabels",
   "keepOutOfHistory",
+  "gifCursor",
+  "gifCountdown",
+  "gifCopy",
+  "gifWindow",
   "releaseGpuWhileIdle",
   "checkForUpdates",
 ] as const;
 
 const SAVED_WHILE_TYPING = "fileName";
 const LOOK = new Set(["theme", "accent"]);
-
-function applyLook(theme: string, accent: string): void {
-  const root = document.documentElement;
-  if (theme === "light" || theme === "dark") {
-    root.dataset.theme = theme;
-  } else {
-    delete root.dataset.theme;
-  }
-  if (accent === "blue") {
-    delete root.dataset.accent;
-  } else {
-    root.dataset.accent = accent;
-  }
-}
 
 export async function showSettings(
   form: HTMLFormElement,
@@ -140,6 +140,7 @@ export async function showSettings(
     checkForUpdates: false,
   };
   const shortcuts = await enableShortcuts(form);
+  const recording = enableRecordingOptions(form);
   const folder = enableFolder(form);
   const fileName = enableFileName(form, () => {
     saver.changed();
@@ -160,6 +161,11 @@ export async function showSettings(
       saveFolder: value("saveFolder") || null,
       fileName: fileName.valid(),
       keepOutOfHistory: checked("keepOutOfHistory"),
+      ...recording.read(),
+      gifCursor: checked("gifCursor"),
+      gifCountdown: checked("gifCountdown"),
+      gifCopy: checked("gifCopy"),
+      gifWindow: checked("gifWindow"),
       releaseGpuWhileIdle: checked("releaseGpuWhileIdle"),
       // An install from the Microsoft Store has no update switch, so the stored choice is kept.
       checkForUpdates:
@@ -182,6 +188,7 @@ export async function showSettings(
       setValue("theme", settings.theme);
       setValue("accent", settings.accent);
       setValue("enter", settings.enter);
+      recording.show(settings);
       applyLook(settings.theme, settings.accent);
       facts.printScreenYields = settings.printScreenYields;
       facts.lastRegion = settings.lastRegion;

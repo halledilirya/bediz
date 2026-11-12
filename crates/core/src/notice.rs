@@ -23,6 +23,8 @@ pub enum Notice {
     CaptureFailed(String),
     #[error("GIF saved")]
     GifSaved,
+    #[error("GIF copied and saved")]
+    GifCopiedAndSaved,
     #[error("recording stopped: {0}")]
     RecordingStopped(RecordingStop),
 }
@@ -39,6 +41,7 @@ impl Notice {
             Self::DeliveryFailed(error) => error.locale_id(),
             Self::CaptureFailed(_) => "capture-error",
             Self::GifSaved => "label-gif-saved",
+            Self::GifCopiedAndSaved => "label-gif-copied-and-saved",
             Self::RecordingStopped(stop) => stop.locale_id(),
         }
     }
@@ -63,6 +66,10 @@ impl Notice {
         matches!(self, Self::RecordingStopped(_))
     }
 
+    pub fn is_saved_gif(&self) -> bool {
+        matches!(self, Self::GifSaved | Self::GifCopiedAndSaved)
+    }
+
     pub fn is_failure(&self) -> bool {
         matches!(
             self,
@@ -80,6 +87,18 @@ pub fn worth_a_label(notices: &[Notice], confirmations: bool) -> bool {
             || notices
                 .iter()
                 .any(|notice| notice.is_failure() || notice.is_announcement()))
+}
+
+// The GIF's own window already says it was saved; a label beside it would say it twice.
+pub fn beside_gif_window(notices: Vec<Notice>, window_shown: bool) -> Vec<Notice> {
+    if window_shown {
+        notices
+            .into_iter()
+            .filter(|notice| !notice.is_saved_gif())
+            .collect()
+    } else {
+        notices
+    }
 }
 
 #[cfg(test)]
@@ -107,6 +126,29 @@ mod tests {
         assert!(!stopped.iter().any(Notice::is_failure));
         assert!(!worth_a_label(&[Notice::GifSaved], false));
         assert!(worth_a_label(&[Notice::GifSaved], true));
+    }
+
+    #[test]
+    fn the_gif_window_takes_the_place_of_a_saved_label_but_never_of_a_problem() {
+        let saved = vec![
+            Notice::RecordingStopped(RecordingStop::Memory),
+            Notice::GifSaved,
+            Notice::CopyFailed(CopyError::Busy),
+        ];
+        assert_eq!(
+            beside_gif_window(saved.clone(), true),
+            [
+                Notice::RecordingStopped(RecordingStop::Memory),
+                Notice::CopyFailed(CopyError::Busy),
+            ]
+        );
+        assert_eq!(beside_gif_window(saved.clone(), false), saved);
+        assert!(beside_gif_window(vec![Notice::GifCopiedAndSaved], true).is_empty());
+        assert!(!worth_a_label(&[Notice::GifCopiedAndSaved], false));
+        assert_eq!(
+            Notice::GifCopiedAndSaved.locale_id(),
+            "label-gif-copied-and-saved"
+        );
     }
 
     #[test]

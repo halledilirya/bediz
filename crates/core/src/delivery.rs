@@ -40,6 +40,12 @@ impl CopyOrder {
     pub fn is_latest(&self, ticket: u64) -> bool {
         ticket == self.latest
     }
+
+    pub fn reserve(&mut self) -> u64 {
+        let ticket = self.upcoming();
+        self.accept(ticket);
+        ticket
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -236,6 +242,42 @@ mod tests {
     fn a_ticket_never_matches_before_it_is_accepted() {
         let order = CopyOrder::default();
         assert!(!order.is_latest(order.upcoming()));
+    }
+
+    #[test]
+    fn a_gif_reserved_at_its_stop_is_copied_when_nothing_came_after() {
+        let mut order = CopyOrder::default();
+        let gif = order.reserve();
+        assert!(order.is_latest(gif));
+    }
+
+    #[test]
+    fn a_copy_asked_after_a_gif_stopped_wins_even_when_the_gif_ends_last() {
+        let mut order = CopyOrder::default();
+        let gif = order.reserve();
+        let screenshot = accepted(&mut order);
+        assert!(order.is_latest(screenshot));
+        assert!(!order.is_latest(gif));
+    }
+
+    #[test]
+    fn of_two_gifs_ending_in_reverse_order_the_later_stop_wins() {
+        let mut order = CopyOrder::default();
+        let first = order.reserve();
+        let second = order.reserve();
+        assert!(order.is_latest(second));
+        assert!(!order.is_latest(first));
+    }
+
+    #[test]
+    fn a_gif_copy_whose_file_is_checked_slowly_loses_to_a_copy_asked_meanwhile() {
+        let mut order = CopyOrder::default();
+        let gif = order.reserve();
+        let screenshot = accepted(&mut order);
+        let again = order.reserve();
+        assert!(!order.is_latest(gif));
+        assert!(!order.is_latest(screenshot));
+        assert!(order.is_latest(again));
     }
 
     #[test]

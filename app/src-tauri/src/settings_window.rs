@@ -115,13 +115,13 @@ pub fn show_theme(app: &AppHandle, theme: Theme) {
     });
 }
 
-fn paint_behind(window: &WebviewWindow) {
+pub fn paint_behind(window: &WebviewWindow) {
     let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
     let _ = window.set_background_color(Some(background(dark)));
 }
 
 // The --bg of main.css, shown while WebView2 starts; its own default is white.
-fn background(dark: bool) -> Color {
+pub fn background(dark: bool) -> Color {
     if dark {
         Color(0x1c, 0x1c, 0x1c, 0xff)
     } else {
@@ -129,7 +129,7 @@ fn background(dark: bool) -> Color {
     }
 }
 
-fn window_theme(theme: Theme) -> Option<tauri::Theme> {
+pub fn window_theme(theme: Theme) -> Option<tauri::Theme> {
     match theme {
         Theme::System => None,
         Theme::Light => Some(tauri::Theme::Light),

@@ -5,6 +5,7 @@ use bediz_platform::{Command, Event, Platform, preferred_languages};
 use tauri::{App, AppHandle, Manager, RunEvent};
 
 use crate::events::{self, Events, HotkeyStatus, Message, Messages};
+use crate::gif_window::GifState;
 use crate::i18n::{Language, Texts};
 use crate::log::Log;
 use crate::settings::{self, Store};
@@ -34,6 +35,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(StartupStatus::default());
     app.manage(Updates::default());
     app.manage(Section::default());
+    app.manage(GifState::default());
     app.manage(Messages(sender.clone()));
     let tray = Tray::create(
         app,

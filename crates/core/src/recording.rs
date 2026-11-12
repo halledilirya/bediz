@@ -1,13 +1,19 @@
+mod options;
+
 use std::time::Duration;
 
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::geometry::{Point, Rect};
 
-pub const FRAME_RATE: u32 = 15;
+pub use options::{FrameRate, LongestSide, NotOffered, RecordingOptions, TimeLimit};
+
 pub const LIVE_RATE: u32 = 30;
-pub const LONGEST_SIDE: u32 = 1280;
-pub const TIME_LIMIT: Duration = Duration::from_secs(60);
+pub const COUNTDOWN: Duration = Duration::from_secs(3);
+const MEGABYTE: u64 = 1 << 20;
+const GITHUB_LIMIT: u64 = 10 * MEGABYTE;
+const X_LIMIT: u64 = 15 * MEGABYTE;
 const LARGEST_BUDGET: u64 = 1 << 30;
 const MOST_PREPARING_THREADS: usize = 3;
 const THREADS_KEPT_FREE: usize = 2;
@@ -30,6 +36,13 @@ impl RecordingStop {
             Self::Display => "recording-stopped-display",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SizeWarning {
+    GitHub,
+    X,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -63,25 +76,40 @@ impl Pauses {
     }
 }
 
-pub fn frame_interval() -> Duration {
-    Duration::from_nanos(1_000_000_000 / u64::from(FRAME_RATE))
-}
-
 pub fn live_interval() -> Duration {
     Duration::from_nanos(1_000_000_000 / u64::from(LIVE_RATE))
 }
 
-pub fn output_size(width: u32, height: u32) -> (u32, u32) {
+pub fn output_size(width: u32, height: u32, longest_side: LongestSide) -> (u32, u32) {
     let longest = width.max(height);
-    if longest <= LONGEST_SIDE {
+    let Some(limit) = longest_side.limit().filter(|&limit| longest > limit) else {
         return (width, height);
-    }
+    };
     let scaled = |side: u32| {
-        let side = (u64::from(side) * u64::from(LONGEST_SIDE) + u64::from(longest) / 2)
-            / u64::from(longest);
-        u32::try_from(side).unwrap_or(LONGEST_SIDE).max(1)
+        let side =
+            (u64::from(side) * u64::from(limit) + u64::from(longest) / 2) / u64::from(longest);
+        u32::try_from(side).unwrap_or(limit).max(1)
     };
     (scaled(width), scaled(height))
+}
+
+pub fn countdown_number(remaining: Duration) -> u64 {
+    remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0)
+}
+
+pub fn size_warning(bytes: u64) -> Option<SizeWarning> {
+    if bytes > X_LIMIT {
+        Some(SizeWarning::X)
+    } else if bytes > GITHUB_LIMIT {
+        Some(SizeWarning::GitHub)
+    } else {
+        None
+    }
+}
+
+pub fn written_percent(written: u64, total: u64) -> u8 {
+    let percent = u128::from(written) * 100 / u128::from(total.max(1));
+    u8::try_from(percent.min(99)).unwrap_or(99)
 }
 
 pub fn budget(available_bytes: Option<u64>) -> usize {
@@ -181,22 +209,62 @@ pub fn clock_text(elapsed: Duration) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn fifteen_frames_fit_in_a_second() {
-        assert_eq!(
-            frame_interval() * FRAME_RATE,
-            Duration::from_nanos(999_999_990)
-        );
+    fn side(limit: u32) -> LongestSide {
+        LongestSide::try_from(Some(limit)).unwrap()
     }
 
     #[test]
     fn a_small_area_keeps_its_size_and_a_large_one_shrinks_to_the_longest_side() {
-        assert_eq!(output_size(1280, 720), (1280, 720));
-        assert_eq!(output_size(300, 200), (300, 200));
-        assert_eq!(output_size(2560, 1440), (1280, 720));
-        assert_eq!(output_size(1440, 2560), (720, 1280));
-        assert_eq!(output_size(3000, 1001), (1280, 427));
-        assert_eq!(output_size(100_000, 1), (1280, 1));
+        let limit = LongestSide::default();
+        assert_eq!(output_size(1280, 720, limit), (1280, 720));
+        assert_eq!(output_size(300, 200, limit), (300, 200));
+        assert_eq!(output_size(2560, 1440, limit), (1280, 720));
+        assert_eq!(output_size(1440, 2560, limit), (720, 1280));
+        assert_eq!(output_size(3000, 1001, limit), (1280, 427));
+        assert_eq!(output_size(100_000, 1, limit), (1280, 1));
+    }
+
+    #[test]
+    fn the_longest_side_follows_the_setting_or_keeps_the_area() {
+        assert_eq!(output_size(1920, 1080, side(640)), (640, 360));
+        assert_eq!(output_size(1920, 1080, side(960)), (960, 540));
+        assert_eq!(output_size(1920, 1080, side(1920)), (1920, 1080));
+        assert_eq!(output_size(3840, 2160, side(1920)), (1920, 1080));
+        assert_eq!(output_size(3840, 2160, LongestSide::KEPT), (3840, 2160));
+        assert_eq!(output_size(500, 300, side(640)), (500, 300));
+    }
+
+    #[test]
+    fn the_countdown_shows_whole_seconds_left_rounded_up() {
+        assert_eq!(countdown_number(COUNTDOWN), 3);
+        assert_eq!(countdown_number(Duration::from_millis(2_001)), 3);
+        assert_eq!(countdown_number(Duration::from_millis(2_000)), 2);
+        assert_eq!(countdown_number(Duration::from_millis(1)), 1);
+        assert_eq!(countdown_number(Duration::ZERO), 0);
+    }
+
+    #[test]
+    fn a_gif_above_ten_megabytes_as_explorer_counts_them_is_too_large_for_github() {
+        assert_eq!(size_warning(0), None);
+        assert_eq!(size_warning(10_485_760), None);
+        assert_eq!(size_warning(10_485_761), Some(SizeWarning::GitHub));
+        assert_eq!(size_warning(15_728_640), Some(SizeWarning::GitHub));
+        assert_eq!(size_warning(15_728_641), Some(SizeWarning::X));
+        assert_eq!(
+            serde_json::to_string(&SizeWarning::GitHub).unwrap(),
+            r#""gitHub""#
+        );
+    }
+
+    #[test]
+    fn the_saved_share_rounds_down_and_stays_below_a_hundred_until_the_file_is_done() {
+        assert_eq!(written_percent(0, 4500), 0);
+        assert_eq!(written_percent(2249, 4500), 49);
+        assert_eq!(written_percent(2250, 4500), 50);
+        assert_eq!(written_percent(4499, 4500), 99);
+        assert_eq!(written_percent(4500, 4500), 99);
+        assert_eq!(written_percent(0, 0), 0);
+        assert_eq!(written_percent(u64::MAX, u64::MAX), 99);
     }
 
     #[test]
@@ -360,7 +428,7 @@ mod tests {
     fn the_clock_shows_minutes_and_seconds() {
         assert_eq!(clock_text(Duration::ZERO), "0:00");
         assert_eq!(clock_text(Duration::from_millis(7_900)), "0:07");
-        assert_eq!(clock_text(TIME_LIMIT), "1:00");
+        assert_eq!(clock_text(TimeLimit::default().duration()), "1:00");
         assert_eq!(clock_text(Duration::from_secs(605)), "10:05");
     }
 
@@ -408,7 +476,7 @@ mod tests {
 
     #[test]
     fn a_time_limit_stop_names_the_limit() {
-        let stop = RecordingStop::TimeLimit(TIME_LIMIT);
+        let stop = RecordingStop::TimeLimit(TimeLimit::default().duration());
         assert_eq!(stop.to_string(), "it reached its time limit of 60 seconds");
         assert_eq!(stop.locale_id(), "recording-stopped-time-limit");
     }

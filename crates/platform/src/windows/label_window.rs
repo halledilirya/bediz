@@ -38,6 +38,7 @@ use crate::event::Label;
 use automation::Announcer;
 
 const FONT_SIZE: f32 = 14.0;
+const LARGE: f32 = 5.0;
 const PADDING_X: f32 = 14.0;
 const PADDING_Y: f32 = 9.0;
 const RADIUS: f32 = 6.0;
@@ -166,6 +167,14 @@ impl LabelWindow {
     }
 
     pub fn show(&self, label: &Label, colours: Option<&Colours>) -> Result<Shown> {
+        self.draw(label, colours, 1.0)
+    }
+
+    pub fn show_large(&self, label: &Label, colours: Option<&Colours>) -> Result<Shown> {
+        self.draw(label, colours, LARGE)
+    }
+
+    fn draw(&self, label: &Label, colours: Option<&Colours>, magnify: f32) -> Result<Shown> {
         let center = POINT {
             x: label.near.left + i32::try_from(label.near.width() / 2).unwrap_or(0),
             y: label.near.top + i32::try_from(label.near.height() / 2).unwrap_or(0),
@@ -190,7 +199,7 @@ impl LabelWindow {
             match unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused) } {
                 Ok(()) if dpi > 0 => dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32,
                 _ => 1.0,
-            };
+            } * magnify;
 
         let format = unsafe {
             self.text.CreateTextFormat(

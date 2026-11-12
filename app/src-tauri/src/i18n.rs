@@ -149,12 +149,13 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use bediz_core::delivery::{CopyError, DeliveryError, SaveError};
-    use bediz_core::recording::{RecordingStop, TIME_LIMIT};
+    use bediz_core::recording::{RecordingStop, TimeLimit};
 
     use super::*;
 
     const SETTINGS_PAGE: &str = include_str!("../../index.html");
-    const SETTINGS_SCRIPTS: [&str; 7] = [
+    const PAGES: [&str; 2] = [SETTINGS_PAGE, include_str!("../../gif.html")];
+    const SCRIPTS: [&str; 9] = [
         include_str!("../../src/settings.ts"),
         include_str!("../../src/search.ts"),
         include_str!("../../src/shortcuts.ts"),
@@ -162,10 +163,13 @@ mod tests {
         include_str!("../../src/file-name.ts"),
         include_str!("../../src/updates.ts"),
         include_str!("../../src/about.ts"),
+        include_str!("../../src/recording-options.ts"),
+        include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 45] = [
+    const USED: [&str; 46] = [
         "settings-title",
+        "gif-title",
         "tray-record",
         "tray-record-gif",
         "tray-settings",
@@ -367,15 +371,21 @@ price = Costs $5
     }
 
     #[test]
-    fn the_settings_page_uses_only_english_messages() {
+    fn the_pages_use_only_english_messages() {
         let english = messages(ENGLISH.1);
-        let page: Vec<&str> = quoted_after(SETTINGS_PAGE, "data-l10n-id=\"").collect();
-        let scripts: Vec<&str> = SETTINGS_SCRIPTS
+        let pages: Vec<&str> = PAGES
+            .iter()
+            .flat_map(|page| quoted_after(page, "data-l10n-id=\""))
+            .collect();
+        let scripts: Vec<&str> = SCRIPTS
             .iter()
             .flat_map(|script| quoted_after(script, "text(\""))
             .collect();
-        assert!(page.len() > 5 && scripts.len() >= 3, "{page:?} {scripts:?}");
-        for id in page.into_iter().chain(scripts) {
+        assert!(
+            pages.len() > 5 && scripts.len() >= 3,
+            "{pages:?} {scripts:?}"
+        );
+        for id in pages.into_iter().chain(scripts) {
             assert!(english.contains_key(id), "en is missing {id}");
         }
     }
@@ -421,7 +431,8 @@ price = Costs $5
             Notice::ColourCopied("#FFA010".to_owned()),
             Notice::CaptureFailed(reason()),
             Notice::GifSaved,
-            Notice::RecordingStopped(RecordingStop::TimeLimit(TIME_LIMIT)),
+            Notice::GifCopiedAndSaved,
+            Notice::RecordingStopped(RecordingStop::TimeLimit(TimeLimit::default().duration())),
             Notice::RecordingStopped(RecordingStop::Memory),
             Notice::RecordingStopped(RecordingStop::Display),
         ]

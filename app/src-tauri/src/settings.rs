@@ -11,6 +11,7 @@ use bediz_platform::{Command, Platform};
 use tauri::{AppHandle, Manager};
 
 use crate::events::{Message, Messages};
+use crate::gif_window;
 use crate::settings_window;
 use crate::startup::{AT_START, StartupStatus};
 use crate::tray;
@@ -246,6 +247,9 @@ pub fn apply(app: &AppHandle, before: &Settings, after: &Settings) {
     if before.theme != after.theme {
         settings_window::show_theme(app, after.theme);
     }
+    if before.theme != after.theme || before.accent != after.accent {
+        gif_window::show_look(app, after.theme);
+    }
 }
 
 pub fn send(platform: &Platform, settings: &Settings) {
@@ -266,6 +270,7 @@ pub fn send(platform: &Platform, settings: &Settings) {
         file_name: settings.file_name.clone(),
     });
     platform.send(Command::KeepOutOfHistory(settings.keep_out_of_history));
+    platform.send(Command::SetRecordingOptions(settings.recording_options()));
 }
 
 fn loaded(read: &io::Result<String>) -> (Settings, Option<String>) {

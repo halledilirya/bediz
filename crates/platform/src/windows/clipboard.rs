@@ -1,25 +1,31 @@
+use std::os::windows::ffi::OsStrExt;
+use std::path::Path;
 use std::sync::Arc;
 
 use bediz_core::image::Image;
-use windows::Win32::Foundation::{E_OUTOFMEMORY, GlobalFree, HANDLE, HWND};
+use windows::Win32::Foundation::{E_OUTOFMEMORY, GlobalFree, HANDLE, HWND, POINT};
 use windows::Win32::Graphics::Gdi::{BI_BITFIELDS, BITMAPV5HEADER, LCS_GM_IMAGES};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard,
+    RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
-use windows::Win32::System::Ole::{CF_DIBV5, CF_UNICODETEXT};
+use windows::Win32::System::Ole::{CF_DIBV5, CF_HDROP, CF_UNICODETEXT, DROPEFFECT_COPY};
 use windows::Win32::UI::ColorSystem::LCS_sRGB;
+use windows::Win32::UI::Shell::DROPFILES;
 use windows::core::{Error, PCWSTR, Result, w};
 
 pub enum Contents {
     Image { png: Arc<Vec<u8>>, dib: Vec<u8> },
     Text(Vec<u8>),
+    File(Vec<u8>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Placed {
     Done,
     Busy,
+    Changed,
 }
 
 impl Contents {
@@ -46,6 +52,27 @@ impl Contents {
                 .collect(),
         )
     }
+
+    pub fn file(path: &Path) -> Self {
+        let header = DROPFILES {
+            pFiles: size_of::<DROPFILES>() as u32,
+            pt: POINT::default(),
+            fNC: false.into(),
+            fWide: true.into(),
+        };
+        let header_bytes = unsafe {
+            std::slice::from_raw_parts(
+                (&header as *const DROPFILES).cast::<u8>(),
+                size_of::<DROPFILES>(),
+            )
+        };
+        let mut list = header_bytes.to_vec();
+        // Each name ends in a null, and the list in one more.
+        for unit in path.as_os_str().encode_wide().chain([0, 0]) {
+            list.extend_from_slice(&unit.to_le_bytes());
+        }
+        Self::File(list)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,6 +82,8 @@ enum Format {
     Png,
     Bitmap,
     Text,
+    Files,
+    DropEffect,
 }
 
 impl Format {
@@ -66,11 +95,14 @@ impl Format {
             Self::Png => registered(w!("PNG")),
             Self::Bitmap => u32::from(CF_DIBV5.0),
             Self::Text => u32::from(CF_UNICODETEXT.0),
+            Self::Files => u32::from(CF_HDROP.0),
+            Self::DropEffect => registered(w!("Preferred DropEffect")),
         }
     }
 }
 
 trait Board {
+    fn changes(&self) -> u32;
     fn empty(&mut self) -> Result<()>;
     fn put(&mut self, format: Format, bytes: &[u8]) -> Result<()>;
 }
@@ -78,6 +110,10 @@ trait Board {
 struct Clipboard;
 
 impl Board for Clipboard {
+    fn changes(&self) -> u32 {
+        changes()
+    }
+
     fn empty(&mut self) -> Result<()> {
         unsafe { EmptyClipboard() }
     }
@@ -89,28 +125,51 @@ impl Board for Clipboard {
 
 const REFUSED: [u8; 4] = 0u32.to_le_bytes();
 
-pub fn place(owner: HWND, contents: &Contents, keep_out_of_history: bool) -> Result<Placed> {
+pub fn changes() -> u32 {
+    unsafe { GetClipboardSequenceNumber() }
+}
+
+pub fn place(
+    owner: HWND,
+    contents: &Contents,
+    keep_out_of_history: bool,
+    unchanged_since: Option<u32>,
+) -> Result<Placed> {
     if unsafe { OpenClipboard(Some(owner)) }.is_err() {
         return Ok(Placed::Busy);
     }
-    let filled = fill(&mut Clipboard, contents, keep_out_of_history);
+    let filled = fill(
+        &mut Clipboard,
+        contents,
+        keep_out_of_history,
+        unchanged_since,
+    );
     let closed = unsafe { CloseClipboard() };
-    filled.and(closed).map(|()| Placed::Done)
+    filled.and_then(|placed| closed.map(|()| placed))
 }
 
 // The flags go first and a failure empties the clipboard, so content never stays without them.
-fn fill(board: &mut impl Board, contents: &Contents, keep_out_of_history: bool) -> Result<()> {
+fn fill(
+    board: &mut impl Board,
+    contents: &Contents,
+    keep_out_of_history: bool,
+    unchanged_since: Option<u32>,
+) -> Result<Placed> {
+    // Read while the clipboard is open, so no other app can change it before it is emptied.
+    if unchanged_since.is_some_and(|count| board.changes() != count) {
+        return Ok(Placed::Changed);
+    }
     let filled = put_all(board, contents, keep_out_of_history);
     if filled.is_err() {
         let _ = board.empty();
     }
-    filled
+    filled.map(|()| Placed::Done)
 }
 
 fn put_all(board: &mut impl Board, contents: &Contents, keep_out_of_history: bool) -> Result<()> {
     board.empty()?;
     board.put(Format::NoCloud, &REFUSED)?;
-    if keep_out_of_history && matches!(contents, Contents::Image { .. }) {
+    if keep_out_of_history && !matches!(contents, Contents::Text(_)) {
         board.put(Format::NoHistory, &REFUSED)?;
     }
     match contents {
@@ -119,6 +178,10 @@ fn put_all(board: &mut impl Board, contents: &Contents, keep_out_of_history: boo
             board.put(Format::Bitmap, dib)
         }
         Contents::Text(utf16) => board.put(Format::Text, utf16),
+        Contents::File(list) => {
+            board.put(Format::Files, list)?;
+            board.put(Format::DropEffect, &DROPEFFECT_COPY.0.to_le_bytes())
+        }
     }
 }
 
@@ -171,7 +234,7 @@ mod tests {
     use windows::Win32::Foundation::E_FAIL;
     use windows::core::Result;
 
-    use super::{Board, Contents, Format, REFUSED, fill};
+    use super::{Board, Contents, Format, Placed, REFUSED, fill};
 
     #[derive(Debug, PartialEq, Eq)]
     enum Call {
@@ -182,9 +245,14 @@ mod tests {
     struct Recorded {
         calls: Vec<Call>,
         failing: Option<Format>,
+        changes: u32,
     }
 
     impl Board for Recorded {
+        fn changes(&self) -> u32 {
+            self.changes
+        }
+
         fn empty(&mut self) -> Result<()> {
             self.calls.push(Call::Empty);
             Ok(())
@@ -207,10 +275,35 @@ mod tests {
         let mut board = Recorded {
             calls: Vec::new(),
             failing,
+            changes: 0,
         };
-        let filled = fill(&mut board, contents, keep_out_of_history);
+        let filled = fill(&mut board, contents, keep_out_of_history, None);
         assert_eq!(filled.is_err(), failing.is_some());
         board.calls
+    }
+
+    fn placed_unless_changed(changes: u32, unchanged_since: u32) -> (Placed, Vec<Call>) {
+        let mut board = Recorded {
+            calls: Vec::new(),
+            failing: None,
+            changes,
+        };
+        let file = Contents::file(std::path::Path::new(r"C:\GIFs\a.gif"));
+        let filled = fill(&mut board, &file, false, Some(unchanged_since)).unwrap();
+        (filled, board.calls)
+    }
+
+    #[test]
+    fn a_gif_whose_clipboard_changed_since_its_stop_leaves_the_clipboard_alone() {
+        assert_eq!(placed_unless_changed(8, 7), (Placed::Changed, Vec::new()));
+    }
+
+    #[test]
+    fn a_gif_whose_clipboard_is_as_it_was_at_its_stop_goes_on() {
+        let (filled, calls) = placed_unless_changed(7, 7);
+        assert_eq!(filled, Placed::Done);
+        assert_eq!(calls.first(), Some(&Call::Empty));
+        assert_eq!(calls.len(), 4);
     }
 
     fn image() -> Contents {
@@ -253,6 +346,55 @@ mod tests {
                 Call::Put(Format::Text, 16),
             ]
         );
+    }
+
+    #[test]
+    fn a_gif_goes_on_as_a_file_to_copy_and_stays_out_of_history_when_asked() {
+        let file = Contents::file(std::path::Path::new(r"C:\GIFs\a.gif"));
+        let Contents::File(list) = &file else {
+            panic!("a file is not on the clipboard as a file");
+        };
+        assert_eq!(
+            placed(&file, true, None),
+            [
+                Call::Empty,
+                Call::Put(Format::NoCloud, REFUSED.len()),
+                Call::Put(Format::NoHistory, REFUSED.len()),
+                Call::Put(Format::Files, list.len()),
+                Call::Put(Format::DropEffect, 4),
+            ]
+        );
+        assert_eq!(
+            placed(&file, false, None),
+            [
+                Call::Empty,
+                Call::Put(Format::NoCloud, REFUSED.len()),
+                Call::Put(Format::Files, list.len()),
+                Call::Put(Format::DropEffect, 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_file_list_holds_its_header_the_wide_name_and_two_nulls() {
+        let Contents::File(list) = Contents::file(std::path::Path::new(r"C:\ğ.gif")) else {
+            panic!("a file is not on the clipboard as a file");
+        };
+        let header = size_of::<windows::Win32::UI::Shell::DROPFILES>();
+        assert_eq!(header, 20);
+        assert_eq!(list.get(..4), Some(&20u32.to_le_bytes()[..]));
+        assert_eq!(list.get(16..20), Some(&1i32.to_le_bytes()[..]));
+        let name: Vec<u16> = list
+            .get(header..)
+            .unwrap()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
+            .collect();
+        let mut expected: Vec<u16> = r"C:\ğ.gif".encode_utf16().collect();
+        expected.extend([0, 0]);
+        assert_eq!(name, expected);
     }
 
     #[test]

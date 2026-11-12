@@ -6,15 +6,31 @@ use bediz_core::recording::{self, RecordingStop};
 
 use super::Runtime;
 use super::ready::ReadyBar;
-use crate::event::{Event, RecordingAction, RecordingState};
-use crate::windows::clock;
+use crate::event::{Event, GifEvent, RecordingAction, RecordingState};
 use crate::windows::recording::controls::{self, Button};
 use crate::windows::recording::{Ended, Next, Pipeline, Recording, Request, StartError};
+use crate::windows::{clipboard, clock};
 
 pub(super) struct Finishing {
     pipeline: Pipeline,
     stop: Option<RecordingStop>,
     near: Rect,
+    gif: Option<u64>,
+    copy: Option<(u64, u32)>,
+    told: Option<u8>,
+}
+
+impl Finishing {
+    fn unwanted(pipeline: Pipeline, near: Rect) -> Self {
+        Self {
+            pipeline,
+            stop: None,
+            near,
+            gif: None,
+            copy: None,
+            told: None,
+        }
+    }
 }
 
 impl Runtime {
@@ -65,11 +81,7 @@ impl Runtime {
         match recording.restart(scene, &stem) {
             Ok((pipeline, note)) => {
                 self.emit_notes(vec![note]);
-                self.finishing.push(Finishing {
-                    pipeline,
-                    stop: None,
-                    near,
-                });
+                self.finishing.push(Finishing::unwanted(pipeline, near));
                 self.on_recording_ended();
                 self.show_recording_state();
             }
@@ -116,7 +128,9 @@ impl Runtime {
         let Some(monitor_rect) = monitors.get(monitor).copied() else {
             return;
         };
-        let (width, height) = recording::output_size(area.width(), area.height());
+        let options = self.recording_options;
+        let (width, height) =
+            recording::output_size(area.width(), area.height(), options.longest_side);
         let stem = self.file_name.stem(&clock::local_time(), width, height);
         let mut notes = Vec::new();
         // The selection's image becomes the first frame, and while locked it stopped following the screen.
@@ -137,6 +151,8 @@ impl Runtime {
             texts,
             first_capture,
             moved_bar: self.ready.as_ref().and_then(ReadyBar::moved),
+            options,
+            colours: self.colours,
         };
         let started = Recording::start(scene, &request);
         self.hide();
@@ -150,11 +166,7 @@ impl Runtime {
         };
         if let Err(error) = recording.reveal() {
             let (pipeline, near) = recording.cancel(self.scene.as_mut());
-            self.finishing.push(Finishing {
-                pipeline,
-                stop: None,
-                near,
-            });
+            self.finishing.push(Finishing::unwanted(pipeline, near));
             self.on_recording_ended();
             self.notify(vec![StartError::Capture(error).notice()], area);
             return;
@@ -177,17 +189,42 @@ impl Runtime {
         }
     }
 
+    // A recording finished during its countdown holds no frame yet, so it is dropped.
     pub(super) fn stop_recording(&mut self, stop: Option<RecordingStop>) {
+        if self
+            .recording
+            .as_ref()
+            .is_some_and(Recording::counting_down)
+        {
+            let near = self.recording.as_ref().map(Recording::area);
+            self.cancel_recording();
+            if let (Some(stop), Some(near)) = (stop, near) {
+                self.notify(vec![Notice::RecordingStopped(stop)], near);
+            }
+            return;
+        }
         let Some(recording) = self.recording.take() else {
             return;
         };
         let mut notes = Vec::new();
         let (pipeline, near) = recording.stop(self.scene.as_mut(), &mut notes);
         self.emit_notes(notes);
+        let gif = (!self.quitting).then(|| {
+            self.gifs = self.gifs.wrapping_add(1);
+            self.gifs
+        });
+        if let Some(id) = gif {
+            (self.sink)(Event::Gif(GifEvent::Saving { id, near }));
+        }
+        let copy = (self.recording_options.copy && !self.quitting)
+            .then(|| (self.copies.reserve(), clipboard::changes()));
         self.finishing.push(Finishing {
             pipeline,
             stop,
             near,
+            gif,
+            copy,
+            told: None,
         });
         self.show_recording_state();
         self.on_recording_ended();
@@ -198,11 +235,7 @@ impl Runtime {
             return;
         };
         let (pipeline, near) = recording.cancel(self.scene.as_mut());
-        self.finishing.push(Finishing {
-            pipeline,
-            stop: None,
-            near,
-        });
+        self.finishing.push(Finishing::unwanted(pipeline, near));
         self.show_recording_state();
         self.on_recording_ended();
     }
@@ -213,23 +246,49 @@ impl Runtime {
             self.stop_recording(None);
             return;
         }
-        for finishing in std::mem::take(&mut self.finishing) {
+        for mut finishing in std::mem::take(&mut self.finishing) {
             match finishing.pipeline.take_ended() {
                 Some(ended) => {
-                    drop(finishing.pipeline);
-                    self.report_recording(ended, finishing.stop, finishing.near);
+                    let Finishing {
+                        pipeline,
+                        stop,
+                        near,
+                        gif,
+                        copy,
+                        ..
+                    } = finishing;
+                    drop(pipeline);
+                    self.report_recording(ended, stop, near, gif, copy);
                 }
-                None => self.finishing.push(finishing),
+                None => {
+                    let percent = finishing.pipeline.written_percent();
+                    if let (Some(id), Some(percent)) = (finishing.gif, percent)
+                        && finishing.told != Some(percent)
+                    {
+                        finishing.told = Some(percent);
+                        (self.sink)(Event::Gif(GifEvent::Written { id, percent }));
+                    }
+                    self.finishing.push(finishing);
+                }
             }
         }
     }
 
     // On quit a recording is stopped and kept, and every GIF still being written is finished.
     pub(super) fn finish_recordings(&mut self) {
+        self.quitting = true;
         self.stop_recording(None);
         for finishing in std::mem::take(&mut self.finishing) {
-            let ended = finishing.pipeline.wait();
-            self.report_recording(ended, finishing.stop, finishing.near);
+            let Finishing {
+                pipeline,
+                stop,
+                near,
+                gif,
+                copy,
+                ..
+            } = finishing;
+            let ended = pipeline.wait();
+            self.report_recording(ended, stop, near, gif, copy);
         }
     }
 
@@ -237,11 +296,34 @@ impl Runtime {
         self.recording.is_some() || !self.finishing.is_empty()
     }
 
-    fn report_recording(&self, ended: Ended, stop: Option<RecordingStop>, near: Rect) {
+    fn report_recording(
+        &mut self,
+        ended: Ended,
+        stop: Option<RecordingStop>,
+        near: Rect,
+        gif: Option<u64>,
+        copy: Option<(u64, u32)>,
+    ) {
         let mut notices: Vec<Notice> = stop.map(Notice::RecordingStopped).into_iter().collect();
         match ended {
-            Ended::Saved => notices.push(Notice::GifSaved),
-            Ended::Failed(error) => notices.push(Notice::SaveFailed(error)),
+            Ended::Saved(saved) => {
+                let path = saved.path.clone();
+                if let Some(id) = gif {
+                    (self.sink)(Event::Gif(GifEvent::Saved { id, gif: saved }));
+                }
+                if let Some(copy) = copy.filter(|_| !self.quitting) {
+                    self.copy_recorded_gif(copy, gif, &path, notices, near);
+                    return;
+                }
+                notices.push(Notice::GifSaved);
+            }
+            Ended::Failed(error) => {
+                if let Some(id) = gif {
+                    let error = error.clone();
+                    (self.sink)(Event::Gif(GifEvent::NotSaved { id, error }));
+                }
+                notices.push(Notice::SaveFailed(error));
+            }
             Ended::Cancelled => return,
         }
         self.notify(notices, near);

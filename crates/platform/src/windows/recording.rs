@@ -1,62 +1,36 @@
 pub mod border;
 pub mod controls;
+mod countdown;
 mod pipeline;
 mod pointer;
 mod ring;
 mod scaler;
+mod start;
 mod timer;
 
-use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use bediz_core::animation::AnimationError;
-use bediz_core::capture::Pixels;
 use bediz_core::cursor::Placement;
-use bediz_core::delivery::SaveError;
 use bediz_core::geometry::Rect;
-use bediz_core::notice::Notice;
-use bediz_core::recording::{self, FRAME_RATE, Pauses, RecordingStop, TIME_LIMIT};
-use windows::Win32::Foundation::{HANDLE, HINSTANCE, HWND, POINT};
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
-};
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, USER_DEFAULT_SCREEN_DPI};
+use bediz_core::recording::{self, COUNTDOWN, Pauses, RecordingStop};
+use windows::Win32::Foundation::{HANDLE, HWND};
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use super::clock::{Clock, Tick};
 use super::foreground;
-use super::memory;
-use super::save;
 use super::scene::Scene;
-use crate::event::MenuTexts;
-use border::{Border, Line};
-use controls::{Controls, Stage};
-use pipeline::Output;
+use border::Border;
+use controls::Controls;
+use countdown::Countdown;
 pub use pipeline::{Ended, Pipeline};
 use pointer::{Pointer, Sample};
 use ring::Ring;
 use scaler::Scaler;
+use start::open_pipeline;
+pub use start::{Request, StartError, monitor_metrics};
 pub use timer::Timer;
-
-pub struct Request<'a> {
-    pub instance: HINSTANCE,
-    pub window: HWND,
-    pub previous: HWND,
-    pub monitor: usize,
-    pub monitor_rect: Rect,
-    pub area: Rect,
-    pub folder: Option<&'a Path>,
-    pub stem: &'a str,
-    pub texts: &'a MenuTexts,
-    pub first_capture: Duration,
-    pub moved_bar: Option<Rect>,
-}
-
-pub enum StartError {
-    Capture(windows::core::Error),
-    Save(SaveError),
-}
 
 pub enum Next {
     Going,
@@ -84,100 +58,13 @@ pub struct Recording {
     pauses: Pauses,
     shown: u64,
     summary: String,
-}
-
-impl StartError {
-    pub fn notice(self) -> Notice {
-        match self {
-            Self::Capture(error) => Notice::CaptureFailed(error.to_string()),
-            Self::Save(error) => Notice::SaveFailed(error),
-        }
-    }
+    interval: Duration,
+    time_limit: Duration,
+    cursor: bool,
+    countdown: Option<Countdown>,
 }
 
 impl Recording {
-    pub fn start(scene: &mut Scene, request: &Request) -> Result<Self, StartError> {
-        let area = request.area;
-        let (width, height) = recording::output_size(area.width(), area.height());
-        let placement = Placement::new(area, width, height);
-        let mut pointer = Pointer::default();
-        let drawn = visible(
-            pointer.sample(),
-            scene.pointer_apart(request.monitor),
-            &placement,
-        );
-        let (scaler, ring) = {
-            let gpu = scene
-                .gpu_for(request.monitor)
-                .map_err(StartError::Capture)?;
-            let relative = area.translated(-request.monitor_rect.left, -request.monitor_rect.top);
-            let scaler =
-                Scaler::new(&gpu.device, relative, width, height).map_err(StartError::Capture)?;
-            let mut ring = Ring::new(gpu, width, height).map_err(StartError::Capture)?;
-            if let Some(frozen) = scene.image_of(request.monitor) {
-                scaler
-                    .draw(&gpu.context, frozen, Pixels::Bgra8)
-                    .map_err(StartError::Capture)?;
-                ring.submit(&gpu.context, scaler.target(), Duration::ZERO, drawn.clone());
-            }
-            (scaler, ring)
-        };
-        let (dpi, work) = monitor_metrics(area);
-        let scale = dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32;
-        let border = Border::create(
-            request.instance,
-            area,
-            request.monitor_rect,
-            scale,
-            Line::Solid,
-        )
-        .map_err(StartError::Capture)?;
-        let controls = Controls::create(
-            request.instance,
-            Stage::Recording,
-            area,
-            work,
-            dpi,
-            request.texts,
-            request.moved_bar,
-        )
-        .map_err(StartError::Capture)?;
-        let folder = save::folder(request.folder).map_err(StartError::Save)?;
-        let (pipeline, workers) =
-            open_pipeline(&folder, request.stem, (width, height), request.window)
-                .map_err(StartError::Save)?;
-        let timer = Timer::start(request.first_capture, recording::frame_interval())
-            .map_err(StartError::Capture)?;
-        scene.begin_recording();
-        let clock = Clock::new();
-        Ok(Self {
-            monitor: request.monitor,
-            area,
-            size: (width, height),
-            folder,
-            window: request.window,
-            previous: request.previous,
-            scaler,
-            ring,
-            pointer,
-            placement,
-            drawn,
-            pipeline,
-            timer: Some(timer),
-            border,
-            controls,
-            started: clock.now(),
-            clock,
-            pauses: Pauses::default(),
-            shown: 0,
-            summary: format!(
-                "recording a {}x{} area as {width}x{height} at {FRAME_RATE} fps, {workers}",
-                area.width(),
-                area.height(),
-            ),
-        })
-    }
-
     pub fn area(&self) -> Rect {
         self.area
     }
@@ -190,10 +77,7 @@ impl Recording {
         let timer = if self.timer.is_some() {
             None
         } else {
-            Some(
-                Timer::start(Duration::ZERO, recording::frame_interval())
-                    .map_err(StartError::Capture)?,
-            )
+            Some(Timer::start(Duration::ZERO, self.interval).map_err(StartError::Capture)?)
         };
         let (pipeline, workers) =
             open_pipeline(&self.folder, stem, self.size, self.window).map_err(StartError::Save)?;
@@ -203,22 +87,8 @@ impl Recording {
         let previous = std::mem::replace(&mut self.pipeline, pipeline);
         previous.cancel();
         self.ring.discard();
-        self.drawn = visible(
-            self.pointer.sample(),
-            scene.pointer_apart(self.monitor),
-            &self.placement,
-        );
-        if let Ok(gpu) = scene.gpu_for(self.monitor) {
-            self.ring.submit(
-                &gpu.context,
-                self.scaler.target(),
-                Duration::ZERO,
-                self.drawn.clone(),
-            );
-        }
-        self.started = self.clock.now();
-        self.pauses = Pauses::default();
-        self.shown = 0;
+        self.countdown = None;
+        self.begin(scene);
         self.controls.show_toggled(false);
         let mut note = format!("the recording started over, {workers}");
         if let Err(error) = self
@@ -239,7 +109,7 @@ impl Recording {
             self.timer = None;
             self.pauses.pause(now);
         } else {
-            self.timer = Some(Timer::start(Duration::ZERO, recording::frame_interval())?);
+            self.timer = Some(Timer::start(Duration::ZERO, self.interval)?);
             self.pauses.resume(now);
         }
         self.controls.show_toggled(paused);
@@ -263,22 +133,33 @@ impl Recording {
         self.pauses.is_paused()
     }
 
+    pub fn counting_down(&self) -> bool {
+        self.countdown.is_some()
+    }
+
     pub fn summary(&self) -> &str {
         &self.summary
     }
 
     pub fn tick(&mut self, scene: &mut Scene, notes: &mut Vec<String>) -> Next {
         let elapsed = self.elapsed();
+        if self.countdown.is_some() {
+            return self.count_down(scene, elapsed, notes);
+        }
         if let Err(stop) = self.collect(scene, false, notes) {
             return Next::Stop(stop);
         }
         if self.pipeline.failed() {
             return Next::Stop(None);
         }
-        if elapsed >= TIME_LIMIT {
-            return Next::Stop(Some(RecordingStop::TimeLimit(TIME_LIMIT)));
+        if elapsed >= self.time_limit {
+            return Next::Stop(Some(RecordingStop::TimeLimit(self.time_limit)));
         }
-        let sample = self.pointer.sample();
+        let sample = if self.cursor {
+            self.pointer.sample()
+        } else {
+            None
+        };
         let scaler = &self.scaler;
         let grabbed = scene.grab(self.monitor, |gpu, frame, pixels| {
             scaler.draw(&gpu.context, frame, pixels)
@@ -362,6 +243,59 @@ impl Recording {
         self.pauses.recorded(self.clock.since(self.started))
     }
 
+    fn begin(&mut self, scene: &Scene) {
+        self.drawn = if self.cursor {
+            visible(
+                self.pointer.sample(),
+                scene.pointer_apart(self.monitor),
+                &self.placement,
+            )
+        } else {
+            None
+        };
+        if let Ok(gpu) = scene.gpu_for(self.monitor) {
+            self.ring.submit(
+                &gpu.context,
+                self.scaler.target(),
+                Duration::ZERO,
+                self.drawn.clone(),
+            );
+        }
+        self.started = self.clock.now();
+        self.pauses = Pauses::default();
+        self.shown = 0;
+    }
+
+    // The screen is still followed during the countdown, so the first frame is the one it ends on.
+    fn count_down(
+        &mut self,
+        scene: &mut Scene,
+        elapsed: Duration,
+        notes: &mut Vec<String>,
+    ) -> Next {
+        let scaler = &self.scaler;
+        if let Err(error) = scene.grab(self.monitor, |gpu, frame, pixels| {
+            scaler.draw(&gpu.context, frame, pixels)
+        }) {
+            notes.push(format!(
+                "the recording stopped; the screen could not be captured: {error}"
+            ));
+            return Next::Stop(Some(RecordingStop::Display));
+        }
+        let left = recording::countdown_number(COUNTDOWN.saturating_sub(elapsed));
+        if left > 0 {
+            if let Some(countdown) = &mut self.countdown
+                && let Err(error) = countdown.show(left)
+            {
+                notes.push(format!("the countdown could not be updated: {error}"));
+            }
+            return Next::Going;
+        }
+        self.countdown = None;
+        self.begin(scene);
+        Next::Going
+    }
+
     fn collect(
         &mut self,
         scene: &Scene,
@@ -392,36 +326,6 @@ impl Recording {
     }
 }
 
-fn open_pipeline(
-    folder: &Path,
-    stem: &str,
-    (width, height): (u32, u32),
-    window: HWND,
-) -> Result<(Pipeline, String), SaveError> {
-    let (file, temporary) = save::create_recording(folder, stem)?;
-    let threads = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
-    let preparing = recording::preparing_threads(threads);
-    let budget = recording::budget(memory::available_physical());
-    let pipeline = Pipeline::start(
-        width,
-        height,
-        budget,
-        preparing,
-        Output {
-            file,
-            temporary,
-            folder: folder.to_path_buf(),
-            stem: stem.to_owned(),
-        },
-        window,
-    )?;
-    let workers = format!(
-        "{preparing} of {threads} threads preparing frames, a budget of {} MB",
-        budget / 1_000_000
-    );
-    Ok((pipeline, workers))
-}
-
 fn visible(sample: Option<Sample>, apart: bool, placement: &Placement) -> Option<Sample> {
     sample.filter(|sample| apart && sample.cursor.shows_in(sample.at, placement))
 }
@@ -432,31 +336,6 @@ fn same(sample: &Option<Sample>, other: &Option<Sample>) -> bool {
         (None, None) => true,
         _ => false,
     }
-}
-
-pub fn monitor_metrics(area: Rect) -> (u32, Rect) {
-    let half = |side: u32| i32::try_from(side / 2).unwrap_or(0);
-    let centre = POINT {
-        x: area.left + half(area.width()),
-        y: area.top + half(area.height()),
-    };
-    let monitor = unsafe { MonitorFromPoint(centre, MONITOR_DEFAULTTONEAREST) };
-    let mut info = MONITORINFO {
-        cbSize: size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    let work = if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
-        let work = info.rcWork;
-        Rect::new(work.left, work.top, work.right, work.bottom)
-    } else {
-        area
-    };
-    let (mut dpi, mut unused) = (0, 0);
-    let dpi = match unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused) } {
-        Ok(()) if dpi > 0 => dpi,
-        _ => USER_DEFAULT_SCREEN_DPI,
-    };
-    (dpi, work)
 }
 
 #[cfg(test)]

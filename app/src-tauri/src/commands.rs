@@ -1,14 +1,17 @@
 use std::fmt::Display;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use bediz_core::delivery::SaveError;
 use bediz_core::settings::Settings;
 use bediz_platform::{Command, Shortcut};
 use serde::Serialize;
+use tauri::ipc::Response;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::events::{HotkeyStatus, Message, Messages};
+use crate::gif_window::{self, GifState, Target, View};
 use crate::i18n::Language;
 use crate::settings::{self, Store};
 use crate::settings_window::Section;
@@ -28,6 +31,8 @@ pub struct Folder {
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Failure {
     Missing { path: String },
+    Changed,
+    NotShown,
     Windows { reason: String },
     Unexpected,
 }
@@ -187,6 +192,121 @@ pub async fn choose_save_folder(
         .transpose()
 }
 
+#[tauri::command]
+pub fn gif(state: State<'_, GifState>) -> View {
+    state.view()
+}
+
+#[tauri::command]
+pub async fn gif_preview(id: u64, app: AppHandle) -> Result<Response, Failure> {
+    let target = shown_gif(&app, id)?;
+    in_background(move || {
+        std::fs::read(&target.path)
+            .map(Response::new)
+            .map_err(|error| file_failure(&target.path, &error))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn copy_gif(id: u64, app: AppHandle) -> Result<(), Failure> {
+    let target = shown_gif(&app, id)?;
+    setup::send(&app, Command::ReserveGifCopy { id });
+    in_background(move || {
+        still_ours(&target)?;
+        setup::send(
+            &app,
+            Command::CopyGif {
+                id,
+                path: target.path,
+            },
+        );
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn show_gif(id: u64, app: AppHandle) -> Result<(), Failure> {
+    let target = shown_gif(&app, id)?;
+    in_background(move || {
+        still_there(&target.path)?;
+        bediz_platform::show_in_folder(&target.path)
+            .map_err(|error| file_failure(&target.path, &error))
+    })
+    .await
+}
+
+// The opener runs whatever it is given, so only the GIF Bediz saved is passed on.
+#[tauri::command]
+pub async fn open_gif(id: u64, app: AppHandle) -> Result<(), Failure> {
+    let target = shown_gif(&app, id)?;
+    in_background(move || {
+        still_ours(&target)?;
+        app.opener()
+            .open_path(target.path.to_string_lossy(), None::<&str>)
+            .map_err(|error| unexpected(&app, error))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_gif(id: u64, window: WebviewWindow) -> Result<bool, Failure> {
+    let app = window.app_handle().clone();
+    let owner = window.hwnd().map_err(|error| unexpected(&app, error))?.0 as isize;
+    let target = shown_gif(&app, id)?;
+    let deleted = in_background(move || {
+        still_ours(&target)?;
+        bediz_platform::move_to_recycle_bin(&target.path, owner)
+            .map_err(|error| file_failure(&target.path, &error))
+    })
+    .await?;
+    if deleted {
+        gif_window::deleted(&app, id);
+    }
+    Ok(deleted)
+}
+
+fn shown_gif(app: &AppHandle, id: u64) -> Result<Target, Failure> {
+    app.try_state::<GifState>()
+        .and_then(|state| state.target(id))
+        .ok_or(Failure::NotShown)
+}
+
+fn still_there(path: &Path) -> Result<(), Failure> {
+    if path.is_file() {
+        Ok(())
+    } else {
+        Err(Failure::Missing {
+            path: path.display().to_string(),
+        })
+    }
+}
+
+// Another file can take the GIF's name after it is moved away, and it is never copied, opened or deleted.
+fn still_ours(target: &Target) -> Result<(), Failure> {
+    still_there(&target.path)?;
+    let found = bediz_platform::file_id(&target.path)
+        .map_err(|error| file_failure(&target.path, &error))?;
+    if target.identity == Some(found) {
+        Ok(())
+    } else {
+        Err(Failure::Changed)
+    }
+}
+
+fn file_failure(path: &Path, error: &io::Error) -> Failure {
+    if error.kind() == io::ErrorKind::NotFound {
+        Failure::Missing {
+            path: path.display().to_string(),
+        }
+    } else {
+        Failure::Windows {
+            reason: error.to_string(),
+        }
+    }
+}
+
 fn resolve(app: &AppHandle, chosen: Option<PathBuf>) -> Result<PathBuf, Failure> {
     bediz_platform::save_folder(chosen.as_deref()).map_err(|error| match error {
         SaveError::FolderMissing => Failure::Missing {
@@ -216,7 +336,7 @@ fn existing_folder(app: &AppHandle, chosen: Option<PathBuf>) -> Result<PathBuf, 
 fn unexpected(app: &AppHandle, detail: impl Display) -> Failure {
     if let Some(messages) = app.try_state::<Messages>() {
         let _ = messages.0.send(Message::Note(format!(
-            "the settings window could not do that: {detail}"
+            "a window of Bediz could not do that: {detail}"
         )));
     }
     Failure::Unexpected
@@ -253,5 +373,7 @@ mod tests {
             json!({ "kind": "windows", "reason": "Erişim engellendi." })
         );
         assert_eq!(shown(Failure::Unexpected), json!({ "kind": "unexpected" }));
+        assert_eq!(shown(Failure::Changed), json!({ "kind": "changed" }));
+        assert_eq!(shown(Failure::NotShown), json!({ "kind": "notShown" }));
     }
 }

@@ -9,6 +9,7 @@ use crate::delivery::Delivery;
 use crate::file_name::Pattern;
 use crate::geometry::Rect;
 use crate::hotkey::Hotkey;
+use crate::recording::{FrameRate, LongestSide, RecordingOptions, TimeLimit};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -27,6 +28,13 @@ pub struct Settings {
     pub save_folder: Option<PathBuf>,
     pub file_name: Pattern,
     pub keep_out_of_history: bool,
+    pub gif_frame_rate: FrameRate,
+    pub gif_longest_side: LongestSide,
+    pub gif_time_limit: TimeLimit,
+    pub gif_cursor: bool,
+    pub gif_countdown: bool,
+    pub gif_copy: bool,
+    pub gif_window: bool,
     pub release_gpu_while_idle: bool,
     pub check_for_updates: bool,
     pub last_region: Option<Rect>,
@@ -87,6 +95,13 @@ impl Default for Settings {
             save_folder: None,
             file_name: Pattern::default(),
             keep_out_of_history: false,
+            gif_frame_rate: FrameRate::default(),
+            gif_longest_side: LongestSide::default(),
+            gif_time_limit: TimeLimit::default(),
+            gif_cursor: true,
+            gif_countdown: false,
+            gif_copy: true,
+            gif_window: true,
             release_gpu_while_idle: false,
             check_for_updates: false,
             last_region: None,
@@ -121,6 +136,17 @@ impl Settings {
     // A file edited by hand can give both actions one key, which Windows registers only once.
     pub fn distinct_gif_hotkey(&self) -> Option<Hotkey> {
         self.gif_hotkey.filter(|gif| *gif != self.hotkey)
+    }
+
+    pub const fn recording_options(&self) -> RecordingOptions {
+        RecordingOptions {
+            frame_rate: self.gif_frame_rate,
+            longest_side: self.gif_longest_side,
+            time_limit: self.gif_time_limit,
+            cursor: self.gif_cursor,
+            countdown: self.gif_countdown,
+            copy: self.gif_copy,
+        }
     }
 
     pub const fn allocation(&self) -> Allocation {
@@ -175,6 +201,29 @@ impl Settings {
                 &shown.keep_out_of_history,
                 &wanted.keep_out_of_history,
             ),
+            gif_frame_rate: pick(
+                &self.gif_frame_rate,
+                &shown.gif_frame_rate,
+                &wanted.gif_frame_rate,
+            ),
+            gif_longest_side: pick(
+                &self.gif_longest_side,
+                &shown.gif_longest_side,
+                &wanted.gif_longest_side,
+            ),
+            gif_time_limit: pick(
+                &self.gif_time_limit,
+                &shown.gif_time_limit,
+                &wanted.gif_time_limit,
+            ),
+            gif_cursor: pick(&self.gif_cursor, &shown.gif_cursor, &wanted.gif_cursor),
+            gif_countdown: pick(
+                &self.gif_countdown,
+                &shown.gif_countdown,
+                &wanted.gif_countdown,
+            ),
+            gif_copy: pick(&self.gif_copy, &shown.gif_copy, &wanted.gif_copy),
+            gif_window: pick(&self.gif_window, &shown.gif_window, &wanted.gif_window),
             release_gpu_while_idle: pick(
                 &self.release_gpu_while_idle,
                 &shown.release_gpu_while_idle,
@@ -230,6 +279,8 @@ mod tests {
         assert_eq!(settings.save_folder, None);
         assert_eq!(settings.file_name, Pattern::default());
         assert!(!settings.keep_out_of_history);
+        assert_eq!(settings.recording_options(), RecordingOptions::default());
+        assert!(settings.gif_window);
         assert_eq!(settings.allocation(), Allocation::Ahead);
         assert!(!settings.check_for_updates);
     }
@@ -262,6 +313,10 @@ mod tests {
             ("enter", r#""copyAndUpload""#),
             ("theme", r#""sepia""#),
             ("lastRegion", "[1, 2]"),
+            ("gifFrameRate", "16"),
+            ("gifLongestSide", "1000"),
+            ("gifTimeLimit", "3600"),
+            ("gifCountdown", "3"),
         ] {
             let json =
                 format!(r#"{{ "successLabels": true, "{field}": {value}, "language": "tr" }}"#);
@@ -323,11 +378,22 @@ mod tests {
             save_folder: Some(PathBuf::from(r"D:\Captures")),
             file_name: Pattern::parse("Shot {width}x{height}").unwrap(),
             keep_out_of_history: true,
+            gif_frame_rate: FrameRate::try_from(25).unwrap(),
+            gif_longest_side: LongestSide::KEPT,
+            gif_time_limit: TimeLimit::try_from(300).unwrap(),
+            gif_cursor: false,
+            gif_countdown: true,
+            gif_copy: false,
+            gif_window: false,
             release_gpu_while_idle: true,
             check_for_updates: true,
             last_region: Some(Rect::new(-1920, 0, 640, 480)),
         };
         let json = settings.to_json().unwrap();
+        assert!(json.contains(r#""gifFrameRate": 25"#), "{json}");
+        assert!(json.contains(r#""gifLongestSide": null"#), "{json}");
+        assert!(json.contains(r#""gifTimeLimit": 300"#), "{json}");
+        assert!(json.contains(r#""gifWindow": false"#), "{json}");
         assert!(json.contains(r#""theme": "dark""#), "{json}");
         assert!(json.contains(r#""left": -1920"#), "{json}");
         assert!(json.contains(r#""hotkey": "Ctrl+Shift+A""#), "{json}");
@@ -406,6 +472,13 @@ mod tests {
             save_folder: Some(PathBuf::from(r"E:\Shots")),
             file_name: Pattern::parse("Shot {date}").unwrap(),
             keep_out_of_history: true,
+            gif_frame_rate: FrameRate::try_from(10).unwrap(),
+            gif_longest_side: LongestSide::try_from(Some(640)).unwrap(),
+            gif_time_limit: TimeLimit::try_from(15).unwrap(),
+            gif_cursor: false,
+            gif_countdown: true,
+            gif_copy: false,
+            gif_window: false,
             release_gpu_while_idle: true,
             check_for_updates: true,
             ..shown.clone()
@@ -442,6 +515,25 @@ mod tests {
         let apart = parse(r#"{ "hotkey": "F9", "gifHotkey": "F10" }"#);
         assert_eq!(apart.distinct_gif_hotkey(), Some("F10".parse().unwrap()));
         assert_eq!(Settings::default().distinct_gif_hotkey(), None);
+    }
+
+    #[test]
+    fn the_gif_settings_become_the_recording_options() {
+        let settings = parse(
+            r#"{ "gifFrameRate": 30, "gifLongestSide": 960, "gifTimeLimit": 30,
+                 "gifCursor": false, "gifCountdown": true, "gifCopy": false }"#,
+        );
+        let options = settings.recording_options();
+        assert_eq!(options.frame_rate.per_second(), 30);
+        assert_eq!(options.longest_side.limit(), Some(960));
+        assert_eq!(options.time_limit.duration().as_secs(), 30);
+        assert!(!options.cursor);
+        assert!(options.countdown);
+        assert!(!options.copy);
+        assert_eq!(
+            parse(r#"{ "gifLongestSide": null }"#).gif_longest_side,
+            LongestSide::KEPT
+        );
     }
 
     #[test]
