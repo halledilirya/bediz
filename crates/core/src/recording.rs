@@ -112,6 +112,15 @@ pub fn written_percent(written: u64, total: u64) -> u8 {
     u8::try_from(percent.min(99)).unwrap_or(99)
 }
 
+pub fn written_together(shares: impl IntoIterator<Item = (u64, u64)>) -> Option<u8> {
+    shares
+        .into_iter()
+        .reduce(|(written, total), (more, of)| {
+            (written.saturating_add(more), total.saturating_add(of))
+        })
+        .map(|(written, total)| written_percent(written, total))
+}
+
 pub fn budget(available_bytes: Option<u64>) -> usize {
     let quarter = available_bytes.map_or(LARGEST_BUDGET / 4, |available| available / 4);
     usize::try_from(quarter.min(LARGEST_BUDGET)).unwrap_or(usize::MAX)
@@ -265,6 +274,14 @@ mod tests {
         assert_eq!(written_percent(4500, 4500), 99);
         assert_eq!(written_percent(0, 0), 0);
         assert_eq!(written_percent(u64::MAX, u64::MAX), 99);
+    }
+
+    #[test]
+    fn gifs_written_together_count_by_their_frames() {
+        assert_eq!(written_together([]), None);
+        assert_eq!(written_together([(30, 100)]), Some(30));
+        assert_eq!(written_together([(90, 100), (0, 300)]), Some(22));
+        assert_eq!(written_together([(100, 100), (100, 100)]), Some(99));
     }
 
     #[test]

@@ -132,7 +132,9 @@ impl Tray {
                     let logs = bediz_platform::seen_outside(&logs);
                     let _ = app.opener().open_path(logs.to_string_lossy(), None::<&str>);
                 }
-                QUIT => app.exit(0),
+                QUIT => {
+                    let _ = messages.send(Message::Quit);
+                }
                 _ => {}
             })
             .on_tray_icon_event(|icon, event| match event {

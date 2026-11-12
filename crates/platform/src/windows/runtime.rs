@@ -1,7 +1,9 @@
 mod commands;
 mod delivery;
+mod discard;
 mod displays;
 mod hold;
+mod quit;
 mod ready;
 mod recording;
 mod save_as;
@@ -52,6 +54,8 @@ use super::window_list::WindowList;
 use super::worker::Worker;
 use crate::event::{Command, Event, Failure, HotkeyState, Label, MenuTexts};
 use delivery::{PendingCopy, Tracked};
+use discard::Deletions;
+use quit::Quitting;
 use ready::ReadyBar;
 use recording::Finishing;
 use save_as::{PendingSaveAs, Waiting};
@@ -117,6 +121,8 @@ struct Runtime {
     finishing: Vec<Finishing>,
     gifs: u64,
     gif_copy: Option<(u64, u64)>,
+    quit: Option<Quitting>,
+    deleting: Deletions,
     quitting: bool,
     live: Option<Timer>,
     ready: Option<ReadyBar>,
@@ -217,6 +223,8 @@ impl Runtime {
             finishing: Vec::new(),
             gifs: 0,
             gif_copy: None,
+            quit: None,
+            deleting: Deletions::default(),
             quitting: false,
             live: None,
             ready: None,
@@ -441,6 +449,7 @@ impl Runtime {
         if let Some(keys) = window_class::take_missed_hotkey() {
             self.on_hotkey(keys, None);
         }
+        self.tell_quit();
         let own = self.window.0;
         window_class::take_missed().into_iter().all(|message| {
             self.dispatch(&MSG {

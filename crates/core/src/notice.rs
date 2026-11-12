@@ -25,6 +25,8 @@ pub enum Notice {
     GifSaved,
     #[error("GIF copied and saved")]
     GifCopiedAndSaved,
+    #[error("GIF not deleted: {0}")]
+    GifNotDeleted(String),
     #[error("recording stopped: {0}")]
     RecordingStopped(RecordingStop),
 }
@@ -42,6 +44,7 @@ impl Notice {
             Self::CaptureFailed(_) => "capture-error",
             Self::GifSaved => "label-gif-saved",
             Self::GifCopiedAndSaved => "label-gif-copied-and-saved",
+            Self::GifNotDeleted(_) => "label-gif-not-deleted",
             Self::RecordingStopped(stop) => stop.locale_id(),
         }
     }
@@ -52,9 +55,8 @@ impl Notice {
             Self::ColourCopied(colour) => Some(("colour", colour.clone())),
             Self::CopyFailed(CopyError::Other(reason))
             | Self::SaveFailed(SaveError::Other(reason))
-            | Self::DeliveryFailed(DeliveryError::Other(reason)) => {
-                Some(("reason", reason.clone()))
-            }
+            | Self::DeliveryFailed(DeliveryError::Other(reason))
+            | Self::GifNotDeleted(reason) => Some(("reason", reason.clone())),
             Self::RecordingStopped(RecordingStop::TimeLimit(limit)) => {
                 Some(("limit", clock_text(*limit)))
             }
@@ -77,6 +79,7 @@ impl Notice {
                 | Self::SaveFailed(_)
                 | Self::DeliveryFailed(_)
                 | Self::CaptureFailed(_)
+                | Self::GifNotDeleted(_)
         )
     }
 }
@@ -180,6 +183,10 @@ mod tests {
         assert!(notice.is_failure());
         assert_eq!(Notice::Saved.argument(), None);
         assert!(!Notice::Saved.is_failure());
+        let kept = Notice::GifNotDeleted("in use".to_owned());
+        assert_eq!(kept.locale_id(), "label-gif-not-deleted");
+        assert_eq!(kept.argument(), Some(("reason", "in use".to_owned())));
+        assert!(kept.is_failure());
     }
 
     #[test]

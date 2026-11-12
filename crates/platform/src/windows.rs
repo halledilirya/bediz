@@ -39,7 +39,9 @@ pub use folder::{pick_folder, synced_by_onedrive};
 pub use language::preferred_languages;
 pub use package::{packaged, seen_outside};
 pub use platform::{Platform, StartError};
-pub use question::{Question, Reply, ask as ask_question};
+pub use question::{
+    Question, QuitChoice, QuitDialog, QuitQuestion, Reply, ask as ask_question, ask_to_quit,
+};
 pub use save::{
     FileId, SavedAs, file_id, folder as save_folder, keep_beside, replace_own_file, save_beside,
     save_chosen, save_screenshot,

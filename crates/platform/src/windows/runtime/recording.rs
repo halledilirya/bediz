@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Duration;
 
 use bediz_core::geometry::Rect;
@@ -18,6 +19,7 @@ pub(super) struct Finishing {
     gif: Option<u64>,
     copy: Option<(u64, u32)>,
     told: Option<u8>,
+    discarded: bool,
 }
 
 impl Finishing {
@@ -29,7 +31,17 @@ impl Finishing {
             gif: None,
             copy: None,
             told: None,
+            discarded: false,
         }
+    }
+
+    pub(super) fn written_share(&self) -> Option<(u64, u64)> {
+        self.pipeline.written_share()
+    }
+
+    pub(super) fn discard(&mut self) {
+        self.discarded = true;
+        self.pipeline.cancel();
     }
 }
 
@@ -110,6 +122,9 @@ impl Runtime {
     }
 
     pub(super) fn record(&mut self, first_capture: Duration) {
+        if self.closing() {
+            return;
+        }
         let locked = self.locked();
         let (Some(scene), Some(session), Some(texts)) = (
             self.scene.as_mut(),
@@ -225,6 +240,7 @@ impl Runtime {
             gif,
             copy,
             told: None,
+            discarded: false,
         });
         self.show_recording_state();
         self.on_recording_ended();
@@ -255,10 +271,11 @@ impl Runtime {
                         near,
                         gif,
                         copy,
+                        discarded,
                         ..
                     } = finishing;
                     drop(pipeline);
-                    self.report_recording(ended, stop, near, gif, copy);
+                    self.report_recording(ended, stop, near, gif, copy, discarded);
                 }
                 None => {
                     let percent = finishing.pipeline.written_percent();
@@ -285,15 +302,13 @@ impl Runtime {
                 near,
                 gif,
                 copy,
+                discarded,
                 ..
             } = finishing;
             let ended = pipeline.wait();
-            self.report_recording(ended, stop, near, gif, copy);
+            self.report_recording(ended, stop, near, gif, copy, discarded);
         }
-    }
-
-    pub(super) fn recording_busy(&self) -> bool {
-        self.recording.is_some() || !self.finishing.is_empty()
+        self.finish_deletions();
     }
 
     fn report_recording(
@@ -303,7 +318,14 @@ impl Runtime {
         near: Rect,
         gif: Option<u64>,
         copy: Option<(u64, u32)>,
+        discarded: bool,
     ) {
+        if let Some(path) = left_behind(&ended, discarded) {
+            self.delete_discarded(path.to_path_buf(), near);
+        }
+        if discarded {
+            return;
+        }
         let mut notices: Vec<Notice> = stop.map(Notice::RecordingStopped).into_iter().collect();
         match ended {
             Ended::Saved(saved) => {
@@ -323,9 +345,56 @@ impl Runtime {
                     (self.sink)(Event::Gif(GifEvent::NotSaved { id, error }));
                 }
                 notices.push(Notice::SaveFailed(error));
+                self.quit_failed();
             }
             Ended::Cancelled => return,
         }
         self.notify(notices, near);
+    }
+}
+
+// The writer may have finished the GIF just as it was told to stop, and then it is deleted after all.
+fn left_behind(ended: &Ended, discarded: bool) -> Option<&Path> {
+    match ended {
+        Ended::Saved(saved) if discarded => Some(&saved.path),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use bediz_core::delivery::SaveError;
+
+    use super::{Ended, left_behind};
+    use crate::event::SavedGif;
+
+    fn saved() -> Ended {
+        Ended::Saved(SavedGif {
+            path: PathBuf::from(r"C:\GIFs\Bediz 2026-11-12 640x360.gif"),
+            bytes: 1,
+            length: Duration::from_secs(1),
+            width: 640,
+            height: 360,
+        })
+    }
+
+    #[test]
+    fn a_gif_finished_after_it_was_discarded_is_deleted() {
+        assert_eq!(
+            left_behind(&saved(), true),
+            Some(std::path::Path::new(
+                r"C:\GIFs\Bediz 2026-11-12 640x360.gif"
+            ))
+        );
+    }
+
+    #[test]
+    fn only_a_discarded_gif_that_was_saved_leaves_a_file_to_delete() {
+        assert_eq!(left_behind(&saved(), false), None);
+        assert_eq!(left_behind(&Ended::Cancelled, true), None);
+        assert_eq!(left_behind(&Ended::Failed(SaveError::DiskFull), true), None);
     }
 }

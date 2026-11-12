@@ -167,7 +167,7 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 46] = [
+    const USED: [&str; 52] = [
         "settings-title",
         "gif-title",
         "tray-record",
@@ -214,6 +214,12 @@ mod tests {
         "question-taken-accept",
         "question-not-now",
         "question-never-again",
+        "quit-unsaved",
+        "quit-unsaved-detail",
+        "quit-waiting",
+        "quit-when-saved",
+        "quit-discard",
+        "quit-stay",
     ];
 
     fn messages(source: &str) -> BTreeMap<String, BTreeSet<String>> {
@@ -432,6 +438,7 @@ price = Costs $5
             Notice::CaptureFailed(reason()),
             Notice::GifSaved,
             Notice::GifCopiedAndSaved,
+            Notice::GifNotDeleted(reason()),
             Notice::RecordingStopped(RecordingStop::TimeLimit(TimeLimit::default().duration())),
             Notice::RecordingStopped(RecordingStop::Memory),
             Notice::RecordingStopped(RecordingStop::Display),

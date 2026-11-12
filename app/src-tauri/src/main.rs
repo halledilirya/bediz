@@ -6,6 +6,7 @@ mod gif_window;
 mod i18n;
 mod log;
 mod question;
+mod quit;
 mod settings;
 mod settings_window;
 mod setup;

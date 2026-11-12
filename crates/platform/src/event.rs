@@ -52,6 +52,15 @@ pub enum Command {
     SetMenuTexts(Box<MenuTexts>),
     Resume,
     Recording(RecordingAction),
+    Quit(QuitStep),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuitStep {
+    Ask,
+    WhenSaved,
+    Discard,
+    Stay,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -180,4 +189,7 @@ pub enum Event {
     SecondStart,
     Recording(RecordingState),
     Gif(GifEvent),
+    Unsaved(Option<u8>),
+    ReadyToQuit,
+    QuitCancelled,
 }

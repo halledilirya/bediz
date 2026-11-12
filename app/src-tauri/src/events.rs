@@ -6,13 +6,16 @@ use bediz_core::geometry::Rect;
 use bediz_core::measurement::BUDGET;
 use bediz_core::notice::{self, Notice};
 use bediz_core::settings::Settings;
-use bediz_platform::{Command, Event, HotkeyState, Label, Platform, Shortcut};
+use bediz_platform::{
+    Command, Event, HotkeyState, Label, Platform, QuitChoice, QuitDialog, Shortcut,
+};
 use tauri::{AppHandle, Manager};
 
 use crate::gif_window;
 use crate::i18n::{Language, Texts};
 use crate::log::Log;
 use crate::question;
+use crate::quit::{self, Leaving};
 use crate::settings::{self, Store};
 use crate::settings_window;
 use crate::startup::StartupStatus;
@@ -28,6 +31,8 @@ pub enum Message {
     Language,
     Note(String),
     Info(String),
+    Quit,
+    QuitChoice(QuitDialog, QuitChoice),
 }
 
 pub struct Events {
@@ -73,6 +78,7 @@ struct Dispatcher {
     sender: Sender<Message>,
     started: bool,
     available: Option<String>,
+    leaving: Option<Leaving>,
 }
 
 pub fn spawn(
@@ -96,6 +102,7 @@ pub fn spawn(
                 sender,
                 started: false,
                 available: None,
+                leaving: None,
             };
             for message in receiver {
                 if catch_unwind(AssertUnwindSafe(|| dispatcher.handle(message))).is_err() {
@@ -121,6 +128,19 @@ impl Dispatcher {
             Message::Language => self.change_language(),
             Message::Note(note) => self.log.warn(&format!("note {note}")),
             Message::Info(line) => self.log.info(&line),
+            Message::Quit => quit::ask(&self.app, &mut self.leaving),
+            Message::QuitChoice(dialog, choice) => {
+                let taken = quit::chosen(&self.app, &mut self.leaving, &dialog, choice);
+                let line = if taken {
+                    format!("quitting with a GIF unsaved: {}", quit::choice_name(choice))
+                } else {
+                    format!(
+                        "a late answer to a closed question was dropped: {}",
+                        quit::choice_name(choice)
+                    )
+                };
+                self.log.info(&line);
+            }
         }
     }
 
@@ -161,6 +181,11 @@ impl Dispatcher {
             Event::Gif(event) => {
                 gif_window::on_event(&self.app, event, &self.texts.get("gif-title"), &self.sender);
             }
+            Event::Unsaved(percent) => {
+                quit::unsaved(&mut self.leaving, *percent, &self.texts, &self.sender);
+            }
+            Event::ReadyToQuit => quit::ready(&self.app, &mut self.leaving),
+            Event::QuitCancelled => quit::cancelled(&self.app, &mut self.leaving),
             _ => {}
         }
     }
@@ -304,7 +329,9 @@ fn record(log: &Log, event: &Event) {
             "{} hotkey pressed while a new one was asked for",
             update::shortcut_name(*shortcut)
         )),
-        Event::LastRegion(_) | Event::Recording(_) | Event::Gif(_) => {}
+        Event::LastRegion(_) | Event::Recording(_) | Event::Gif(_) | Event::Unsaved(_) => {}
+        Event::ReadyToQuit => log.info("quitting"),
+        Event::QuitCancelled => log.warn("quitting was given up: a GIF could not be saved"),
         Event::StartWithWindows { on, failure, .. } => {
             let wanted = if *on { "on" } else { "off" };
             match failure {

@@ -4,6 +4,21 @@ use super::Runtime;
 use super::delivery::CLIPBOARD_RETRY_MILLISECONDS;
 use crate::windows::worker::Worker;
 
+#[derive(Clone, Copy, Default)]
+struct Open {
+    selection: bool,
+    save_as: bool,
+    recording: bool,
+    writing: bool,
+    deleting: bool,
+}
+
+impl Open {
+    fn any(self) -> bool {
+        self.selection || self.save_as || self.recording || self.writing || self.deleting
+    }
+}
+
 trait Barrier {
     fn busy(&self) -> bool;
     fn set_held(&mut self);
@@ -52,7 +67,14 @@ fn release(barrier: &mut impl Barrier) {
 
 impl Barrier for Runtime {
     fn busy(&self) -> bool {
-        self.session.is_some() || self.save_as.is_some() || self.recording_busy()
+        Open {
+            selection: self.session.is_some(),
+            save_as: self.save_as.is_some(),
+            recording: self.recording.is_some(),
+            writing: !self.finishing.is_empty(),
+            deleting: !self.deleting.is_empty(),
+        }
+        .any()
     }
 
     fn set_held(&mut self) {
@@ -96,7 +118,7 @@ impl Barrier for Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Barrier, hold, release};
+    use super::{Barrier, Open, hold, release};
 
     #[derive(Default)]
     struct Recorded {
@@ -200,6 +222,36 @@ mod tests {
         release(&mut barrier);
         assert_eq!(barrier.log, ["held", "finished", "restarted"]);
         assert!(!barrier.held && barrier.worker);
+    }
+
+    #[test]
+    fn a_gif_still_being_deleted_holds_the_update_back_like_one_being_written() {
+        assert!(!Open::default().any());
+        let deleting = Open {
+            deleting: true,
+            ..Open::default()
+        };
+        assert!(deleting.any());
+        for open in [
+            Open {
+                selection: true,
+                ..Open::default()
+            },
+            Open {
+                save_as: true,
+                ..Open::default()
+            },
+            Open {
+                recording: true,
+                ..Open::default()
+            },
+            Open {
+                writing: true,
+                ..Open::default()
+            },
+        ] {
+            assert!(open.any());
+        }
     }
 
     #[test]

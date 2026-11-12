@@ -62,12 +62,12 @@ impl Platform {
         }
     }
 
-    pub fn send(&self, command: Command) {
+    pub fn send(&self, command: Command) -> bool {
         self.commands
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(command);
-        self.post(WM_COMMANDS);
+        self.post(WM_COMMANDS)
     }
 
     pub fn finish_saves(&self) {

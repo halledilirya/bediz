@@ -261,7 +261,7 @@ impl Runtime {
             if session.settled().is_some() {
                 self.record(Duration::ZERO);
             }
-        } else {
+        } else if !self.closing() {
             self.open(queued, Purpose::Recording);
         }
         let (change, proves_yielding) = self.gif_hotkey.arrived();

@@ -109,14 +109,18 @@ impl Shared {
         self.frames.notify_all();
     }
 
-    fn written_percent(&self) -> Option<u8> {
+    fn written_share(&self) -> Option<(u64, u64)> {
         let state = self.lock();
         let Phase::Finishing(_) = state.phase else {
             return None;
         };
         let waiting = u64::try_from(state.store.waiting()).unwrap_or(u64::MAX);
-        let total = state.handed_out.saturating_add(waiting);
-        Some(recording::written_percent(state.written, total))
+        Some((state.written, state.handed_out.saturating_add(waiting)))
+    }
+
+    fn written_percent(&self) -> Option<u8> {
+        self.written_share()
+            .map(|(written, total)| recording::written_percent(written, total))
     }
 }
 
@@ -229,6 +233,10 @@ impl Pipeline {
 
     pub fn written_percent(&self) -> Option<u8> {
         self.shared.written_percent()
+    }
+
+    pub fn written_share(&self) -> Option<(u64, u64)> {
+        self.shared.written_share()
     }
 
     pub fn finish(&self, end: Duration) {
@@ -523,8 +531,10 @@ mod tests {
         state.handed_out = 2;
         drop(state);
         shared.written(1);
+        assert_eq!(shared.written_share(), Some((1, 4)));
         assert_eq!(shared.written_percent(), Some(25));
         shared.cancel();
+        assert_eq!(shared.written_share(), None);
         assert_eq!(shared.written_percent(), None);
     }
 

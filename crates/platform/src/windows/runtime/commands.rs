@@ -24,6 +24,7 @@ impl Runtime {
                 }
                 Command::Capture => self.open(Duration::ZERO, Purpose::Screenshot),
                 Command::CaptureAfterMenu => self.open_after_menu(),
+                Command::RecordGif if self.closing() => {}
                 Command::RecordGif => self.open(Duration::ZERO, Purpose::Recording),
                 Command::RetryHotkey => {
                     let change = self.hotkey.refresh();
@@ -57,6 +58,7 @@ impl Runtime {
                 }
                 Command::KeepOutOfHistory(keep_out) => self.keep_out_of_history = keep_out,
                 Command::SetRecordingOptions(options) => self.recording_options = options,
+                Command::Quit(step) => self.on_quit(step),
                 Command::ReserveGifCopy { id } => self.reserve_gif_copy(id),
                 Command::CopyGif { id, path } => self.copy_gif(id, &path),
                 Command::SetLastRegion(region) => self.last_region = region,
