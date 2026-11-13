@@ -6,6 +6,9 @@ use super::change::{self, Area, Cut, Rgb};
 use super::{AnimationError, codec, gif_size};
 use crate::image::Image;
 
+// A video's compression noise moves still pixels by a level or two, which would dither them again every frame.
+const THRESHOLD: u8 = 3;
+
 pub struct StoredFrame {
     pub(super) at: Duration,
     pub(super) canvas: (u16, u16),
@@ -74,14 +77,20 @@ impl FrameStore {
                 .map(|[blue, green, red, _]| [*red, *green, *blue]),
         );
         let area = match &self.previous {
-            Some(previous) => change::changed_area(previous, &current, self.width),
+            Some(previous) => change::changed_area(previous, &current, self.width, THRESHOLD),
             None => Some(Area::whole(self.width, self.height)),
         };
         let Some(area) = area else {
             self.spare = current;
             return Ok(());
         };
-        let cut = change::cut(self.previous.as_deref(), &current, self.width, area);
+        let cut = change::cut(
+            self.previous.as_deref(),
+            &current,
+            self.width,
+            area,
+            THRESHOLD,
+        );
         codec::compress(&cut, &mut self.scratch);
         let used = self.used.saturating_add(cost(self.scratch.len()));
         if used > self.budget {
@@ -97,8 +106,12 @@ impl FrameStore {
             data: self.scratch.as_slice().into(),
         });
         self.used = used;
-        if let Some(previous) = self.previous.replace(current) {
-            self.spare = previous;
+        match &mut self.previous {
+            Some(reference) => {
+                change::remember(reference, &current, self.width, area, &cut.changed);
+                self.spare = current;
+            }
+            None => self.previous = Some(current),
         }
         Ok(())
     }
@@ -284,6 +297,44 @@ mod tests {
         let frame = store.pop().unwrap();
         assert_eq!(frame.area, Area::whole(64, 64));
         assert_eq!(frame.at, Duration::from_millis(133));
+    }
+
+    #[test]
+    fn a_slow_drift_is_drawn_once_it_passes_the_threshold_from_what_was_last_drawn() {
+        let mut store = unlimited(4, 4);
+        for level in 100..=108u8 {
+            store
+                .push(
+                    &image(4, 4, |_, _| [level, level, level]),
+                    Duration::from_millis(u64::from(level)),
+                )
+                .unwrap();
+        }
+        let kept: Vec<(Duration, Rgb)> = std::iter::from_fn(|| store.pop())
+            .map(|frame| (frame.at, frame.cut().unwrap().pixels[0]))
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                (Duration::from_millis(100), [100; 3]),
+                (Duration::from_millis(104), [104; 3]),
+                (Duration::from_millis(108), [108; 3]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_frame_past_the_budget_leaves_the_threshold_measured_from_what_was_drawn() {
+        let black = image(64, 64, |_, _| BLACK);
+        let mut measure = unlimited(64, 64);
+        measure.push(&black, Duration::ZERO).unwrap();
+        let mut store = FrameStore::new(64, 64, measure.used()).unwrap();
+        store.push(&black, Duration::ZERO).unwrap();
+        assert!(store.push(&noise(1), Duration::from_millis(67)).is_err());
+        store
+            .push(&image(64, 64, |_, _| [1, 1, 1]), Duration::from_millis(133))
+            .unwrap();
+        assert_eq!(store.frames.len(), 1);
     }
 
     #[test]

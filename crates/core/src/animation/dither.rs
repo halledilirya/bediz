@@ -1,5 +1,6 @@
 use super::change::Rgb;
 use super::nearest::{Channels, Nearest, channels};
+use super::palette::ColourMap;
 
 pub(super) fn dither(
     pixels: &[Rgb],
@@ -7,6 +8,7 @@ pub(super) fn dither(
     width: usize,
     colours: &[Rgb],
     transparent: u8,
+    kept: &ColourMap<u8>,
 ) -> Option<Vec<u8>> {
     if width == 0 {
         return None;
@@ -31,6 +33,13 @@ pub(super) fn dither(
             ) else {
                 continue;
             };
+            // A kept colour is shown as it is, so a flat area takes no noise from the edges beside it.
+            if !kept.is_empty()
+                && let Some(exact) = kept.get(pixel)
+            {
+                *index = *exact;
+                continue;
+            }
             let slot = x + 1;
             let carried = current.get(slot).copied().unwrap_or_default();
             let wanted = sum(channels(*pixel), carried).map(|c| c.clamp(0.0, 255.0));
@@ -79,11 +88,15 @@ mod tests {
     const BLACK: Rgb = [0, 0, 0];
     const WHITE: Rgb = [255, 255, 255];
 
+    fn none() -> ColourMap<u8> {
+        ColourMap::default()
+    }
+
     #[test]
     fn mid_grey_between_black_and_white_comes_out_half_white() {
         let pixels = vec![[128, 128, 128]; 32 * 32];
         let changed = vec![true; pixels.len()];
-        let indices = dither(&pixels, &changed, 32, &[BLACK, WHITE], 2).unwrap();
+        let indices = dither(&pixels, &changed, 32, &[BLACK, WHITE], 2, &none()).unwrap();
         let white = indices.iter().filter(|index| **index == 1).count();
         assert!(indices.iter().all(|index| *index < 2));
         assert!((480..=560).contains(&white), "{white} of 1024 white");
@@ -94,7 +107,7 @@ mod tests {
         let red = [200, 10, 10];
         let pixels = vec![red; 16];
         let changed = vec![true; 16];
-        let indices = dither(&pixels, &changed, 4, &[BLACK, red, WHITE], 3).unwrap();
+        let indices = dither(&pixels, &changed, 4, &[BLACK, red, WHITE], 3, &none()).unwrap();
         assert!(indices.iter().all(|index| *index == 1));
     }
 
@@ -102,15 +115,27 @@ mod tests {
     fn unchanged_pixels_get_the_transparent_index() {
         let pixels = vec![[90, 90, 90]; 9];
         let changed = [true, false, true, false, false, false, true, false, true];
-        let indices = dither(&pixels, &changed, 3, &[BLACK, WHITE], 2).unwrap();
+        let indices = dither(&pixels, &changed, 3, &[BLACK, WHITE], 2, &none()).unwrap();
         for (index, changed) in indices.iter().zip(changed) {
             assert_eq!(*index == 2, !changed);
         }
     }
 
     #[test]
+    fn a_kept_colour_takes_no_error_and_passes_none_on() {
+        let grey = [100, 100, 100];
+        let pixels = [[178, 178, 178], grey, [55, 55, 55]];
+        let colours = [BLACK, WHITE, grey];
+        let spread = dither(&pixels, &[true; 3], 3, &colours, 3, &none()).unwrap();
+        assert_eq!(spread, [1, 2, 0]);
+        let kept = ColourMap::from_iter([(grey, 2)]);
+        let clean = dither(&pixels, &[true; 3], 3, &colours, 3, &kept).unwrap();
+        assert_eq!(clean, [1, 2, 2]);
+    }
+
+    #[test]
     fn nothing_is_made_without_a_width_or_a_palette() {
-        assert!(dither(&[BLACK], &[true], 0, &[BLACK], 1).is_none());
-        assert!(dither(&[BLACK], &[true], 1, &[], 0).is_none());
+        assert!(dither(&[BLACK], &[true], 0, &[BLACK], 1, &none()).is_none());
+        assert!(dither(&[BLACK], &[true], 1, &[], 0, &none()).is_none());
     }
 }

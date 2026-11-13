@@ -417,6 +417,24 @@ mod tests {
     }
 
     #[test]
+    fn a_large_flat_area_among_many_colours_comes_out_exact() {
+        let background = [30, 30, 30];
+        let busy = image(64, 64, |x, y| {
+            if y < 16 {
+                [(x * 4) as u8, (y * 16) as u8, ((x + y) * 3) as u8]
+            } else {
+                background
+            }
+        });
+        let (_, frames) = decode(&encode(&[(&busy, 0)], 100));
+        assert!(
+            frames[0].canvas[16 * 64..]
+                .iter()
+                .all(|pixel| *pixel == background)
+        );
+    }
+
+    #[test]
     fn sizes_a_gif_cannot_hold_are_refused() {
         assert!(matches!(
             GifEncoder::new(Vec::new(), 0, 10),

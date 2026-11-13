@@ -373,7 +373,7 @@ mod tests {
     fn shared(frames: u8, window: u64) -> Arc<Shared> {
         let mut store = FrameStore::new(4, 4, usize::MAX).unwrap();
         for value in 0..frames {
-            let image = Image::from_bgra(4, 4, vec![value; 64]).unwrap();
+            let image = Image::from_bgra(4, 4, vec![value * 10; 64]).unwrap();
             store
                 .push(&image, Duration::from_millis(u64::from(value) * 67))
                 .unwrap();

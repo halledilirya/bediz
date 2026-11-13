@@ -39,12 +39,13 @@ impl IndexedFrame {
                     }
                 })
                 .collect(),
-            Palette::Reduced { colours } => dither(
+            Palette::Reduced { colours, kept } => dither(
                 &cut.pixels,
                 &cut.changed,
                 usize::from(area.width),
                 colours,
                 unused,
+                kept,
             )?,
         };
         let mut table: Vec<u8> = colours.iter().flatten().copied().collect();
