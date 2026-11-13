@@ -4,6 +4,17 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-13
+
+### Added
+
+- GIF recording of a region on one monitor, started from the tray menu, a shortcut you set in the settings or the selection's right-click menu. A locked region leaves the screen usable until the recording starts.
+- While it records, a frame marks the area and a bar shows the time with **Pause**, **Finish**, **Restart** and **Discard**; neither appears in the GIF. The recording stops by itself at its time limit, when the memory set aside for it is full, or when the screen changes or is locked, and says why.
+- When a recording is done, the GIF is saved with your screenshots and copied as a file, so it stays animated when you paste it into a chat. A small window plays it, shows its size, length and file size, warns above 10 MB and 15 MB, and copies, shows, opens or deletes it.
+- Interface recordings keep their common flat colours exact, which cuts the dither noise on backgrounds.
+- Recording settings: frames per second (10 to 30), the largest size (640 to 1920 pixels, or the area's own size), the longest recording (15 seconds to 5 minutes), showing the pointer, a 3, 2, 1 countdown, and whether a finished GIF is copied and shown.
+- Quitting while a GIF is still being saved asks first, with its progress: close once it is saved, delete it and close, or cancel.
+
 ## [0.1.1] - 2026-11-10
 
 ### Changed

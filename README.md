@@ -3,7 +3,7 @@
 [![CI](https://github.com/halledilirya/bediz/actions/workflows/ci.yml/badge.svg)](https://github.com/halledilirya/bediz/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Bediz is a screenshot app for Windows 11. It waits in the tray: press Print Screen, select a part of the screen, then copy and save it. Recording a region as a GIF and marking up screenshots are planned.
+Bediz is a screenshot and GIF recording app for Windows 11. It waits in the tray: press Print Screen, select a part of the screen, then copy and save it, or record it as a GIF. Marking up screenshots is planned.
 
 Bediz is in early development.
 
@@ -44,9 +44,11 @@ Bediz starts with Windows unless you turn that off in the settings or the tray m
 | Right-click, the menu key or Shift+F10 | Open a menu with these actions |
 | Esc | Cancel |
 
-**Settings** in the tray menu, or starting Bediz again while it runs, opens the settings: another shortcut instead of Print Screen, what Enter and a double-click do, the folder and the file name screenshots are saved with, keeping screenshots out of the Win+V clipboard history, highlighting the window under the pointer so a click selects it, the “Copied” and “Saved” notices, releasing graphics memory while idle, the language, light or dark and the accent colour. About shows the version, the licence notices and the log folder.
+To record a GIF, choose **Record ▸ GIF** in the tray menu or press the GIF shortcut, which you set in the settings; the selection then opens on the live screen. **Record a GIF** in the right-click menu records a selection made on a screenshot. Select a region on one monitor and press **Start**, or **Lock** it first to keep using the screen until you start. A frame marks the area and a bar shows the time with **Pause**, **Finish**, **Restart** and **Discard**; neither appears in the GIF. Pressed again, the GIF shortcut starts the recording, and once more, it finishes it. The GIF is saved with your screenshots and copied as a file, so it stays animated when you paste it into a chat, and a small window plays it and can copy, show, open or delete it.
 
-If Print Screen opens the Snipping Tool, Bediz asks once as it starts whether it may turn that off; **Let Bediz use Print Screen** in the tray menu and the settings does the same. When another app holds the shortcut, the tray menu and the settings say so; the tray icon still takes a screenshot. Windows does not send Print Screen alone to Bediz while a window running as administrator is in front; a shortcut with Ctrl, Alt or Shift, such as Ctrl+Shift+F9, still arrives. Since Windows 11 24H2, Windows does not hand the frames of a game in exclusive full screen to screen capture, so the screenshot shows an older image; run such a game borderless or windowed.
+**Settings** in the tray menu, or starting Bediz again while it runs, opens the settings: another shortcut instead of Print Screen, the GIF shortcut, what Enter and a double-click do, the folder and the file name screenshots are saved with, keeping screenshots out of the Win+V clipboard history, highlighting the window under the pointer so a click selects it, the “Copied” and “Saved” notices, the GIF's frames per second, largest size and longest recording, the pointer and a countdown in recordings, copying and showing a finished GIF, releasing graphics memory while idle, the language, light or dark and the accent colour. About shows the version, the licence notices and the log folder.
+
+If Print Screen opens the Snipping Tool, Bediz asks once as it starts whether it may turn that off; **Let Bediz use Print Screen** in the tray menu and the settings does the same. When another app holds the shortcut, the tray menu and the settings say so; the tray icon still takes a screenshot. Windows does not send Print Screen, or any other key alone, to Bediz while a window running as administrator is in front; a shortcut with Ctrl, Alt or Shift, such as Ctrl+Shift+F9, still arrives. Since Windows 11 24H2, Windows does not hand the frames of a game in exclusive full screen to screen capture, so the screenshot shows an older image; run such a game borderless or windowed.
 
 Bediz follows the Windows display language unless you pick one. It speaks Arabic, Chinese (Simplified), English, French, German, Hindi, Italian, Japanese, Korean, Portuguese, Russian, Spanish and Turkish. It follows Windows' high contrast themes.
 

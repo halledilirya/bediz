@@ -227,7 +227,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "bediz"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bediz-core",
  "bediz-platform",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "bediz-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "gif",
  "png",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "bediz-platform"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bediz-core",
  "thiserror 2.0.21",
