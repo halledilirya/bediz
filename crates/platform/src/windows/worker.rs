@@ -1,3 +1,6 @@
+//! The threads that encode screenshots to PNG and save them away from the platform thread, and
+//! report each outcome back to it.
+
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;

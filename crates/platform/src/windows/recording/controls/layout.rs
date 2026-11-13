@@ -1,3 +1,5 @@
+//! The size of the controls bar and where its grip, clock and buttons sit, at any display scale.
+
 use bediz_core::geometry::Rect;
 
 use super::pixels;

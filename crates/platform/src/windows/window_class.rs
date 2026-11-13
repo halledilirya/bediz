@@ -1,3 +1,6 @@
+//! The app's window classes and their window procedures, which leave what they hear for the runtime
+//! to pick up, and the guard that stops a panic from leaving an OS callback.
+
 use std::cell::Cell;
 use std::panic::AssertUnwindSafe;
 

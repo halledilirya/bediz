@@ -1,3 +1,6 @@
+//! Opens the overlay for a screenshot or a recording on a hotkey or the app's command, measures
+//! how fast it appeared, acts on the keys, clicks and menu choices made in it, and closes it.
+
 use std::time::Duration;
 
 use bediz_core::capture::Allocation;

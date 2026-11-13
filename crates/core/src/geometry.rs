@@ -1,3 +1,5 @@
+//! Points and rectangles in virtual screen coordinates.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -1,3 +1,6 @@
+//! Checks for, downloads and installs updates where the app may update itself, holding captures
+//! and settings writes while the installer starts.
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Mutex, MutexGuard, PoisonError, mpsc};
 use std::time::Duration;

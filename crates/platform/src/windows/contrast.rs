@@ -1,3 +1,5 @@
+//! Reads whether high contrast is on and its colours, and whether apps follow the dark theme.
+
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
 use windows::Win32::Graphics::Gdi::{COLOR_HIGHLIGHT, COLOR_WINDOW, GetSysColor};

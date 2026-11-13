@@ -1,3 +1,6 @@
+//! What the user is told after a capture, copy, save or recording, with each notice's locale id
+//! and argument and whether it is worth showing a label for.
+
 use thiserror::Error;
 
 use crate::delivery::{CopyError, DeliveryError, SaveError};

@@ -1,3 +1,5 @@
+//! Takes the foreground for one of the app's windows and gives it back to the window that had it.
+
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{INPUT, INPUT_MOUSE, SendInput, SetFocus};

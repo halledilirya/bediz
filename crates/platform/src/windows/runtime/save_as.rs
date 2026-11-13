@@ -1,3 +1,6 @@
+//! Save as: asks where to save a capture, one dialog at a time with later ones waiting in line,
+//! asks again when the chosen name was taken meanwhile, and keeps accepted saves through a quit.
+
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::PoisonError;

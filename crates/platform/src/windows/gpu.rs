@@ -1,3 +1,6 @@
+//! One graphics adapter's Direct3D and Direct2D devices, the brushes the overlay draws with, and
+//! the textures and bitmaps made on it.
+
 use std::mem::ManuallyDrop;
 
 use windows::Win32::Foundation::{E_POINTER, HMODULE};

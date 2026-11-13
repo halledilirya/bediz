@@ -1,3 +1,6 @@
+//! Copies and saves a selection through the worker thread, puts images, colours and GIFs on the
+//! clipboard, retrying while it is busy, and reports how each copy and save ended.
+
 use std::path::Path;
 
 use bediz_core::delivery::{CopyError, Delivery, DeliveryError, Report, SaveError};

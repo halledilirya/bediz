@@ -1,3 +1,6 @@
+//! The fonts of the controls bar: the system's message font, the icon font when it is installed,
+//! and the width of texts set in them.
+
 use windows::Win32::Foundation::SIZE;
 use windows::Win32::Graphics::Gdi::{
     CLEARTYPE_QUALITY, CreateFontIndirectW, DEFAULT_CHARSET, DeleteObject, FW_NORMAL, GetDC,

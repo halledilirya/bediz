@@ -1,3 +1,6 @@
+//! Draws the mouse cursor into a recorded frame as Windows would show it, colour or monochrome,
+//! scaled with the recording.
+
 use crate::geometry::{Point, Rect};
 use crate::image::Image;
 

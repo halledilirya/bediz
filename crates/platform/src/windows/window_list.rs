@@ -1,3 +1,5 @@
+//! The windows shown on screen and their bounds, so a click on the overlay can pick a whole window.
+
 use bediz_core::geometry::{Point, Rect};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows::Win32::Graphics::Dwm::{

@@ -1,3 +1,5 @@
+//! A waitable timer, high resolution where Windows offers one, that paces frame captures.
+
 use std::time::Duration;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};

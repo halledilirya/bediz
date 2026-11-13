@@ -1,3 +1,6 @@
+//! The commands the settings window and the GIF window call: settings, shortcuts, updates, the
+//! save folder, logs, and copying, opening, showing and deleting the saved GIF.
+
 use std::fmt::Display;
 use std::io;
 use std::path::{Path, PathBuf};

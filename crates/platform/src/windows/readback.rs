@@ -1,3 +1,5 @@
+//! Reads pixels back from a GPU texture: a region as an image, or a single pixel.
+
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::Image;
 use windows::Win32::Foundation::E_INVALIDARG;

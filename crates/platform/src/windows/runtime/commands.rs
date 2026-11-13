@@ -1,3 +1,6 @@
+//! Acts on the commands the app sends, and shows the confirmation labels, held back while a
+//! selection is open, with errors kept up as long as Windows keeps its notifications.
+
 use std::sync::PoisonError;
 use std::time::Duration;
 

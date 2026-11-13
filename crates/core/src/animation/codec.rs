@@ -1,3 +1,6 @@
+//! Lossless compression of a frame's changed area and its changed-pixel marks, so a recording
+//! holds its frames in little memory until they are encoded.
+
 use std::iter;
 
 use super::change::Cut;

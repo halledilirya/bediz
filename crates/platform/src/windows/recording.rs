@@ -1,3 +1,6 @@
+//! Records an area of one monitor as a GIF: the frame and controls around it, the countdown,
+//! pausing and restarting, and each frame captured, scaled and read back for the GIF pipeline.
+
 pub mod border;
 pub mod controls;
 mod countdown;

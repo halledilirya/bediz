@@ -1,3 +1,5 @@
+//! Measures the process's memory and graphics memory use, and the physical memory still available.
+
 use bediz_core::measurement::Memory;
 use windows::Win32::Graphics::Dxgi::{
     DXGI_MEMORY_SEGMENT_GROUP, DXGI_MEMORY_SEGMENT_GROUP_LOCAL,

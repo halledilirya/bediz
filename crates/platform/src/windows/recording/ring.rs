@@ -1,3 +1,5 @@
+//! Reads the scaled frames back from the GPU without holding up the capture.
+
 use std::collections::VecDeque;
 use std::time::Duration;
 

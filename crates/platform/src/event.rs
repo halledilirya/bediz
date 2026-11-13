@@ -1,3 +1,5 @@
+//! Commands the app sends to the platform thread and the events it sends back, with their payloads.
+
 use std::path::PathBuf;
 use std::time::Duration;
 

@@ -1,3 +1,5 @@
+//! The events sent to the settings window and their payloads, including the update status.
+
 use bediz_platform::{HotkeyState, Shortcut};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};

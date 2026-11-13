@@ -1,3 +1,5 @@
+//! Keeps the problem from the latest attempt to turn starting with Windows on or off.
+
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 pub const AT_START: u64 = 0;

@@ -19,7 +19,7 @@ To check that the file is the one this repository's release workflow built, comp
 gh attestation verify Bediz_<version>_x64-setup.exe --repo halledilirya/bediz
 ```
 
-To build Bediz yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
+To build Bediz yourself, see [CONTRIBUTING.md](CONTRIBUTING.md); [ARCHITECTURE.md](ARCHITECTURE.md) describes how the code is organized.
 
 ## Usage
 

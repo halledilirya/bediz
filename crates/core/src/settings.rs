@@ -1,3 +1,6 @@
+//! The user's settings with their defaults, read so one unreadable value costs only itself, and
+//! merged so a window's changes keep those made elsewhere meanwhile.
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};

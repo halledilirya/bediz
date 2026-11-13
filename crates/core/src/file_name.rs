@@ -1,3 +1,6 @@
+//! File names: the user's name pattern and the rules Windows sets for it, numbered names for
+//! files that exist, names kept within the length limit and temporary names.
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

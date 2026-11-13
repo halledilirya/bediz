@@ -1,3 +1,6 @@
+//! Turns frame times into GIF delays in hundredths of a second, keeping every delay long enough
+//! for browsers to honour and splitting any too long for one frame.
+
 use std::time::Duration;
 
 // Browsers play a delay of 0 or 1 hundredths of a second as 10.

@@ -1,3 +1,6 @@
+//! The selected area and what shapes it: drawing, moving and resizing by its handles, square or
+//! centred, nudging, a whole monitor or a restored region, always kept on the screen.
+
 use crate::geometry::{Point, Rect};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

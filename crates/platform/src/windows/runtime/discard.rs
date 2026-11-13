@@ -1,3 +1,5 @@
+//! Deletes GIFs discarded after they were written, and reports any that could not be removed.
+
 use std::ffi::c_void;
 use std::io;
 use std::path::PathBuf;

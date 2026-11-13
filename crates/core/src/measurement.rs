@@ -1,3 +1,6 @@
+//! Timings and memory use measured from the hotkey to the overlay on screen, checked against the
+//! budget and written as log lines.
+
 use std::fmt::Write;
 use std::time::Duration;
 

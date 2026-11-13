@@ -1,3 +1,6 @@
+//! The tray icon and its menu: capture, recording controls, hotkey problems, updates, settings,
+//! logs and quit.
+
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 

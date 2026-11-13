@@ -1,3 +1,6 @@
+//! Starts a recording of an area: the frame and controls around it, its GPU resources, its file,
+//! writing threads, timer and countdown; and the DPI and work area of the monitor an area is on.
+
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;

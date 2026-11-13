@@ -1,3 +1,5 @@
+//! GDI capture of a monitor into a texture, for monitors where Desktop Duplication fails.
+
 use std::ffi::c_void;
 
 use bediz_core::geometry::Rect;

@@ -1,3 +1,5 @@
+//! Converts a linear half-float frame to sRGB on the GPU, scaled to the monitor's SDR white.
+
 use windows::Win32::Foundation::E_POINTER;
 use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 use windows::Win32::Graphics::Direct3D11::{

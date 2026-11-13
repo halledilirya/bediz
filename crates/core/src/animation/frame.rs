@@ -1,3 +1,6 @@
+//! Turns a frame's changed area into a GIF frame with its own colour table and transparent
+//! unchanged pixels, and makes the invisible frame that carries the rest of an overlong delay.
+
 use std::borrow::Cow;
 
 use gif::{DisposalMethod, Frame};

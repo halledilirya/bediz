@@ -1,3 +1,6 @@
+//! The thread that writes prepared frames to the GIF in order, gives the finished file its name or
+//! removes an unfinished one, and tells the runtime how far it has got and how it ended.
+
 use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::fs::{self, File};

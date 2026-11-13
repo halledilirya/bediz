@@ -1,3 +1,6 @@
+//! Every monitor's overlay with its display and capture, handled as one: capturing, drawing,
+//! showing and hiding, reading a selection across monitors and freeing GPU memory.
+
 use bediz_core::capture::{Allocation, Pixels};
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::Image;

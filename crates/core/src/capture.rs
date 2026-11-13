@@ -1,3 +1,6 @@
+//! Names how a screen was captured: the capture method, the pixel format with its HDR white
+//! level, and whether GPU resources are made ahead or on the hotkey.
+
 use std::fmt;
 use std::num::NonZeroU32;
 

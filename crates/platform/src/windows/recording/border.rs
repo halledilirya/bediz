@@ -1,3 +1,6 @@
+//! The frame around the recorded area, kept out of the recording: solid while recording, dashed
+//! around an area locked before it starts, and in the system's colours under high contrast.
+
 use bediz_core::geometry::Rect;
 use bediz_core::recording;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, RECT};

@@ -1,3 +1,6 @@
+//! The rules of a GIF recording: why it stops, its pauses, countdown, output size, memory and
+//! threads, where its frame and controls go, the clock, the save progress and size warnings.
+
 mod options;
 
 use std::time::Duration;

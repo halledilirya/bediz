@@ -1,5 +1,7 @@
 # Contributing
 
+[ARCHITECTURE.md](ARCHITECTURE.md) describes how the code is organized and the rules it keeps.
+
 Thank you for helping. Bugs and ideas go in [issues](https://github.com/halledilirya/bediz/issues); for a larger change, open an issue first so we can agree on it before you write code.
 
 ## Building
@@ -48,7 +50,9 @@ Get-AppxPackage Bediz | Remove-AppxPackage
 
 - `crates/core`: logic with no operating system calls, so all of it can be unit tested.
 - `crates/platform`: every operating system call, one folder per system. The only crate with `unsafe`.
-- `app`: the Tauri app: the tray, the settings window and the start of the platform thread.
+- `app`: the Tauri app: the tray, the settings window, the GIF window and the start of the platform thread.
 - `locales`: the translations, shared by Rust and the settings window. A new message goes into every language with the same variables.
 
-Code has no comments unless a reader would get it wrong without one, and then one short line says why. Nothing may panic outside tests, and nothing a user saves is ever replaced.
+[ARCHITECTURE.md](ARCHITECTURE.md) has the full code map.
+
+Every Rust source file under `crates/*/src` and `app/src-tauri/src` starts with a `//!` comment saying what it is for, which a test checks; tests, benchmarks and build scripts do not need one. Other comments explain why, not what, and only when the code cannot. Nothing may panic outside tests, and nothing a user saves is ever replaced.

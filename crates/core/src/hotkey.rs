@@ -1,3 +1,5 @@
+//! Hotkeys as the settings store them by name, and the rule that a typing key needs Ctrl or Alt.
+
 use std::fmt;
 use std::str::FromStr;
 

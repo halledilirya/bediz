@@ -1,3 +1,6 @@
+//! Copying and saving a capture: what was asked, which copy may reach the clipboard last, the
+//! errors either can meet, and the report that turns their results into notices.
+
 use thiserror::Error;
 
 use crate::notice::Notice;

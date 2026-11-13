@@ -1,3 +1,6 @@
+//! The thread that owns the overlay, hotkeys, recordings, copies and saves: it handles their
+//! messages, acts on the app's commands and reports what happens back to the app.
+
 mod commands;
 mod delivery;
 mod discard;

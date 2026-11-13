@@ -1,3 +1,6 @@
+//! Desktop Duplication of one monitor: acquiring and releasing its frames, reopening it when lost,
+//! and reporting whether the pointer is kept apart from the image.
+
 use std::time::Instant;
 
 use bediz_core::capture::Pixels;

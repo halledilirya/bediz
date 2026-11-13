@@ -1,3 +1,5 @@
+//! Quitting: asks first while a GIF is still unsaved, and quits, waits or stays as answered.
+
 use std::sync::mpsc::Sender;
 
 use bediz_platform::{

@@ -1,3 +1,6 @@
+//! The bar of buttons near the recorded area: start, lock and cancel before a recording, and
+//! pause, finish, restart and discard with its clock during one; kept out of the recording.
+
 pub mod drag;
 mod fonts;
 mod layout;

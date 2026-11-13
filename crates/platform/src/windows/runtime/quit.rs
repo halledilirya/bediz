@@ -1,3 +1,6 @@
+//! Quitting while a GIF is unsaved: waits for it to be written or discards it, tells the app how
+//! far the writing has got, and when it can close or must stay because a GIF failed.
+
 use bediz_core::recording;
 
 use super::Runtime;

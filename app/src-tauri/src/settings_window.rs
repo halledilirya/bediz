@@ -1,3 +1,6 @@
+//! The settings window: opening it at a section, its title and theme, and the background both
+//! windows show while their page loads.
+
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, PoisonError};
 

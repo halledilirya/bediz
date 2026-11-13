@@ -1,3 +1,6 @@
+//! Puts images, text and files on the clipboard, always kept from the cloud clipboard, with images
+//! and files also kept out of the clipboard history when asked.
+
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::Arc;

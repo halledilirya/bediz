@@ -1,3 +1,6 @@
+//! The large countdown shown in the middle of the area before a recording starts, and announced to
+//! screen readers.
+
 use bediz_core::geometry::Rect;
 use bediz_core::recording::{self, COUNTDOWN};
 use windows::Win32::Foundation::HINSTANCE;

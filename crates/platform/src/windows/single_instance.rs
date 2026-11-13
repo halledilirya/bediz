@@ -1,3 +1,6 @@
+//! Keeps one instance running: the first start claims its name, and a later start wakes the first
+//! instead.
+
 use std::time::Duration;
 
 use windows::Win32::Foundation::{

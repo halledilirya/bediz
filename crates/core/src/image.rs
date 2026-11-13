@@ -1,3 +1,6 @@
+//! BGRA images: joining parts into one, encoding as PNG, the bottom-up rows the clipboard takes
+//! and a pixel's colour written as hex.
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]

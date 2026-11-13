@@ -1,3 +1,6 @@
+//! The window shown after a GIF recording: what it shows as the GIF is written, saved and
+//! copied, where it opens, and its look and language.
+
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, MutexGuard, PoisonError};

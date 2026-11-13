@@ -1,3 +1,6 @@
+//! Builds the overlay and rebuilds it when the displays change, follows high contrast colours,
+//! and switches between keeping the overlay's GPU memory and releasing it while idle.
+
 use bediz_core::capture::Allocation;
 use bediz_core::recording::RecordingStop;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};

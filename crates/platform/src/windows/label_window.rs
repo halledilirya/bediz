@@ -1,3 +1,6 @@
+//! The label window: a short notice drawn near where it happened, kept out of captures and
+//! announced to screen readers.
+
 pub(super) mod automation;
 
 use std::ffi::c_void;

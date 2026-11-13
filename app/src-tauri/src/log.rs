@@ -1,3 +1,6 @@
+//! The log file: lines with their time since start, only warnings in a release, the profile path
+//! hidden, one older file kept, and panics recorded.
+
 use std::cell::Cell;
 use std::fs::{self, OpenOptions};
 use std::io::Write;

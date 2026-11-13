@@ -1,3 +1,6 @@
+//! Draws the parts of an overlay: the captured image, the dimmed surround, the frame and its
+//! handles, the size label and the magnifier with the colour under the pointer.
+
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::hex_colour;
 use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;

@@ -1,3 +1,5 @@
+//! Finds the palette colour nearest to any colour, quickly enough to run for every dithered pixel.
+
 use super::change::Rgb;
 
 pub(super) type Channels = [f32; 3];

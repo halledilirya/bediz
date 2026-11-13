@@ -1,3 +1,5 @@
+//! Starts Bediz unless it already runs, and builds the Tauri app with its plugins and commands.
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;

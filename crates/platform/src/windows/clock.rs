@@ -1,3 +1,5 @@
+//! Performance-counter timing, the age of a window message and the local time for file names.
+
 use std::time::Duration;
 
 use bediz_core::file_name::LocalTime;

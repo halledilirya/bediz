@@ -1,3 +1,6 @@
+//! Readies the app for an update's installer: refused while anything is open or being written,
+//! it ends every accepted job and copy first, and resumes work if the install fails.
+
 use std::time::Duration;
 
 use super::Runtime;

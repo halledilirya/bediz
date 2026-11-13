@@ -1,3 +1,5 @@
+//! Tooltips that name the controls bar's icon buttons, kept out of the recording.
+
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, WPARAM};
 use windows::Win32::UI::Controls::{
     ICC_BAR_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, TOOLTIPS_CLASSW, TTF_IDISHWND,

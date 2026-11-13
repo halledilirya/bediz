@@ -1,3 +1,6 @@
+//! Reads each monitor's advanced colour state and SDR white level, which set how its linear frames
+//! are scaled to sRGB.
+
 use std::num::NonZeroU32;
 
 use bediz_core::capture::Pixels;

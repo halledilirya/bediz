@@ -1,3 +1,5 @@
+//! Reads the mouse pointer's position and shape, to draw it into the recorded frames.
+
 use std::rc::Rc;
 
 use bediz_core::cursor::Cursor;

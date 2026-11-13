@@ -1,3 +1,6 @@
+//! The settings store: loads the file, writes changes on its own thread, puts the saved settings
+//! back when a write fails, and passes every change to the platform, the tray and the windows.
+
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;

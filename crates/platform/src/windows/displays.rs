@@ -1,3 +1,6 @@
+//! Finds the monitors attached to the desktop and creates a device for each graphics adapter that
+//! drives one.
+
 use bediz_core::geometry::Rect;
 use windows::Win32::Graphics::Direct2D::{
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1CreateFactory, ID2D1Factory1,

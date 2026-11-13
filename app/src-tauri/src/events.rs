@@ -1,3 +1,6 @@
+//! The events thread: handles platform events and app messages, updating the tray, the windows,
+//! the labels and the log, and keeps the hotkeys' last known state.
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Mutex, PoisonError};

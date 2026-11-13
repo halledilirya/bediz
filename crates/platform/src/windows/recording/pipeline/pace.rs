@@ -1,3 +1,5 @@
+//! Measures how a GIF was written after its recording stopped, for the line it leaves in the log.
+
 use std::fmt;
 use std::time::{Duration, Instant};
 

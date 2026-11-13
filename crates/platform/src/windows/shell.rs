@@ -1,3 +1,5 @@
+//! Shell file actions: showing a file selected in its folder and moving a file to the Recycle Bin.
+
 use std::ffi::c_void;
 use std::io;
 use std::os::windows::ffi::OsStrExt;

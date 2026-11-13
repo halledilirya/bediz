@@ -1,3 +1,6 @@
+//! The overlay's context menu: copy, save or record the selection, copy a colour, pick the whole
+//! monitor or the last region, or cancel.
+
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::Point;
 use windows::Win32::Foundation::HWND;

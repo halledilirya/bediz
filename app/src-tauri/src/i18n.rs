@@ -1,3 +1,5 @@
+//! Picks the user's language and gives every text in it from the translations built into the app.
+
 use std::sync::{Mutex, PoisonError};
 
 use bediz_core::notice::Notice;

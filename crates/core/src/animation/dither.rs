@@ -1,3 +1,6 @@
+//! Maps a frame's changed pixels onto a reduced palette with error diffusion, showing kept colours
+//! exactly and giving unchanged pixels the transparent index.
+
 use super::change::Rgb;
 use super::nearest::{Channels, Nearest, channels};
 use super::palette::ColourMap;

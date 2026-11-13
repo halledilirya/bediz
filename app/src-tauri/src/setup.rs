@@ -1,3 +1,6 @@
+//! Starts the app's parts in order: the log, the settings, the tray, the platform and the events
+//! thread, and ends them in order on exit.
+
 use std::error::Error;
 use std::sync::mpsc::{self, Sender};
 

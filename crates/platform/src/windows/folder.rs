@@ -1,3 +1,5 @@
+//! Shows the system folder picker and tells whether a folder lies inside a cloud-synced folder.
+
 use std::ffi::c_void;
 use std::io;
 use std::path::{Path, PathBuf};

@@ -1,3 +1,6 @@
+//! One selection on the overlays, for a screenshot or a recording: turns the mouse and keys into
+//! the selection, the window under the pointer and the action chosen, and redraws what changed.
+
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::selection::{Grip, Handle, Modifiers, Selection};

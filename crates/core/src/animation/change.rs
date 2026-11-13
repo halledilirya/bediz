@@ -1,3 +1,6 @@
+//! Compares a frame with the colours last sent to encoding: the rectangle that changed, which of
+//! its pixels moved past the noise threshold, and the reference updated with them.
+
 pub(super) type Rgb = [u8; 3];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

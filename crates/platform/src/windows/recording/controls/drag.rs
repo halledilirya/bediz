@@ -1,3 +1,5 @@
+//! Moving the controls bar with the mouse, kept within the work area of its monitor.
+
 use std::cell::Cell;
 
 use bediz_core::geometry::{Point, Rect};

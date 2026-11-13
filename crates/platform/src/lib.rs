@@ -1,3 +1,5 @@
+//! The platform layer: every OS call the app makes, and the commands and events exchanged with it.
+
 mod event;
 
 pub use event::{

@@ -1,3 +1,6 @@
+//! The Windows platform: screen capture, the overlays, hotkeys, the clipboard, saving, recording,
+//! the dialogs and shell calls the app makes, and the thread that owns them.
+
 mod capture;
 mod clipboard;
 mod clock;

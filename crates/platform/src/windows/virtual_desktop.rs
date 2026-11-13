@@ -1,3 +1,5 @@
+//! Brings the app's windows to the virtual desktop the user is on when they were left on another.
+
 use windows::Win32::Foundation::{E_FAIL, HWND};
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
 use windows::Win32::UI::Shell::{IVirtualDesktopManager, VirtualDesktopManager};

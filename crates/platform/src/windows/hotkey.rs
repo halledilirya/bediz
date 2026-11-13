@@ -1,3 +1,6 @@
+//! Registers the region and GIF hotkeys and reports whether each works, is held by the Windows
+//! Print Screen setting or is taken.
+
 use bediz_core::hotkey::{Hotkey, Key};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{

@@ -1,3 +1,6 @@
+//! Turns recorded frames into a looping GIF: stores each as the area that changed, prepares
+//! frames with their own palettes on any thread and writes them in order with their timing.
+
 mod change;
 mod codec;
 mod dither;

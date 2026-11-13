@@ -1,3 +1,6 @@
+//! Cuts the recorded area out of a captured frame on the GPU and scales it to the GIF's size,
+//! with HDR frames brought to the sRGB colours an SDR screen shows.
+
 use bediz_core::capture::Pixels;
 use bediz_core::geometry::Rect;
 use windows::Win32::Foundation::E_POINTER;

@@ -1,3 +1,7 @@
+//! Writes screenshots, GIFs and the app's own files through a temporary renamed into place, which
+//! replaces only the file Save as asked about or the app's own; finds the Screenshots folder and
+//! tells files apart by their id.
+
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};

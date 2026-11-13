@@ -1,3 +1,5 @@
+//! Turns off a WebView2's browser shortcuts, pinch zoom and swipe navigation, so it acts as an app.
+
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2Controller, ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6,
 };

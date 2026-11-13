@@ -1,3 +1,6 @@
+//! The Save as dialog, shown on a thread of its own, which reports the chosen path and the file the
+//! user confirmed replacing.
+
 use std::cell::Cell;
 use std::ffi::{OsString, c_void};
 use std::os::windows::ffi::OsStringExt;

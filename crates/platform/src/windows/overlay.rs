@@ -1,3 +1,6 @@
+//! One monitor's overlay window, where the user selects a region on the captured image: its swap
+//! chain and surfaces, drawing the view, and showing and hiding it.
+
 mod paint;
 
 use bediz_core::geometry::{Point, Rect};

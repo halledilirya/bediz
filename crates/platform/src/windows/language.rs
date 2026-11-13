@@ -1,3 +1,5 @@
+//! Reads the user's preferred Windows display languages, in order.
+
 use windows::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
 use windows::core::PWSTR;
 

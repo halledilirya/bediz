@@ -1,3 +1,6 @@
+//! The bar that starts a recording from a selection, and locking the selected area so other apps
+//! can be used until the recording starts, or unlocking it to change the selection.
+
 use bediz_core::geometry::Rect;
 use bediz_core::recording;
 use windows::Win32::Foundation::HWND;

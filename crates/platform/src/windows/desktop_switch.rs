@@ -1,3 +1,5 @@
+//! Notices when Windows switches desktops, such as to the lock screen or an elevation prompt.
+
 use std::cell::Cell;
 
 use windows::Win32::Foundation::HWND;

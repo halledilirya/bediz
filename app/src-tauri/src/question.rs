@@ -1,3 +1,5 @@
+//! Asks at start what to do when the screenshot hotkey is taken, and acts on the answer.
+
 use std::sync::mpsc::Sender;
 
 use bediz_core::hotkey::Hotkey;

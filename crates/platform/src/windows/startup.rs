@@ -1,3 +1,6 @@
+//! Turns starting with Windows on and off, through the package's startup task or the Run key, and
+//! tells whether the user turned it off in Windows.
+
 use std::ffi::OsStr;
 use std::io;
 use std::iter;

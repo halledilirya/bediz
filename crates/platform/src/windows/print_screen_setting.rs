@@ -1,3 +1,5 @@
+//! Reads, turns off and watches the Windows setting that makes Print Screen open screen snipping.
+
 use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE};
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_NOTIFY, KEY_QUERY_VALUE, REG_DWORD, REG_NOTIFY_CHANGE_LAST_SET,

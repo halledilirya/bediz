@@ -1,3 +1,5 @@
+//! A recording's options and the values offered for its frame rate, longest side and time limit.
+
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};

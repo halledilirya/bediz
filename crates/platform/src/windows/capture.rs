@@ -1,3 +1,6 @@
+//! Screen capture of every monitor into its overlay image and of recording frames, through Desktop
+//! Duplication where a monitor allows it and GDI where it does not.
+
 mod duplication;
 mod gdi;
 mod scrgb;

@@ -1,3 +1,6 @@
+//! Task dialogs: a yes-or-no question with a never-again box, and the question asked on quitting
+//! while a GIF is unsaved, which shows the progress of its saving.
+
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::sync::Arc;

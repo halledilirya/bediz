@@ -1,3 +1,6 @@
+//! Holds a recording's frames until they are encoded, each compressed to the area that changed,
+//! leaving out frames with no change past the noise threshold and refusing any past the budget.
+
 use std::collections::VecDeque;
 use std::mem;
 use std::time::Duration;

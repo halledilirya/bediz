@@ -1,3 +1,5 @@
+//! Compiles HLSL source into shader bytecode.
+
 use windows::Win32::Foundation::E_POINTER;
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;

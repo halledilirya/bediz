@@ -1,3 +1,6 @@
+//! Turns a recording's frames into a GIF as they arrive: the store they wait in, the threads that
+//! prepare them and the one that writes them in order, until it is finished, cancelled or fails.
+
 mod pace;
 mod writer;
 

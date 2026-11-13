@@ -1,3 +1,6 @@
+//! Presents the label window to UI Automation as a tooltip, so screen readers hear each notice as
+//! it opens, changes and closes.
+
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering, fence};

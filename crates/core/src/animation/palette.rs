@@ -1,3 +1,6 @@
+//! Builds a frame's palette: every colour exactly when there are 255 or fewer, otherwise the
+//! colours covering large areas exactly and a reduced set for the rest.
+
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 

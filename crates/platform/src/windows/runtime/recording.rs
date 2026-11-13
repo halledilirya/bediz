@@ -1,3 +1,6 @@
+//! Starts, pauses, restarts, stops and discards recordings from the bar or the app, follows each
+//! GIF while it is written and reports how it ended.
+
 use std::path::Path;
 use std::time::Duration;
 

@@ -1,3 +1,6 @@
+//! Starts the platform thread and is the app's handle to it: sending commands, waiting for saves,
+//! holding it and shutting it down.
+
 use std::ffi::c_void;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex, PoisonError};

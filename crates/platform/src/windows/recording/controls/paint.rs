@@ -1,3 +1,6 @@
+//! Painting the controls bar: its background and grip, the clock's colours and each button's face,
+//! in a dark palette or the system's colours under high contrast.
+
 use std::ffi::c_void;
 
 use bediz_core::geometry::Rect;
