@@ -3,6 +3,7 @@
 //! the image copied or saved with every mark on it.
 
 pub mod layout;
+mod maker;
 pub mod paint;
 mod render;
 
@@ -18,6 +19,7 @@ use windows::Win32::UI::Input::Ime::{
 use windows::core::{Error, Result};
 
 use super::scene::Scene;
+use maker::{Maker, Order};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Preview {
@@ -40,12 +42,16 @@ pub struct Decor<'a> {
 impl Decor<'_> {
     pub fn preview_of(&self, mark: &Mark) -> Option<&Preview> {
         let area = effect::area_of(mark)?;
-        self.previews.iter().find(|preview| {
-            preview.effect.id == mark.id
-                && preview.effect.area == area
-                && preview.width == width_key(mark.width)
-        })
+        self.previews
+            .iter()
+            .find(|preview| preview.effect.id == mark.id && preview.effect.area == area)
     }
+}
+
+struct Asked {
+    width: u32,
+    beneath: Vec<Mark>,
+    under: Vec<u64>,
 }
 
 pub struct Marking {
@@ -57,11 +63,13 @@ pub struct Marking {
     previews: Vec<Preview>,
     refreshed: Option<u64>,
     stamps: u64,
+    maker: Maker,
+    asked: Option<Asked>,
     high_surrogate: Option<u16>,
 }
 
 impl Marking {
-    pub fn new(scale: f32) -> Self {
+    pub fn new(scale: f32, reply_to: HWND) -> Self {
         let scale = scale.max(1.0);
         Self {
             markup: Markup::default(),
@@ -72,6 +80,8 @@ impl Marking {
             previews: Vec::new(),
             refreshed: None,
             stamps: 0,
+            maker: Maker::new(reply_to),
+            asked: None,
             high_surrogate: None,
         }
     }
@@ -166,15 +176,83 @@ impl Marking {
     }
 
     pub fn refresh_previews(&mut self, scene: &Scene) {
-        if !self.stale() {
-            return;
+        if let Some(made) = self.maker.take() {
+            self.accept(made);
         }
-        self.previews = made(self.markup.marks(), &self.previews, scene, &mut self.stamps);
-        self.refreshed = Some(self.markup.revision());
+        let Some((index, asked)) = self.settle_previews() else {
+            return;
+        };
+        let Some(job) = effect::jobs(self.markup.marks()).nth(index) else {
+            return;
+        };
+        match beneath(&job, &self.previews, scene).map(|source| (job.mark.clone(), source)) {
+            Ok((mark, source)) => {
+                self.asked = Some(asked);
+                self.maker.order(Order { mark, source });
+            }
+            Err(_) => self.refreshed = Some(self.markup.revision()),
+        }
     }
 
     fn stale(&self) -> bool {
         !self.markup.is_busy() && self.refreshed != Some(self.markup.revision())
+    }
+
+    fn settle_previews(&mut self) -> Option<(usize, Asked)> {
+        if !self.stale() {
+            return None;
+        }
+        let mut shown: Vec<Preview> = Vec::new();
+        let mut wanted = None;
+        let mut ready = true;
+        for (index, job) in effect::jobs(self.markup.marks()).enumerate() {
+            let under: Vec<u64> = shown.iter().map(|preview| preview.stamp).collect();
+            if ready && let Some(kept) = reusable(&self.previews, &job, &under) {
+                shown.push(kept.clone());
+                continue;
+            }
+            if ready && self.asked.is_none() {
+                let asked = Asked {
+                    width: width_key(job.mark.width),
+                    beneath: job.beneath.to_vec(),
+                    under,
+                };
+                wanted = Some((index, asked));
+            }
+            ready = false;
+            let earlier = self.previews.iter().find(|preview| {
+                preview.effect.id == job.mark.id && preview.effect.area == job.area
+            });
+            shown.extend(earlier.cloned());
+        }
+        self.previews = shown;
+        if ready {
+            self.refreshed = Some(self.markup.revision());
+        }
+        wanted
+    }
+
+    fn accept(&mut self, made: Option<Effect>) {
+        let Some(asked) = self.asked.take() else {
+            return;
+        };
+        let Some(effect) = made else {
+            self.refreshed = Some(self.markup.revision());
+            return;
+        };
+        self.stamps = self.stamps.wrapping_add(1);
+        self.previews.insert(
+            0,
+            Preview {
+                stamp: self.stamps,
+                effect,
+                width: asked.width,
+                beneath: asked.beneath,
+                under: asked.under,
+            },
+        );
+        // The marks may have gone back while it was made, so it is checked against them again.
+        self.refreshed = None;
     }
 
     pub fn compose(&self, image: Image, rect: Rect, scene: &Scene) -> Result<Image> {
@@ -294,7 +372,7 @@ mod tests {
 
     #[test]
     fn a_blur_is_made_again_only_when_what_lies_beneath_it_changes() {
-        let mut marking = Marking::new(1.0);
+        let mut marking = Marking::new(1.0, HWND::default());
         marking.draw(Tool::Pen, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(30, 30), false);
         marking.draw(Tool::Blur, Point::new(10, 10));
@@ -323,7 +401,7 @@ mod tests {
 
     #[test]
     fn the_wheel_grows_the_selected_mark_from_its_own_width() {
-        let mut marking = Marking::new(1.0);
+        let mut marking = Marking::new(1.0, HWND::default());
         marking.draw(Tool::Line, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(40, 0), false);
         assert!(marking.markup_mut().rewidth(10.0));
@@ -337,7 +415,7 @@ mod tests {
 
     #[test]
     fn choosing_another_tool_lets_go_of_the_mark_just_drawn() {
-        let mut marking = Marking::new(1.0);
+        let mut marking = Marking::new(1.0, HWND::default());
         marking.choose(Tool::Rectangle);
         marking.draw(Tool::Rectangle, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(40, 30), false);
@@ -348,7 +426,7 @@ mod tests {
 
     #[test]
     fn choosing_the_tool_in_use_puts_it_down() {
-        let mut marking = Marking::new(1.0);
+        let mut marking = Marking::new(1.0, HWND::default());
         marking.choose(Tool::Arrow);
         assert_eq!(marking.tool(), Some(Tool::Arrow));
         marking.choose(Tool::Pen);
@@ -359,7 +437,7 @@ mod tests {
 
     #[test]
     fn the_width_follows_the_display_scale_and_stays_in_bounds() {
-        let mut marking = Marking::new(2.0);
+        let mut marking = Marking::new(2.0, HWND::default());
         assert_eq!(marking.width, DEFAULT_WIDTH * 2.0);
         marking.widen(1);
         assert_eq!(marking.width, DEFAULT_WIDTH * 2.0 + 2.0);
@@ -371,7 +449,7 @@ mod tests {
 
     #[test]
     fn a_character_typed_in_two_halves_arrives_whole_and_a_lone_half_is_dropped() {
-        let mut marking = Marking::new(1.0);
+        let mut marking = Marking::new(1.0, HWND::default());
         marking.draw(Tool::Text, Point::new(0, 0));
         for unit in "a😀".encode_utf16() {
             marking.type_unit(unit);
@@ -392,7 +470,7 @@ mod tests {
 
     #[test]
     fn previews_are_made_again_after_each_change_but_not_during_a_drag() {
-        let mut marking = Marking::new(1.0);
+        let mut marking = Marking::new(1.0, HWND::default());
         marking.draw(Tool::Text, Point::new(0, 0));
         marking.refreshed = Some(marking.markup().revision());
         assert!(!marking.stale());
@@ -409,8 +487,89 @@ mod tests {
     }
 
     #[test]
+    fn a_made_blur_is_shown_until_the_one_for_its_new_width_arrives() {
+        let mut marking = Marking::new(1.0, HWND::default());
+        marking.draw(Tool::Blur, Point::new(0, 0));
+        marking.markup_mut().finish(Point::new(9, 9), false);
+        let Some(mark) = marking.markup().marks().first().cloned() else {
+            panic!("the blur is drawn");
+        };
+        let source = Image::from_bgra(10, 10, vec![90; 400]).unwrap();
+        marking.asked = Some(Asked {
+            width: width_key(mark.width),
+            beneath: Vec::new(),
+            under: Vec::new(),
+        });
+        let before = marking.version();
+        marking.maker.order(Order {
+            mark: mark.clone(),
+            source,
+        });
+        for _ in 0..5000 {
+            if let Some(made) = marking.maker.take() {
+                marking.accept(made);
+            }
+            if marking.asked.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(marking.previews.len(), 1);
+        assert_ne!(marking.version(), before);
+        let wider = Mark {
+            width: mark.width + 5.0,
+            ..mark.clone()
+        };
+        assert!(marking.decor().preview_of(&wider).is_some());
+        let moved = Mark {
+            shape: Shape::Blur(Point::new(5, 5), Point::new(14, 14)),
+            ..mark
+        };
+        assert!(marking.decor().preview_of(&moved).is_none());
+    }
+
+    #[test]
+    fn a_blur_made_for_a_width_undone_meanwhile_is_not_shown() {
+        let mut marking = Marking::new(1.0, HWND::default());
+        marking.draw(Tool::Blur, Point::new(0, 0));
+        marking.markup_mut().finish(Point::new(9, 9), false);
+        let Some(mark) = marking.markup().marks().first().cloned() else {
+            panic!("the blur is drawn");
+        };
+        let made = |value: u8| Effect {
+            id: mark.id,
+            area: Rect::new(0, 0, 10, 10),
+            image: Image::from_bgra(10, 10, vec![value; 400]).unwrap(),
+        };
+        marking.stamps = 1;
+        marking.previews = vec![Preview {
+            stamp: 1,
+            effect: made(10),
+            width: width_key(mark.width),
+            beneath: Vec::new(),
+            under: Vec::new(),
+        }];
+        assert!(marking.settle_previews().is_none());
+        marking.widen(1);
+        let Some((0, asked)) = marking.settle_previews() else {
+            panic!("the blur is made again for its new width");
+        };
+        marking.asked = Some(asked);
+        assert!(marking.markup_mut().undo());
+        assert!(marking.settle_previews().is_none());
+        marking.accept(Some(made(99)));
+        assert!(marking.settle_previews().is_none());
+        assert_eq!(marking.previews.len(), 1);
+        let shown = marking
+            .decor()
+            .preview_of(&mark)
+            .map(|preview| preview.stamp);
+        assert_eq!(shown, Some(1));
+    }
+
+    #[test]
     fn a_new_colour_is_kept_for_the_next_mark() {
-        let mut marking = Marking::new(1.0);
+        let mut marking = Marking::new(1.0, HWND::default());
         marking.recolour(Swatch::Blue);
         marking.draw(Tool::Line, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(10, 0), false);

@@ -70,7 +70,13 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(previous: HWND, enter: Delivery, purpose: Purpose, scene: &Scene) -> Self {
+    pub fn new(
+        previous: HWND,
+        enter: Delivery,
+        purpose: Purpose,
+        scene: &Scene,
+        reply_to: HWND,
+    ) -> Self {
         show_cursor(IDC_CROSS);
         let mut cursor = POINT::default();
         let pointer = unsafe { GetCursorPos(&mut cursor) }
@@ -85,7 +91,7 @@ impl Session {
             click: None,
             pointer,
             views: Vec::new(),
-            marking: Marking::new(scale),
+            marking: Marking::new(scale, reply_to),
         }
     }
 

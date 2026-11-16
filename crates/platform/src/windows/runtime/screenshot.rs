@@ -111,7 +111,13 @@ impl Runtime {
             Foreground::Refused
         };
         let focused = self.clock.since(start);
-        self.session = Some(Session::new(previous, self.enter, purpose, scene));
+        self.session = Some(Session::new(
+            previous,
+            self.enter,
+            purpose,
+            scene,
+            self.window.0,
+        ));
         if let Err(error) = shown {
             self.emit_notes(notes);
             self.hide();

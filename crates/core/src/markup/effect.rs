@@ -87,68 +87,85 @@ fn pixelated(source: &Image, block: u32) -> Option<Image> {
     Image::from_bgra(source.width(), source.height(), out.concat()).ok()
 }
 
+type Sum = [u32; 3];
+
+const BLACK: [u8; 4] = [0, 0, 0, u8::MAX];
+
 // Three box blurs in a row come close to a Gaussian one.
 fn blurred(source: &Image, radius: u32) -> Option<Image> {
-    let (width, height) = (source.width() as usize, source.height() as usize);
+    let width = (source.width() as usize).max(1);
     let radius = radius as usize;
     let mut pixels: Vec<[u8; 4]> = source.bgra().as_chunks::<4>().0.to_vec();
+    let mut spare = pixels.clone();
     for _ in 0..3 {
-        pixels = rows_blurred(&pixels, width, radius);
-        pixels = transposed(&pixels, width, height);
-        pixels = rows_blurred(&pixels, height, radius);
-        pixels = transposed(&pixels, height, width);
+        blur_rows(&pixels, &mut spare, width, radius);
+        blur_columns(&spare, &mut pixels, width, radius);
     }
     Image::from_bgra(source.width(), source.height(), pixels.concat()).ok()
 }
 
-fn rows_blurred(pixels: &[[u8; 4]], width: usize, radius: usize) -> Vec<[u8; 4]> {
-    let mut out = Vec::with_capacity(pixels.len());
-    for row in pixels.chunks(width.max(1)) {
-        blur_line(row, radius, &mut out);
-    }
-    out
-}
-
-fn blur_line(line: &[[u8; 4]], radius: usize, out: &mut Vec<[u8; 4]>) {
-    let last = line.len().saturating_sub(1);
-    let at = |index: isize| {
-        let clamped = usize::try_from(index.max(0)).unwrap_or(0).min(last);
-        line.get(clamped).copied().unwrap_or([0, 0, 0, u8::MAX])
-    };
-    let window = (2 * radius + 1) as u32;
-    let radius = isize::try_from(radius).unwrap_or(isize::MAX);
-    let (mut blue, mut green, mut red) = (0u32, 0u32, 0u32);
-    for index in -radius..=radius {
-        let [b, g, r, _] = at(index);
-        blue += u32::from(b);
-        green += u32::from(g);
-        red += u32::from(r);
-    }
-    for index in 0..line.len() {
-        let mean = |sum: u32| u8::try_from(sum / window).unwrap_or(u8::MAX);
-        out.push([mean(blue), mean(green), mean(red), u8::MAX]);
-        let index = isize::try_from(index).unwrap_or(isize::MAX);
-        let [b_out, g_out, r_out, _] = at(index - radius);
-        let [b_in, g_in, r_in, _] = at(index + radius + 1);
-        blue = blue + u32::from(b_in) - u32::from(b_out);
-        green = green + u32::from(g_in) - u32::from(g_out);
-        red = red + u32::from(r_in) - u32::from(r_out);
-    }
-}
-
-fn transposed(pixels: &[[u8; 4]], width: usize, height: usize) -> Vec<[u8; 4]> {
-    let mut out = Vec::with_capacity(pixels.len());
-    for column in 0..width {
-        for row in 0..height {
-            out.push(
-                pixels
-                    .get(row * width + column)
-                    .copied()
-                    .unwrap_or([0, 0, 0, u8::MAX]),
-            );
+fn blur_rows(from: &[[u8; 4]], to: &mut [[u8; 4]], width: usize, radius: usize) {
+    let scale = reciprocal(radius);
+    for (line, out) in from.chunks(width).zip(to.chunks_mut(width)) {
+        let last = line.len().saturating_sub(1);
+        let at = |index: usize| line.get(index.min(last)).copied().unwrap_or(BLACK);
+        let mut sum = times(at(0), radius + 1);
+        for index in 1..=radius {
+            sum = moved(sum, at(index), [0; 4]);
+        }
+        for (x, target) in out.iter_mut().enumerate() {
+            *target = mean(sum, scale);
+            sum = moved(sum, at(x + radius + 1), at(x.saturating_sub(radius)));
         }
     }
-    out
+}
+
+fn blur_columns(from: &[[u8; 4]], to: &mut [[u8; 4]], width: usize, radius: usize) {
+    let scale = reciprocal(radius);
+    let rows: Vec<&[[u8; 4]]> = from.chunks(width).collect();
+    let last = rows.len().saturating_sub(1);
+    let row = |index: usize| rows.get(index.min(last)).copied().unwrap_or_default();
+    let mut sums: Vec<Sum> = row(0)
+        .iter()
+        .map(|&pixel| times(pixel, radius + 1))
+        .collect();
+    for index in 1..=radius {
+        for (sum, &pixel) in sums.iter_mut().zip(row(index)) {
+            *sum = moved(*sum, pixel, [0; 4]);
+        }
+    }
+    for (y, out) in to.chunks_mut(width).enumerate() {
+        for (target, &sum) in out.iter_mut().zip(&sums) {
+            *target = mean(sum, scale);
+        }
+        let (entering, leaving) = (row(y + radius + 1), row(y.saturating_sub(radius)));
+        for ((sum, &entered), &left) in sums.iter_mut().zip(entering).zip(leaving) {
+            *sum = moved(*sum, entered, left);
+        }
+    }
+}
+
+fn times([b, g, r, _]: [u8; 4], count: usize) -> Sum {
+    let count = u32::try_from(count).unwrap_or(u32::MAX);
+    [b, g, r].map(|channel| u32::from(channel).saturating_mul(count))
+}
+
+// The pixel leaving was counted when it entered, so the sum never goes below it.
+fn moved([b, g, r]: Sum, entering: [u8; 4], leaving: [u8; 4]) -> Sum {
+    let [b_in, g_in, r_in, _] = entering.map(u32::from);
+    let [b_out, g_out, r_out, _] = leaving.map(u32::from);
+    [b + b_in - b_out, g + g_in - g_out, r + r_in - r_out]
+}
+
+fn reciprocal(radius: usize) -> u64 {
+    let window = 2 * radius as u64 + 1;
+    ((1 << 24) + window / 2) / window
+}
+
+fn mean(sum: Sum, scale: u64) -> [u8; 4] {
+    let [b, g, r] = sum
+        .map(|total| u8::try_from((u64::from(total) * scale + (1 << 23)) >> 24).unwrap_or(u8::MAX));
+    [b, g, r, u8::MAX]
 }
 
 #[cfg(test)]
@@ -248,6 +265,47 @@ mod tests {
         };
         assert!(spread(&image) * 3 < spread(&source));
         assert_eq!((image.width(), image.height()), (30, 30));
+    }
+
+    fn blurred_slowly(source: &Image, radius: usize) -> Vec<u8> {
+        let (width, height) = (source.width() as usize, source.height() as usize);
+        let mut pixels: Vec<[u8; 4]> = source.bgra().as_chunks::<4>().0.to_vec();
+        let reach = radius as i64;
+        for _ in 0..3 {
+            for across in [true, false] {
+                let before = pixels.clone();
+                for y in 0..height {
+                    for x in 0..width {
+                        let mut sum = [0u32; 3];
+                        for offset in -reach..=reach {
+                            let (from_x, from_y) = if across {
+                                ((x as i64 + offset).clamp(0, width as i64 - 1) as usize, y)
+                            } else {
+                                (x, (y as i64 + offset).clamp(0, height as i64 - 1) as usize)
+                            };
+                            let pixel = before[from_y * width + from_x];
+                            for (total, value) in sum.iter_mut().zip(pixel) {
+                                *total += u32::from(value);
+                            }
+                        }
+                        pixels[y * width + x] = mean(sum, reciprocal(radius));
+                    }
+                }
+            }
+        }
+        pixels.concat()
+    }
+
+    #[test]
+    fn a_blur_matches_one_that_adds_up_every_pixel_of_its_window() {
+        for (width, height, radius) in [(17, 9, 0), (17, 9, 2), (5, 31, 4), (6, 4, 20), (1, 1, 3)] {
+            let source = noise(width, height);
+            assert_eq!(
+                blurred(&source, radius as u32).unwrap().bgra(),
+                blurred_slowly(&source, radius).as_slice(),
+                "{width}×{height}, radius {radius}"
+            );
+        }
     }
 
     #[test]

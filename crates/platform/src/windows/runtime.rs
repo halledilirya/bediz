@@ -73,6 +73,7 @@ pub const WM_SECOND_START: u32 = WM_APP + 5;
 pub const WM_FINISH_SAVES: u32 = WM_APP + 6;
 pub const WM_HOLD: u32 = WM_APP + 7;
 pub const WM_RECORDING: u32 = WM_APP + 8;
+pub const WM_EFFECT_MADE: u32 = WM_APP + 9;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -398,6 +399,7 @@ impl Runtime {
             WM_FINISH_SAVES if own => self.on_finish_saves(),
             WM_HOLD if own => self.on_hold(),
             WM_RECORDING if own => self.on_recording_ended(),
+            WM_EFFECT_MADE if own => self.reselect(|_, _| {}),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
             | WM_MOUSEWHEEL | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.takes_input(message) =>
