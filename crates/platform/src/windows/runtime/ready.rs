@@ -5,6 +5,7 @@ use bediz_core::geometry::Rect;
 use bediz_core::recording;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, USER_DEFAULT_SCREEN_DPI};
+use windows::core::Result;
 
 use super::Runtime;
 use crate::windows::foreground::{self, Foreground};
@@ -30,6 +31,13 @@ impl ReadyBar {
 
     pub(super) fn moved(&self) -> Option<Rect> {
         self.controls.moved()
+    }
+
+    pub(super) fn raise(&self) -> Result<()> {
+        match self.placed {
+            Some(_) => self.controls.reveal(),
+            None => Ok(()),
+        }
     }
 }
 
@@ -71,7 +79,7 @@ impl Runtime {
         if self
             .ready
             .as_ref()
-            .is_none_or(|bar| bar.controls.dpi() != dpi)
+            .is_none_or(|bar| !bar.controls.suits(dpi, work))
         {
             self.ready = None;
             match Controls::create(self.instance, Stage::Ready, area, work, dpi, texts, None) {

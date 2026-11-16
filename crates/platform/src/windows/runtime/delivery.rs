@@ -1,5 +1,6 @@
-//! Copies and saves a selection through the worker thread, puts images, colours and GIFs on the
-//! clipboard, retrying while it is busy, and reports how each copy and save ended.
+//! Copies and saves a selection through the worker thread, puts images, colours, GIFs and typed
+//! text on the clipboard in the order they were asked for, retrying while it is busy, and reports
+//! how each copy and save ended.
 
 use std::path::Path;
 
@@ -15,7 +16,6 @@ use crate::event::{Event, GifEvent};
 use crate::windows::clipboard::{self, Contents, Placed};
 use crate::windows::clock;
 use crate::windows::save;
-use crate::windows::session::Session;
 use crate::windows::worker::{self, Job, Outcome, Target, Worker};
 
 pub(super) const CLIPBOARD_RETRY_MILLISECONDS: u32 = 25;
@@ -79,13 +79,19 @@ impl Runtime {
     }
 
     pub(super) fn read_selection(&self) -> Option<(Rect, Result<Image, DeliveryError>)> {
-        let rect = self.session.as_ref().and_then(Session::selected)?;
-        let read = match self.scene.as_ref().map(|scene| scene.read(rect)) {
-            Some(Ok(image)) => Ok(image),
-            Some(Err(error)) => Err(DeliveryError::Unexpected(error.to_string())),
-            None => Err(DeliveryError::Unexpected("no display is ready".to_owned())),
+        let session = self.session.as_ref()?;
+        let rect = session.selected()?;
+        let Some(scene) = self.scene.as_ref() else {
+            let error = DeliveryError::Unexpected("no display is ready".to_owned());
+            return Some((rect, Err(error)));
         };
-        Some((rect, read))
+        let read = scene
+            .read(rect)
+            .and_then(|image| session.marking().compose(image, rect, scene));
+        Some((
+            rect,
+            read.map_err(|error| DeliveryError::Unexpected(error.to_string())),
+        ))
     }
 
     pub(super) fn send_job(
@@ -169,6 +175,16 @@ impl Runtime {
             return;
         };
         self.place_on_clipboard(ticket, Contents::file(path), Copied::Gif { gif }, None);
+    }
+
+    // A cut erases the text only once it is on the clipboard, so it is placed now or not at all.
+    pub(super) fn place_text(&mut self, text: &str) -> windows::core::Result<Placed> {
+        self.copies.reserve();
+        if let Some(previous) = self.clipboard.take() {
+            self.stop_clipboard_timer();
+            self.supersede(previous.copied);
+        }
+        clipboard::place(self.window.0, &Contents::text(text), false, None)
     }
 
     pub(super) fn on_outcomes(&mut self) {

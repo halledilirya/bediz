@@ -15,6 +15,7 @@ use super::contrast::Colours;
 use super::displays::Displays;
 use super::foreground::{self, Foreground};
 use super::gpu::Gpu;
+use super::marking::Decor;
 use super::memory;
 use super::overlay::{Overlay, View};
 use super::readback;
@@ -71,18 +72,20 @@ impl Scene {
     }
 
     pub fn reach_at(&self, at: Point) -> i32 {
-        let scale = self
-            .overlays
-            .iter()
-            .find(|overlay| overlay.rect().contains(at))
-            .map_or(1.0, Overlay::scale);
-        (GRIP_REACH * scale).round() as i32
+        (GRIP_REACH * self.scale_at(at)).round() as i32
     }
 
     pub fn owns(&self, window: HWND) -> bool {
         self.overlays
             .iter()
             .any(|overlay| overlay.window() == window)
+    }
+
+    pub fn origin_of(&self, window: HWND) -> Option<Point> {
+        self.overlays
+            .iter()
+            .find(|overlay| overlay.window() == window)
+            .map(|overlay| Point::new(overlay.rect().left, overlay.rect().top))
     }
 
     pub fn allocate(&mut self) -> Result<()> {
@@ -177,19 +180,35 @@ impl Scene {
 
     pub fn draw_all(&self) -> Result<()> {
         for index in 0..self.overlays.len() {
-            self.draw_one(index, &View::default())?;
+            self.draw_one(index, &View::default(), &Decor::default())?;
         }
         Ok(())
     }
 
-    pub fn draw_one(&self, monitor: usize, view: &View) -> Result<()> {
+    pub fn draw_one(&self, monitor: usize, view: &View, decor: &Decor) -> Result<()> {
         let (Some(overlay), Some(found)) = (
             self.overlays.get(monitor),
             self.displays.monitors.get(monitor),
         ) else {
             return Ok(());
         };
-        overlay.draw(gpu(&self.displays, found.gpu)?, view)
+        overlay.draw(gpu(&self.displays, found.gpu)?, view, decor)
+    }
+
+    pub fn gpu_near(&self, at: Point) -> Result<&Gpu> {
+        let monitor = self
+            .rects
+            .iter()
+            .position(|rect| rect.contains(at))
+            .unwrap_or(0);
+        self.gpu_for(monitor)
+    }
+
+    pub fn scale_at(&self, at: Point) -> f32 {
+        self.overlays
+            .iter()
+            .find(|overlay| overlay.rect().contains(at))
+            .map_or(1.0, Overlay::scale)
     }
 
     pub fn pixel(&self, at: Point) -> Option<[u8; 4]> {
@@ -235,6 +254,7 @@ impl Scene {
     }
 
     pub fn hide(&self) -> Result<()> {
+        self.overlays.iter().for_each(Overlay::forget_previews);
         every(self.overlays.iter().map(Overlay::hide))
     }
 

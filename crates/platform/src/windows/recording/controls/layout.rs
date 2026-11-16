@@ -1,4 +1,5 @@
-//! The size of the controls bar and where its grip, clock and buttons sit, at any display scale.
+//! The size of the controls bar and where its grip, clock and buttons sit, at any display scale,
+//! in as many rows as it takes to fit the width of its monitor.
 
 use bediz_core::geometry::Rect;
 
@@ -32,45 +33,64 @@ pub(super) fn grip_at(scale: f32, height: i32) -> Rect {
     Rect::new(gap, 0, gap + pixels(GRIP, scale), height)
 }
 
-pub(super) fn layout(scale: f32, time_text: Option<i32>, slots: &[Content]) -> Layout {
-    let height = pixels(HEIGHT, scale);
+pub(super) fn layout(scale: f32, time_text: Option<i32>, slots: &[Content], room: i32) -> Layout {
+    let row = pixels(HEIGHT, scale);
     let button = pixels(BUTTON_HEIGHT, scale);
     let gap = pixels(GAP, scale);
     let padding = pixels(PADDING, scale);
     let mark = pixels(MARK, scale) + pixels(MARK_GAP, scale);
     let icon = pixels(ICON_WIDTH, scale);
-    let top = (height - button) / 2;
-    let mut right = grip_at(scale, height).right;
-    let time = time_text.map(|text| {
-        let rect = Rect::new(right + gap, 0, right + gap + text + gap, height);
-        right = rect.right;
-        rect
-    });
-    let buttons = slots
+    let edge = (row - button) / 2;
+    let widths: Vec<i32> = slots
         .iter()
-        .map(|&slot| {
-            let width = match slot {
-                Content::Text { width, marked } => {
-                    width + 2 * padding + if marked { mark } else { 0 }
-                }
-                Content::Icon => icon,
-            };
-            let rect = Rect::new(right + gap, top, right + gap + width, top + button);
-            right = rect.right;
-            rect
+        .map(|&slot| match slot {
+            Content::Text { width, marked } => width + 2 * padding + if marked { mark } else { 0 },
+            Content::Icon => icon,
         })
         .collect();
+    let grip = grip_at(scale, row).right;
+    let start = time_text.map_or(grip, |text| grip + gap + text + gap);
+    let per_row = per_row(&widths, start, gap, room);
+    let rows = widths.len().div_ceil(per_row).max(1) as i32;
+    let height = row + (rows - 1) * (button + edge);
+    let mut buttons = Vec::with_capacity(widths.len());
+    let mut widest = start;
+    for (index, line) in widths.chunks(per_row).enumerate() {
+        let top = edge + index as i32 * (button + edge);
+        let mut right = start;
+        for width in line {
+            let rect = Rect::new(right + gap, top, right + gap + width, top + button);
+            right = rect.right;
+            buttons.push(rect);
+        }
+        widest = widest.max(right);
+    }
     Layout {
-        width: right + gap,
+        width: widest + gap,
         height,
-        time,
+        time: time_text.map(|_| Rect::new(grip + gap, 0, start, height)),
         buttons,
     }
+}
+
+fn per_row(widths: &[i32], start: i32, gap: i32, room: i32) -> usize {
+    let fits = |per_row: usize| {
+        widths
+            .chunks(per_row)
+            .all(|line| start + line.iter().map(|width| gap + width).sum::<i32>() + gap <= room)
+    };
+    let count = widths.len().max(1);
+    (1..=count)
+        .map(|rows| count.div_ceil(rows))
+        .find(|&per_row| fits(per_row))
+        .unwrap_or(1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const WIDE: i32 = 10_000;
 
     fn text(width: i32, marked: bool) -> Content {
         Content::Text { width, marked }
@@ -79,7 +99,7 @@ mod tests {
     #[test]
     fn the_controls_sit_in_one_row_sized_to_their_texts() {
         assert_eq!(
-            layout(1.0, Some(30), &[text(30, true), text(50, false)]),
+            layout(1.0, Some(30), &[text(30, true), text(50, false)], WIDE),
             Layout {
                 width: 232,
                 height: 40,
@@ -95,7 +115,8 @@ mod tests {
             layout(
                 1.0,
                 Some(30),
-                &[Content::Icon, Content::Icon, Content::Icon, Content::Icon]
+                &[Content::Icon, Content::Icon, Content::Icon, Content::Icon],
+                WIDE
             ),
             Layout {
                 width: 232,
@@ -115,7 +136,12 @@ mod tests {
     #[test]
     fn before_the_recording_the_buttons_follow_the_grip_without_a_clock() {
         assert_eq!(
-            layout(1.0, None, &[text(40, true), Content::Icon, Content::Icon]),
+            layout(
+                1.0,
+                None,
+                &[text(40, true), Content::Icon, Content::Icon],
+                WIDE
+            ),
             Layout {
                 width: 194,
                 height: 40,
@@ -131,11 +157,46 @@ mod tests {
 
     #[test]
     fn the_controls_grow_with_the_display_scale() {
-        let larger = layout(1.5, Some(45), &[text(45, true), Content::Icon]);
+        let larger = layout(1.5, Some(45), &[text(45, true), Content::Icon], WIDE);
         assert_eq!(larger.height, 60);
         assert_eq!(larger.buttons.first().map(Rect::height), Some(42));
         assert_eq!(larger.buttons.get(1).map(Rect::width), Some(48));
-        let smaller = layout(1.0, Some(30), &[text(30, true), Content::Icon]);
+        let smaller = layout(1.0, Some(30), &[text(30, true), Content::Icon], WIDE);
         assert!(larger.width > smaller.width * 3 / 2 - 2);
+    }
+
+    #[test]
+    fn a_bar_too_wide_for_its_monitor_wraps_into_even_rows() {
+        let icons = [Content::Icon; 17];
+        let one_row = layout(2.0, None, &icons, WIDE);
+        assert_eq!(one_row.width, 1412);
+        let wrapped = layout(2.0, None, &icons, 1366);
+        assert_eq!(wrapped.width, 772);
+        assert_eq!(wrapped.height, 148);
+        let tops: Vec<i32> = wrapped.buttons.iter().map(|button| button.top).collect();
+        assert_eq!(tops.iter().filter(|&&top| top == 12).count(), 9);
+        assert_eq!(tops.iter().filter(|&&top| top == 80).count(), 8);
+    }
+
+    #[test]
+    fn every_button_stays_on_the_bar_and_the_bar_within_its_monitor() {
+        let icons = [Content::Icon; 17];
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0, 3.5] {
+            for room in [800, 1080, 1280, 1366, 1440, 1920, 2560] {
+                let laid = layout(scale, None, &icons, room);
+                assert!(laid.width <= room, "{scale} {room}");
+                assert_eq!(laid.buttons.len(), icons.len());
+                let bar = Rect::new(0, 0, laid.width, laid.height);
+                for (index, button) in laid.buttons.iter().enumerate() {
+                    assert!(
+                        bar.intersection(button) == Some(*button),
+                        "{scale} {room} {index}"
+                    );
+                    for other in laid.buttons.iter().skip(index + 1) {
+                        assert!(button.intersection(other).is_none(), "{scale} {room}");
+                    }
+                }
+            }
+        }
     }
 }

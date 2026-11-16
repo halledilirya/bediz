@@ -8,6 +8,7 @@ use bediz_core::delivery::{CopyError, Delivery, SaveError};
 use bediz_core::file_name::Pattern;
 use bediz_core::geometry::Rect;
 use bediz_core::hotkey::Hotkey;
+use bediz_core::markup::Swatch;
 use bediz_core::measurement::{Measurement, Memory};
 use bediz_core::notice::Notice;
 use bediz_core::recording::RecordingOptions;
@@ -135,7 +136,50 @@ pub struct MenuTexts {
     pub discard_recording: String,
     pub lock_area: String,
     pub unlock_area: String,
+    pub markup: MarkupTexts,
     pub right_to_left: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MarkupTexts {
+    pub title: String,
+    pub pen: String,
+    pub highlighter: String,
+    pub line: String,
+    pub arrow: String,
+    pub rectangle: String,
+    pub ellipse: String,
+    pub text: String,
+    pub step: String,
+    pub redact: String,
+    pub blur: String,
+    pub pixelate: String,
+    pub colour: String,
+    pub undo: String,
+    pub redo: String,
+    pub red: String,
+    pub orange: String,
+    pub yellow: String,
+    pub green: String,
+    pub blue: String,
+    pub purple: String,
+    pub black: String,
+    pub white: String,
+}
+
+impl MarkupTexts {
+    pub fn swatch(&self, swatch: Swatch) -> &str {
+        match swatch {
+            Swatch::Red => &self.red,
+            Swatch::Orange => &self.orange,
+            Swatch::Yellow => &self.yellow,
+            Swatch::Green => &self.green,
+            Swatch::Blue => &self.blue,
+            Swatch::Purple => &self.purple,
+            Swatch::Black => &self.black,
+            Swatch::White => &self.white,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

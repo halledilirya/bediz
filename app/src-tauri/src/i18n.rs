@@ -3,7 +3,7 @@
 use std::sync::{Mutex, PoisonError};
 
 use bediz_core::notice::Notice;
-use bediz_platform::MenuTexts;
+use bediz_platform::{MarkupTexts, MenuTexts};
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 use unic_langid::LanguageIdentifier;
 
@@ -77,7 +77,36 @@ impl Texts {
             discard_recording: self.get("recording-discard"),
             lock_area: self.get("recording-lock"),
             unlock_area: self.get("recording-unlock"),
+            markup: self.markup_texts(),
             right_to_left: self.right_to_left(),
+        }
+    }
+
+    fn markup_texts(&self) -> MarkupTexts {
+        MarkupTexts {
+            title: self.get("markup-title"),
+            pen: self.get("markup-pen"),
+            highlighter: self.get("markup-highlighter"),
+            line: self.get("markup-line"),
+            arrow: self.get("markup-arrow"),
+            rectangle: self.get("markup-rectangle"),
+            ellipse: self.get("markup-ellipse"),
+            text: self.get("markup-text"),
+            step: self.get("markup-step"),
+            redact: self.get("markup-redact"),
+            blur: self.get("markup-blur"),
+            pixelate: self.get("markup-pixelate"),
+            colour: self.get("markup-colour"),
+            undo: self.get("markup-undo"),
+            redo: self.get("markup-redo"),
+            red: self.get("markup-colour-red"),
+            orange: self.get("markup-colour-orange"),
+            yellow: self.get("markup-colour-yellow"),
+            green: self.get("markup-colour-green"),
+            blue: self.get("markup-colour-blue"),
+            purple: self.get("markup-colour-purple"),
+            black: self.get("markup-colour-black"),
+            white: self.get("markup-colour-white"),
         }
     }
 
@@ -169,7 +198,7 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 52] = [
+    const USED: [&str; 75] = [
         "settings-title",
         "gif-title",
         "tray-record",
@@ -207,6 +236,29 @@ mod tests {
         "recording-discard",
         "recording-lock",
         "recording-unlock",
+        "markup-title",
+        "markup-pen",
+        "markup-highlighter",
+        "markup-line",
+        "markup-arrow",
+        "markup-rectangle",
+        "markup-ellipse",
+        "markup-text",
+        "markup-step",
+        "markup-redact",
+        "markup-blur",
+        "markup-pixelate",
+        "markup-colour",
+        "markup-undo",
+        "markup-redo",
+        "markup-colour-red",
+        "markup-colour-orange",
+        "markup-colour-yellow",
+        "markup-colour-green",
+        "markup-colour-blue",
+        "markup-colour-purple",
+        "markup-colour-black",
+        "markup-colour-white",
         "question-title",
         "question-snipping-tool",
         "question-snipping-tool-detail",

@@ -1,6 +1,8 @@
 //! Draws the parts of an overlay: the captured image, the dimmed surround, the frame and its
 //! handles, the size label and the magnifier with the colour under the pointer.
 
+mod marks;
+
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::hex_colour;
 use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
@@ -28,6 +30,7 @@ pub struct Painter<'a> {
     pub text: &'a IDWriteTextFormat,
     pub scale: f32,
     pub bounds: Rect,
+    pub origin: Point,
 }
 
 impl Painter<'_> {

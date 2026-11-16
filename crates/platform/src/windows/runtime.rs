@@ -6,6 +6,7 @@ mod delivery;
 mod discard;
 mod displays;
 mod hold;
+mod markup_bar;
 mod quit;
 mod ready;
 mod recording;
@@ -32,9 +33,9 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DispatchMessageW, HWND_MESSAGE, MSG, MWMO_INPUTAVAILABLE,
     MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT, TranslateMessage,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WM_TIMER, WaitMessage,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CHAR, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP,
+    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
+    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WaitMessage,
 };
 use windows::core::{Result, w};
 
@@ -58,6 +59,7 @@ use super::worker::Worker;
 use crate::event::{Command, Event, Failure, HotkeyState, Label, MenuTexts};
 use delivery::{PendingCopy, Tracked};
 use discard::Deletions;
+use markup_bar::MarkupBar;
 use quit::Quitting;
 use ready::ReadyBar;
 use recording::Finishing;
@@ -129,6 +131,7 @@ struct Runtime {
     quitting: bool,
     live: Option<Timer>,
     ready: Option<ReadyBar>,
+    markup_bar: Option<MarkupBar>,
 }
 
 fn handles(event: Option<HANDLE>, timer: Option<HANDLE>) -> ([HANDLE; 2], usize) {
@@ -231,6 +234,7 @@ impl Runtime {
             quitting: false,
             live: None,
             ready: None,
+            markup_bar: None,
         })
     }
 
@@ -395,18 +399,15 @@ impl Runtime {
             WM_HOLD if own => self.on_hold(),
             WM_RECORDING if own => self.on_recording_ended(),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
-            | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
-                if self.is_overlay(message.hwnd) && !self.locked() =>
+            | WM_MOUSEWHEEL | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+                if self.takes_input(message) =>
             {
-                self.on_input(message);
-            }
-            // A click on a start button can move the keyboard focus there, away from the selection.
-            WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
-                if self
-                    .ready
-                    .as_ref()
-                    .is_some_and(|bar| bar.owns(message.hwnd) && !bar.is_locked()) =>
-            {
+                // Only a translated key brings its character and gives an input method its keys.
+                if message.message == WM_KEYDOWN
+                    && self.session.as_ref().is_some_and(Session::is_typing)
+                {
+                    let _ = unsafe { TranslateMessage(message) };
+                }
                 self.on_input(message);
             }
             _ => unsafe {
@@ -419,6 +420,18 @@ impl Runtime {
 
     fn is_overlay(&self, window: HWND) -> bool {
         self.scene.as_ref().is_some_and(|scene| scene.owns(window))
+    }
+
+    fn takes_input(&self, message: &MSG) -> bool {
+        let window = message.hwnd;
+        let keys = matches!(
+            message.message,
+            WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+        );
+        // A click on a bar's button moves the keyboard focus there, away from the selection.
+        let on_bar = self.ready.as_ref().is_some_and(|bar| bar.owns(window))
+            || self.markup_bar.as_ref().is_some_and(|bar| bar.owns(window));
+        !self.locked() && (self.is_overlay(window) || (keys && on_bar))
     }
 
     fn after_message(&mut self) -> bool {

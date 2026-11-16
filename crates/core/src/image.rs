@@ -84,6 +84,32 @@ impl Image {
         }
     }
 
+    pub fn paste_clipped(&mut self, part: &Image, x: i32, y: i32) {
+        let skip_x = usize::try_from(x.saturating_neg().max(0)).unwrap_or(0);
+        let skip_y = usize::try_from(y.saturating_neg().max(0)).unwrap_or(0);
+        let (Ok(left), Ok(top)) = (usize::try_from(x.max(0)), usize::try_from(y.max(0))) else {
+            return;
+        };
+        let (width, height) = (self.width as usize, self.height as usize);
+        let visible = (part.width as usize)
+            .saturating_sub(skip_x)
+            .min(width.saturating_sub(left));
+        if visible == 0 {
+            return;
+        }
+        let part_rows = part.bgra.chunks_exact(part.width as usize * 4).skip(skip_y);
+        for (row, source) in (top..height).zip(part_rows) {
+            let start = (row * width + left) * 4;
+            let (Some(target), Some(source)) = (
+                self.bgra.get_mut(start..start + visible * 4),
+                source.get(skip_x * 4..(skip_x + visible) * 4),
+            ) else {
+                break;
+            };
+            target.copy_from_slice(source);
+        }
+    }
+
     pub fn width(&self) -> u32 {
         self.width
     }
@@ -218,6 +244,25 @@ mod tests {
         canvas.paste_opaque(&two_by_two(), 5, 5);
         let gap = [0, 0, 0, 0];
         assert_eq!(canvas.bgra, [gap, gap, gap, [1, 2, 3, 255]].concat());
+    }
+
+    #[test]
+    fn a_clipped_paste_is_cut_on_every_side_and_keeps_the_part_as_it_is() {
+        let mut canvas = Image::blank(2, 2).unwrap();
+        canvas.paste_clipped(&two_by_two(), -1, -1);
+        let gap = [0, 0, 0, 0];
+        assert_eq!(canvas.bgra, [[10, 11, 12, 30], gap, gap, gap].concat());
+        let mut canvas = Image::blank(2, 2).unwrap();
+        canvas.paste_clipped(&two_by_two(), 1, 0);
+        assert_eq!(
+            canvas.bgra,
+            [gap, [1, 2, 3, 0], gap, [7, 8, 9, 20]].concat()
+        );
+        let untouched = Image::blank(2, 2).unwrap();
+        let mut canvas = untouched.clone();
+        canvas.paste_clipped(&two_by_two(), 2, 0);
+        canvas.paste_clipped(&two_by_two(), -2, 0);
+        assert_eq!(canvas, untouched);
     }
 
     #[test]

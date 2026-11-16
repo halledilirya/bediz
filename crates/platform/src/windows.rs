@@ -13,6 +13,7 @@ mod gpu;
 mod hotkey;
 mod label_window;
 mod language;
+mod marking;
 mod memory;
 mod overlay;
 mod overlay_menu;

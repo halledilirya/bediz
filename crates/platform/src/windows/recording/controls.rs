@@ -1,5 +1,5 @@
-//! The bar of buttons near the recorded area: start, lock and cancel before a recording, and
-//! pause, finish, restart and discard with its clock during one; kept out of the recording.
+//! The bar of buttons beside a selection: the marking-up tools for a screenshot, start, lock and
+//! cancel before a recording, and pause, finish, restart and discard with its clock during one.
 
 pub mod drag;
 mod fonts;
@@ -10,13 +10,14 @@ mod tooltips;
 use std::ffi::c_void;
 
 use bediz_core::geometry::{Point, Rect};
+use bediz_core::markup::{Colour, Tool};
 use bediz_core::recording;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWM_WINDOW_CORNER_PREFERENCE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
     DwmSetWindowAttribute,
 };
-use windows::Win32::Graphics::Gdi::HFONT;
+use windows::Win32::Graphics::Gdi::{HFONT, RDW_ALLCHILDREN, RDW_INVALIDATE, RedrawWindow};
 use windows::Win32::System::SystemServices::{SS_CENTER, SS_CENTERIMAGE};
 use windows::Win32::UI::WindowsAndMessaging::{
     BS_OWNERDRAW, CreateWindowExW, GetWindowRect, HMENU, HWND_TOPMOST, IsChild, SW_HIDE, SW_SHOWNA,
@@ -39,6 +40,7 @@ const LONGEST_TIME: &str = "00:00";
 pub enum Stage {
     Ready,
     Recording,
+    Markup,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +54,22 @@ pub enum Button {
     Discard = 7,
     Lock = 8,
     Unlock = 9,
+    Pen = 10,
+    Highlighter = 11,
+    Line = 12,
+    Arrow = 13,
+    Rectangle = 14,
+    Ellipse = 15,
+    Text = 16,
+    Step = 17,
+    Redact = 18,
+    Blur = 19,
+    Pixelate = 20,
+    Colour = 21,
+    Undo = 22,
+    Redo = 23,
+    Copy = 24,
+    Save = 25,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +83,8 @@ enum Face {
     Labelled,
     Square,
     Glyph(u16),
+    Step,
+    Swatch,
 }
 
 impl Stage {
@@ -81,12 +101,31 @@ impl Stage {
                 &[Button::Restart],
                 &[Button::Discard],
             ],
+            Self::Markup => &[
+                &[Button::Pen],
+                &[Button::Highlighter],
+                &[Button::Line],
+                &[Button::Arrow],
+                &[Button::Rectangle],
+                &[Button::Ellipse],
+                &[Button::Text],
+                &[Button::Step],
+                &[Button::Redact],
+                &[Button::Blur],
+                &[Button::Pixelate],
+                &[Button::Colour],
+                &[Button::Undo],
+                &[Button::Redo],
+                &[Button::Copy],
+                &[Button::Save],
+                &[Button::Cancel],
+            ],
         }
     }
 }
 
 impl Button {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 25] = [
         Self::Start,
         Self::Pause,
         Self::Resume,
@@ -96,10 +135,48 @@ impl Button {
         Self::Discard,
         Self::Lock,
         Self::Unlock,
+        Self::Pen,
+        Self::Highlighter,
+        Self::Line,
+        Self::Arrow,
+        Self::Rectangle,
+        Self::Ellipse,
+        Self::Text,
+        Self::Step,
+        Self::Redact,
+        Self::Blur,
+        Self::Pixelate,
+        Self::Colour,
+        Self::Undo,
+        Self::Redo,
+        Self::Copy,
+        Self::Save,
     ];
 
     pub fn from_id(id: u16) -> Option<Self> {
         Self::ALL.into_iter().find(|button| button.id() == id)
+    }
+
+    pub fn for_tool(tool: Tool) -> Self {
+        match tool {
+            Tool::Pen => Self::Pen,
+            Tool::Highlighter => Self::Highlighter,
+            Tool::Line => Self::Line,
+            Tool::Arrow => Self::Arrow,
+            Tool::Rectangle => Self::Rectangle,
+            Tool::Ellipse => Self::Ellipse,
+            Tool::Text => Self::Text,
+            Tool::Step => Self::Step,
+            Tool::Redact => Self::Redact,
+            Tool::Blur => Self::Blur,
+            Tool::Pixelate => Self::Pixelate,
+        }
+    }
+
+    pub fn tool(self) -> Option<Tool> {
+        Tool::ALL
+            .into_iter()
+            .find(|tool| Self::for_tool(*tool) == self)
     }
 
     fn id(self) -> u16 {
@@ -110,6 +187,8 @@ impl Button {
         match self {
             Self::Start => Face::Labelled,
             Self::Finish => Face::Square,
+            Self::Step => Face::Step,
+            Self::Colour => Face::Swatch,
             Self::Pause => Face::Glyph(0xE769),
             Self::Resume => Face::Glyph(0xE768),
             Self::Restart => Face::Glyph(0xE72C),
@@ -117,6 +196,20 @@ impl Button {
             Self::Discard => Face::Glyph(0xE74D),
             Self::Lock => Face::Glyph(0xE72E),
             Self::Unlock => Face::Glyph(0xE785),
+            Self::Pen => Face::Glyph(0xED63),
+            Self::Highlighter => Face::Glyph(0xED64),
+            Self::Line => Face::Glyph(0xE738),
+            Self::Arrow => Face::Glyph(0xE72A),
+            Self::Rectangle => Face::Glyph(0xE739),
+            Self::Ellipse => Face::Glyph(0xEA3A),
+            Self::Text => Face::Glyph(0xE8D2),
+            Self::Redact => Face::Glyph(0xE71A),
+            Self::Blur => Face::Glyph(0xED1A),
+            Self::Pixelate => Face::Glyph(0xF0E2),
+            Self::Undo => Face::Glyph(0xE7A7),
+            Self::Redo => Face::Glyph(0xE7A6),
+            Self::Copy => Face::Glyph(0xE8C8),
+            Self::Save => Face::Glyph(0xE74E),
         }
     }
 
@@ -131,6 +224,47 @@ impl Button {
             Self::Discard => &texts.discard_recording,
             Self::Lock => &texts.lock_area,
             Self::Unlock => &texts.unlock_area,
+            Self::Pen => &texts.markup.pen,
+            Self::Highlighter => &texts.markup.highlighter,
+            Self::Line => &texts.markup.line,
+            Self::Arrow => &texts.markup.arrow,
+            Self::Rectangle => &texts.markup.rectangle,
+            Self::Ellipse => &texts.markup.ellipse,
+            Self::Text => &texts.markup.text,
+            Self::Step => &texts.markup.step,
+            Self::Redact => &texts.markup.redact,
+            Self::Blur => &texts.markup.blur,
+            Self::Pixelate => &texts.markup.pixelate,
+            Self::Colour => &texts.markup.colour,
+            Self::Undo => &texts.markup.undo,
+            Self::Redo => &texts.markup.redo,
+            Self::Copy => &texts.copy,
+            Self::Save => &texts.save,
+        }
+    }
+
+    fn key(self, stage: Stage) -> Option<String> {
+        if stage != Stage::Markup {
+            return None;
+        }
+        if let Some(tool) = self.tool() {
+            return Some(tool.key().to_string());
+        }
+        let key = match self {
+            Self::Undo => "Ctrl+Z",
+            Self::Redo => "Ctrl+Y",
+            Self::Copy => "Ctrl+C",
+            Self::Save => "Ctrl+S",
+            Self::Cancel => "Esc",
+            _ => return None,
+        };
+        Some(key.to_owned())
+    }
+
+    fn label(self, stage: Stage, texts: &MenuTexts) -> String {
+        match self.key(stage) {
+            Some(key) => format!("{} ({key})", self.text(texts)),
+            None => self.text(texts).to_owned(),
         }
     }
 }
@@ -173,7 +307,8 @@ impl Controls {
                 .copied()
                 .unwrap_or(0)
         });
-        let layout = layout(scale, time_width, &contents);
+        let room = i32::try_from(work.width()).unwrap_or(i32::MAX);
+        let layout = layout(scale, time_width, &contents, room);
         let width = u32::try_from(layout.width).unwrap_or(0);
         let height = u32::try_from(layout.height).unwrap_or(0);
         let at = match replacing {
@@ -183,6 +318,7 @@ impl Controls {
         let title = match stage {
             Stage::Ready => &texts.record,
             Stage::Recording => &texts.recording,
+            Stage::Markup => &texts.markup.title,
         };
         let mut extended = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
         if texts.right_to_left {
@@ -218,7 +354,7 @@ impl Controls {
         };
         let owner_drawn = WINDOW_STYLE(BS_OWNERDRAW as u32);
         let mut fonts: Vec<(HWND, HFONT)> = time.map(|time| (time, font.0)).into_iter().collect();
-        let mut tools: Vec<(HWND, &str)> = Vec::new();
+        let mut tools: Vec<(HWND, String)> = Vec::new();
         let mut toggle = None;
         for (slot, rect) in slots.iter().zip(&layout.buttons) {
             let mut sharing = Vec::with_capacity(slot.len());
@@ -228,11 +364,12 @@ impl Controls {
                 } else {
                     owner_drawn
                 };
+                let label = button.label(stage, texts);
                 let created = child(
                     instance,
                     window.0,
                     w!("BUTTON"),
-                    button.text(texts),
+                    &label,
                     style,
                     *rect,
                     button.id(),
@@ -243,7 +380,7 @@ impl Controls {
                 };
                 fonts.push((created, chosen));
                 if button.face() != Face::Labelled {
-                    tools.push((created, button.text(texts)));
+                    tools.push((created, label));
                 }
                 sharing.push(created);
             }
@@ -271,6 +408,10 @@ impl Controls {
                 size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
             )
         };
+        let tools: Vec<(HWND, &str)> = tools
+            .iter()
+            .map(|(tool, label)| (*tool, label.as_str()))
+            .collect();
         let tips =
             tooltips::add(instance, window.0, texts.right_to_left, &tools).unwrap_or_default();
         Ok(Self {
@@ -292,8 +433,8 @@ impl Controls {
         self.window.0
     }
 
-    pub fn dpi(&self) -> u32 {
-        self.dpi
+    pub fn suits(&self, dpi: u32, work: Rect) -> bool {
+        self.dpi == dpi && self.work.width() == work.width()
     }
 
     pub fn work(&self) -> Rect {
@@ -355,6 +496,18 @@ impl Controls {
         }
     }
 
+    pub fn show_choice(&self, tool: Option<Tool>, colour: Colour) {
+        paint::choose(tool.map(|tool| Button::for_tool(tool).id()), colour);
+        let _ = unsafe {
+            RedrawWindow(
+                Some(self.window.0),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ALLCHILDREN,
+            )
+        };
+    }
+
     pub fn show_toggled(&self, toggled: bool) {
         let Some((first, second)) = self.toggle else {
             return;
@@ -385,7 +538,7 @@ fn content(slot: &[Button], font: &Font, icons: bool, texts: &MenuTexts) -> Cont
             width: widest(),
             marked: false,
         },
-        Some(Face::Square | Face::Glyph(_)) | None => Content::Icon,
+        Some(Face::Square | Face::Glyph(_) | Face::Step | Face::Swatch) | None => Content::Icon,
     }
 }
 
@@ -434,7 +587,33 @@ mod tests {
             assert_eq!(Button::from_id(button.id()), Some(button));
         }
         assert_eq!(Button::from_id(0), None);
-        assert_eq!(Button::from_id(10), None);
+        assert_eq!(Button::from_id(26), None);
+    }
+
+    #[test]
+    fn every_tool_has_a_button_on_the_markup_bar() {
+        let markup: Vec<Button> = Stage::Markup
+            .slots()
+            .iter()
+            .flat_map(|slot| slot.iter().copied())
+            .collect();
+        for tool in Tool::ALL {
+            let button = Button::for_tool(tool);
+            assert_eq!(button.tool(), Some(tool));
+            assert!(markup.contains(&button), "{tool:?}");
+        }
+        assert_eq!(Button::Colour.tool(), None);
+        assert!(markup.contains(&Button::Cancel));
+        assert!(Stage::Markup.slots().iter().all(|slot| slot.len() == 1));
+    }
+
+    #[test]
+    fn markup_buttons_name_their_key_and_recording_buttons_do_not() {
+        assert_eq!(Button::Arrow.key(Stage::Markup), Some("A".to_owned()));
+        assert_eq!(Button::Undo.key(Stage::Markup), Some("Ctrl+Z".to_owned()));
+        assert_eq!(Button::Cancel.key(Stage::Markup), Some("Esc".to_owned()));
+        assert_eq!(Button::Colour.key(Stage::Markup), None);
+        assert_eq!(Button::Cancel.key(Stage::Ready), None);
     }
 
     #[test]

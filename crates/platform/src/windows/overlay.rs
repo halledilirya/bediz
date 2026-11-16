@@ -1,7 +1,9 @@
-//! One monitor's overlay window, where the user selects a region on the captured image: its swap
-//! chain and surfaces, drawing the view, and showing and hiding it.
+//! One monitor's overlay window, where the user selects a region on the captured image and marks
+//! it up: its swap chain and surfaces, drawing the view, and showing and hiding it.
 
 mod paint;
+
+use std::cell::RefCell;
 
 use bediz_core::geometry::{Point, Rect};
 use windows::Win32::Foundation::{HINSTANCE, HWND, RECT};
@@ -33,6 +35,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, Result, w};
 
 use super::gpu::Gpu;
+use super::marking::Decor;
 use super::readback;
 use super::window_class::{OVERLAY_CLASS, OwnedWindow};
 use paint::Painter;
@@ -46,6 +49,7 @@ pub struct View {
     pub highlight: Option<Rect>,
     pub labelled: bool,
     pub pointer: Option<Point>,
+    pub marks: u64,
 }
 
 struct Surfaces {
@@ -61,6 +65,7 @@ pub struct Overlay {
     rect: Rect,
     dpi: u32,
     text: IDWriteTextFormat,
+    previews: RefCell<Vec<(u64, ID2D1Bitmap1)>>,
 }
 
 impl Overlay {
@@ -116,6 +121,7 @@ impl Overlay {
             rect,
             dpi,
             text: text_format(gpu, scale_of(dpi))?,
+            previews: RefCell::new(Vec::new()),
         };
         if allocate {
             overlay.allocate(gpu)?;
@@ -166,10 +172,15 @@ impl Overlay {
     }
 
     pub fn release(&mut self) -> Result<()> {
+        self.previews.borrow_mut().clear();
         if self.surfaces.take().is_none() {
             return Ok(());
         }
         self.resize(1, 1)
+    }
+
+    pub fn forget_previews(&self) {
+        self.previews.borrow_mut().clear();
     }
 
     pub fn pixel(&self, gpu: &Gpu, at: Point) -> Option<[u8; 4]> {
@@ -181,7 +192,7 @@ impl Overlay {
         readback::read_pixel(gpu, &surfaces.image, local).ok()
     }
 
-    pub fn draw(&self, gpu: &Gpu, view: &View) -> Result<()> {
+    pub fn draw(&self, gpu: &Gpu, view: &View, decor: &Decor) -> Result<()> {
         let Some(surfaces) = &self.surfaces else {
             return Ok(());
         };
@@ -202,18 +213,34 @@ impl Overlay {
             text: &self.text,
             scale: self.scale(),
             bounds,
+            origin: Point::new(left, top),
         };
         unsafe {
             gpu.canvas.SetTarget(&surfaces.target);
             gpu.canvas.BeginDraw();
         }
         painter.image(&surfaces.image_bitmap);
+        let marked = view
+            .selection
+            .map(local)
+            .and_then(|area| area.intersection(&bounds))
+            .filter(|_| !decor.marks.is_empty());
+        if let Some(area) = marked {
+            let mut previews = self.previews.borrow_mut();
+            painter.marks(decor, area, &mut previews);
+        }
         painter.dim(framed.and_then(|(area, _)| area.intersection(&bounds)));
         if let Some((area, with_handles)) = framed {
             painter.frame(area, with_handles);
             if view.labelled {
                 painter.size_label(area);
             }
+        }
+        if let Some(selected) = decor.selected {
+            painter.mark_handles(selected);
+        }
+        if let Some(editing) = decor.editing {
+            painter.typing(editing, decor.cursor);
         }
         if let Some(at) = pointer {
             painter.magnifier(&surfaces.image_bitmap, at, colour);

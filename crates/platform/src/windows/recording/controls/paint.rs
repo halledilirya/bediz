@@ -1,9 +1,11 @@
-//! Painting the controls bar: its background and grip, the clock's colours and each button's face,
-//! in a dark palette or the system's colours under high contrast.
+//! Painting the controls bar: its background and grip, the clock's colours and each button's face
+//! with the chosen tool and colour, in a dark palette or the system's colours under high contrast.
 
+use std::cell::Cell;
 use std::ffi::c_void;
 
 use bediz_core::geometry::Rect;
+use bediz_core::markup::Colour;
 use windows::Win32::Foundation::{COLORREF, HWND, LRESULT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
     COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_WINDOW,
@@ -29,6 +31,12 @@ pub const GROUND: COLORREF = COLORREF(0x0020_2020);
 const RADIUS: f32 = 6.0;
 const DOT: f32 = 3.0;
 const DOT_GAP: f32 = 3.0;
+const SWATCH_SIDE: f32 = 16.0;
+
+thread_local! {
+    static CHOSEN: Cell<Option<u16>> = const { Cell::new(None) };
+    static SWATCH: Cell<u32> = const { Cell::new(0) };
+}
 
 struct Palette {
     ground: u32,
@@ -76,9 +84,21 @@ pub fn colour_static(window: HWND, dc: HDC) -> LRESULT {
     LRESULT(ground_brush(window).0 as isize)
 }
 
+pub fn choose(button: Option<u16>, colour: Colour) {
+    CHOSEN.with(|chosen| chosen.set(button));
+    SWATCH.with(|swatch| {
+        swatch.set(
+            u32::from(colour.red) | u32::from(colour.green) << 8 | u32::from(colour.blue) << 16,
+        )
+    });
+}
+
 pub fn draw_button(item: &DRAWITEMSTRUCT) {
     let palette = palette();
-    let pressed = item.itemState.0 & ODS_SELECTED.0 != 0;
+    let chosen = CHOSEN
+        .with(Cell::get)
+        .is_some_and(|id| u32::from(id) == item.CtlID);
+    let pressed = chosen || item.itemState.0 & ODS_SELECTED.0 != 0;
     let (face, ink) = if pressed {
         (palette.pressed, palette.pressed_ink)
     } else {
@@ -142,6 +162,22 @@ pub fn draw_button(item: &DRAWITEMSTRUCT) {
         Some(Face::Square) => {
             let left = (whole.left + whole.right) / 2 - side / 2;
             fill(dc, &square(left, middle, side), palette.mark);
+        }
+        Some(Face::Swatch) => {
+            let side = pixels(SWATCH_SIDE, scale);
+            let left = (whole.left + whole.right) / 2 - side / 2;
+            let top = (whole.top + whole.bottom) / 2 - side / 2;
+            let ring = pixels(1.0, scale).max(1);
+            draw_dot(dc, &square(left - ring, top - ring, side + 2 * ring), ink);
+            draw_dot(dc, &square(left, top, side), SWATCH.with(Cell::get));
+        }
+        Some(Face::Step) => {
+            let side = pixels(SWATCH_SIDE, scale);
+            let left = (whole.left + whole.right) / 2 - side / 2;
+            let top = (whole.top + whole.bottom) / 2 - side / 2;
+            draw_dot(dc, &square(left, top, side), ink);
+            unsafe { SetTextColor(dc, COLORREF(face)) };
+            centred(dc, &mut [u16::from(b'1')], whole, reading);
         }
         Some(Face::Glyph(glyph)) if is_icon_face(dc) => {
             centred(dc, &mut [glyph], whole, reading);

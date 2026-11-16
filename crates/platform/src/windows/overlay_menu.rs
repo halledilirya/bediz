@@ -1,12 +1,13 @@
-//! The overlay's context menu: copy, save or record the selection, copy a colour, pick the whole
-//! monitor or the last region, or cancel.
+//! The overlay's menus: the context menu that copies, saves or records the selection, copies a
+//! colour, picks the whole monitor or the last region, or cancels, and the colour of marks.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::Point;
+use bediz_core::markup::Swatch;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, HMENU, MF_GRAYED, MF_SEPARATOR, MF_STRING,
-    SetMenuDefaultItem, TPM_LAYOUTRTL, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTALIGN,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, HMENU, MF_CHECKED, MF_GRAYED, MF_SEPARATOR,
+    MF_STRING, SetMenuDefaultItem, TPM_LAYOUTRTL, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTALIGN,
     TPM_RIGHTBUTTON, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx,
 };
 use windows::core::{PCWSTR, Result};
@@ -110,6 +111,37 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
     Ok(choice(chosen.0))
 }
 
+pub fn choose_colour(
+    owner: HWND,
+    at: Point,
+    texts: &MenuTexts,
+    current: Swatch,
+) -> Result<Option<Swatch>> {
+    let menu = OwnedMenu(unsafe { CreatePopupMenu() }?);
+    for (index, swatch) in Swatch::ALL.into_iter().enumerate() {
+        let label: Vec<u16> = texts
+            .markup
+            .swatch(swatch)
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let flags = if swatch == current {
+            MF_STRING | MF_CHECKED
+        } else {
+            MF_STRING
+        };
+        unsafe { AppendMenuW(menu.0, flags, index + 1, PCWSTR(label.as_ptr())) }?;
+    }
+    let flags = flags(texts.right_to_left);
+    let chosen = unsafe { TrackPopupMenuEx(menu.0, flags.0, at.x, at.y, owner, None) };
+    Ok(swatch_for(chosen.0))
+}
+
+fn swatch_for(id: i32) -> Option<Swatch> {
+    let index = usize::try_from(id).ok()?.checked_sub(1)?;
+    Swatch::ALL.get(index).copied()
+}
+
 fn flags(right_to_left: bool) -> TRACK_POPUP_MENU_FLAGS {
     let flags = TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY;
     if right_to_left {
@@ -158,6 +190,16 @@ mod tests {
     fn a_closed_menu_chooses_nothing() {
         assert_eq!(choice(0), None);
         assert_eq!(choice(-1), None);
+        assert_eq!(swatch_for(0), None);
+        assert_eq!(swatch_for(-1), None);
+    }
+
+    #[test]
+    fn every_colour_item_maps_to_its_swatch() {
+        for (index, swatch) in Swatch::ALL.into_iter().enumerate() {
+            assert_eq!(swatch_for(index as i32 + 1), Some(swatch));
+        }
+        assert_eq!(swatch_for(Swatch::ALL.len() as i32 + 1), None);
     }
 
     #[test]

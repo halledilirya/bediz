@@ -64,6 +64,7 @@ impl Runtime {
             controls::Request::Press(Button::Discard) => self.cancel_recording(),
             controls::Request::Close if self.recording.is_some() => self.stop_recording(None),
             controls::Request::Press(Button::Cancel) | controls::Request::Close => self.hide(),
+            controls::Request::Press(button) => self.on_markup_button(button),
         }
     }
 

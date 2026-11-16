@@ -11,7 +11,8 @@ use windows::Win32::Foundation::{HWND, LPARAM, POINT};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer, SystemParametersInfoW,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer, SystemParametersInfoW, WM_LBUTTONDBLCLK,
+    WM_LBUTTONDOWN, WM_RBUTTONUP,
 };
 use windows::core::{BOOL, Error, Result};
 
@@ -110,7 +111,7 @@ impl Runtime {
             Foreground::Refused
         };
         let focused = self.clock.since(start);
-        self.session = Some(Session::new(previous, self.enter, purpose));
+        self.session = Some(Session::new(previous, self.enter, purpose, scene));
         if let Err(error) = shown {
             self.emit_notes(notes);
             self.hide();
@@ -219,8 +220,34 @@ impl Runtime {
         };
         let windows = self.detect_windows.then_some(&self.windows);
         let action = session.handle(scene, windows, self.last_region, message);
+        // A press lifts the overlay above the bars, which are topmost windows too.
+        if matches!(
+            message.message,
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_RBUTTONUP
+        ) {
+            self.raise_bars();
+        }
         self.act(action);
+        self.place_bars();
+    }
+
+    fn place_bars(&mut self) {
         self.place_ready_bar();
+        self.place_markup_bar();
+    }
+
+    fn raise_bars(&self) {
+        let raised = [
+            self.ready.as_ref().map(|bar| bar.raise()),
+            self.markup_bar.as_ref().map(|bar| bar.raise()),
+        ];
+        let notes = raised
+            .into_iter()
+            .flatten()
+            .filter_map(Result::err)
+            .map(|error| format!("the buttons beside the selection may be under it: {error}"))
+            .collect();
+        self.emit_notes(notes);
     }
 
     fn act(&mut self, action: Result<Action>) {
@@ -232,6 +259,8 @@ impl Runtime {
             Ok(Action::Record) => self.record(Duration::ZERO),
             Ok(Action::CopyColour(at)) => self.copy_colour(at),
             Ok(Action::Menu(at)) => self.open_menu(at),
+            Ok(Action::CopyText { cut }) => self.copy_text(cut),
+            Ok(Action::PasteText) => self.paste_text(),
             Err(error) => self.draw_failed(&error),
         }
     }
@@ -290,7 +319,7 @@ impl Runtime {
             Point::new(cursor.x, cursor.y),
         );
         self.act(action);
-        self.place_ready_bar();
+        self.place_bars();
     }
 
     fn open_menu(&mut self, at: Point) {
@@ -329,7 +358,7 @@ impl Runtime {
         }
     }
 
-    fn reselect(&mut self, change: impl FnOnce(&mut Session, &Scene)) {
+    pub(super) fn reselect(&mut self, change: impl FnOnce(&mut Session, &Scene)) {
         let (Some(scene), Some(session)) = (self.scene.as_ref(), self.session.as_mut()) else {
             return;
         };
@@ -338,7 +367,7 @@ impl Runtime {
         if let Err(error) = session.redraw(scene, windows) {
             self.draw_failed(&error);
         }
-        self.place_ready_bar();
+        self.place_bars();
     }
 
     pub(super) fn hide(&mut self) {
@@ -352,6 +381,7 @@ impl Runtime {
         let locked = self.locked();
         self.live = None;
         self.ready = None;
+        self.markup_bar = None;
         if session.purpose() == Purpose::Recording
             && let Some(scene) = self.scene.as_ref()
             && let Err(error) = scene.exclude_from_capture(false)

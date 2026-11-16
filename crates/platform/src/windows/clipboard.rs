@@ -1,18 +1,21 @@
 //! Puts images, text and files on the clipboard, always kept from the cloud clipboard, with images
-//! and files also kept out of the clipboard history when asked.
+//! and files also kept out of the clipboard history when asked, and reads the text pasted into a
+//! text mark.
 
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::Arc;
 
 use bediz_core::image::Image;
-use windows::Win32::Foundation::{E_OUTOFMEMORY, GlobalFree, HANDLE, HWND, POINT};
+use windows::Win32::Foundation::{E_OUTOFMEMORY, GlobalFree, HANDLE, HGLOBAL, HWND, POINT};
 use windows::Win32::Graphics::Gdi::{BI_BITFIELDS, BITMAPV5HEADER, LCS_GM_IMAGES};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard,
-    RegisterClipboardFormatW, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
+    IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
-use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+use windows::Win32::System::Memory::{
+    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+};
 use windows::Win32::System::Ole::{CF_DIBV5, CF_HDROP, CF_UNICODETEXT, DROPEFFECT_COPY};
 use windows::Win32::UI::ColorSystem::LCS_sRGB;
 use windows::Win32::UI::Shell::DROPFILES;
@@ -127,6 +130,7 @@ impl Board for Clipboard {
 }
 
 const REFUSED: [u8; 4] = 0u32.to_le_bytes();
+const PASTED_UNITS: usize = 10_000;
 
 pub fn changes() -> u32 {
     unsafe { GetClipboardSequenceNumber() }
@@ -149,6 +153,35 @@ pub fn place(
     );
     let closed = unsafe { CloseClipboard() };
     filled.and_then(|placed| closed.map(|()| placed))
+}
+
+pub fn text(owner: HWND) -> Result<Option<String>> {
+    let format = u32::from(CF_UNICODETEXT.0);
+    if unsafe { IsClipboardFormatAvailable(format) }.is_err() {
+        return Ok(None);
+    }
+    unsafe { OpenClipboard(Some(owner)) }?;
+    let read = read_text(format);
+    let closed = unsafe { CloseClipboard() };
+    read.and_then(|text| closed.map(|()| text))
+}
+
+fn read_text(format: u32) -> Result<Option<String>> {
+    let memory = HGLOBAL(unsafe { GetClipboardData(format) }?.0);
+    let size = unsafe { GlobalSize(memory) };
+    let source = unsafe { GlobalLock(memory) };
+    if source.is_null() {
+        return Ok(None);
+    }
+    let units = unsafe { std::slice::from_raw_parts(source.cast::<u16>(), size / 2) };
+    let end = units
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(units.len())
+        .min(PASTED_UNITS);
+    let text = String::from_utf16_lossy(units.get(..end).unwrap_or_default());
+    let _ = unsafe { GlobalUnlock(memory) };
+    Ok(Some(text))
 }
 
 // The flags go first and a failure empties the clipboard, so content never stays without them.

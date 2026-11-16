@@ -3,9 +3,11 @@
 
 use std::mem::ManuallyDrop;
 
+use bediz_core::image::Image;
 use windows::Win32::Foundation::{E_POINTER, HMODULE};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
+    D2D_SIZE_U, D2D1_ALPHA_MODE, D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED,
+    D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_OPTIONS, D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_NONE,
@@ -17,8 +19,9 @@ use windows::Win32::Graphics::Direct2D::{
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_READ,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
-    D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA,
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, D3D11CreateDevice,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWriteCreateFactory, IDWriteFactory,
@@ -168,29 +171,83 @@ impl Gpu {
         self.bitmap(
             &surface,
             D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            D2D1_ALPHA_MODE_IGNORE,
         )
     }
 
     pub fn source_bitmap(&self, texture: &ID3D11Texture2D) -> Result<ID2D1Bitmap1> {
         let surface: IDXGISurface = texture.cast()?;
-        self.bitmap(&surface, D2D1_BITMAP_OPTIONS_NONE)
+        self.bitmap(&surface, D2D1_BITMAP_OPTIONS_NONE, D2D1_ALPHA_MODE_IGNORE)
     }
 
-    fn bitmap(&self, surface: &IDXGISurface, options: D2D1_BITMAP_OPTIONS) -> Result<ID2D1Bitmap1> {
-        let properties = D2D1_BITMAP_PROPERTIES1 {
-            pixelFormat: D2D1_PIXEL_FORMAT {
-                format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                alphaMode: D2D1_ALPHA_MODE_IGNORE,
-            },
-            dpiX: 96.0,
-            dpiY: 96.0,
-            bitmapOptions: options,
-            colorContext: ManuallyDrop::new(None),
+    pub fn texture_with(&self, image: &Image) -> Result<ID3D11Texture2D> {
+        let description = D3D11_TEXTURE2D_DESC {
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET).0 as u32,
+            ..texture_description(image.width(), image.height())
         };
+        let data = D3D11_SUBRESOURCE_DATA {
+            pSysMem: image.bgra().as_ptr().cast(),
+            SysMemPitch: image.width().saturating_mul(4),
+            SysMemSlicePitch: 0,
+        };
+        let mut texture = None;
+        unsafe {
+            self.device
+                .CreateTexture2D(&description, Some(&data), Some(&mut texture))
+        }?;
+        texture.ok_or_else(|| Error::from(E_POINTER))
+    }
+
+    // Alpha is kept, unlike on the overlay, so a gap between monitors stays transparent.
+    pub fn drawable_bitmap(&self, texture: &ID3D11Texture2D) -> Result<ID2D1Bitmap1> {
+        let surface: IDXGISurface = texture.cast()?;
+        self.bitmap(
+            &surface,
+            D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1_ALPHA_MODE_PREMULTIPLIED,
+        )
+    }
+
+    pub fn memory_bitmap(&self, image: &Image) -> Result<ID2D1Bitmap1> {
+        let properties = properties(D2D1_BITMAP_OPTIONS_NONE, D2D1_ALPHA_MODE_IGNORE);
+        unsafe {
+            self.canvas.CreateBitmap(
+                D2D_SIZE_U {
+                    width: image.width(),
+                    height: image.height(),
+                },
+                Some(image.bgra().as_ptr().cast()),
+                image.width().saturating_mul(4),
+                &properties,
+            )
+        }
+    }
+
+    fn bitmap(
+        &self,
+        surface: &IDXGISurface,
+        options: D2D1_BITMAP_OPTIONS,
+        alpha: D2D1_ALPHA_MODE,
+    ) -> Result<ID2D1Bitmap1> {
+        let properties = properties(options, alpha);
         unsafe {
             self.canvas
                 .CreateBitmapFromDxgiSurface(surface, Some(&properties))
         }
+    }
+}
+
+fn properties(options: D2D1_BITMAP_OPTIONS, alpha: D2D1_ALPHA_MODE) -> D2D1_BITMAP_PROPERTIES1 {
+    D2D1_BITMAP_PROPERTIES1 {
+        pixelFormat: D2D1_PIXEL_FORMAT {
+            format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            alphaMode: alpha,
+        },
+        dpiX: 96.0,
+        dpiY: 96.0,
+        bitmapOptions: options,
+        colorContext: ManuallyDrop::new(None),
     }
 }
 
