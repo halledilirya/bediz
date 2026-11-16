@@ -38,7 +38,7 @@ impl Log {
             directory,
             header,
             written: Cell::new(false),
-            // Development builds keep every line for the user's timing runs; a release keeps warnings.
+            // Development builds keep every line, timings included; a release keeps warnings.
             verbose: cfg!(debug_assertions),
             started: Instant::now(),
         })
