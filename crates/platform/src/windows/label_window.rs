@@ -1,8 +1,6 @@
 //! The label window: a short notice drawn near where it happened, kept out of captures and
 //! announced to screen readers.
 
-pub(super) mod automation;
-
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, POINT, RECT, SIZE};
@@ -35,10 +33,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, HSTRING, Result, w};
 
+use super::automation::{Announcer, Role};
 use super::contrast::Colours;
 use super::window_class::{LABEL_CLASS, OwnedWindow};
 use crate::event::Label;
-use automation::Announcer;
 
 const FONT_SIZE: f32 = 14.0;
 const LARGE: f32 = 5.0;
@@ -159,7 +157,7 @@ impl LabelWindow {
                 None,
             )
         }?);
-        let announcer = Announcer::attach(window.0);
+        let announcer = Announcer::attach(window.0, Role::Label);
         unsafe { SetWindowDisplayAffinity(window.0, WDA_EXCLUDEFROMCAPTURE) }?;
         Ok(Self {
             window,

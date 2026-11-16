@@ -7,7 +7,7 @@ use bediz_core::image::Image;
 use bediz_core::measurement::{Memory, MonitorCapture};
 use windows::Win32::Foundation::{E_FAIL, HINSTANCE, HWND, POINT};
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetForegroundWindow};
 use windows::core::{Error, Result};
 
 use super::capture::Capturer;
@@ -79,6 +79,19 @@ impl Scene {
         self.overlays
             .iter()
             .any(|overlay| overlay.window() == window)
+    }
+
+    pub fn announce(&self, text: &str, activity: &str) -> Result<()> {
+        let front = unsafe { GetForegroundWindow() };
+        let overlay = self
+            .overlays
+            .iter()
+            .find(|overlay| overlay.window() == front)
+            .or(self.overlays.first());
+        match overlay {
+            Some(overlay) => overlay.announce(text, activity),
+            None => Ok(()),
+        }
     }
 
     pub fn origin_of(&self, window: HWND) -> Option<Point> {

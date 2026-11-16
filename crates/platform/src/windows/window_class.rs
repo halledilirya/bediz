@@ -24,8 +24,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
+use super::automation;
 use super::hotkey::HOTKEY;
-use super::label_window::automation;
 use super::recording::border::{self, Line};
 use super::recording::controls::{self, drag, paint};
 use super::runtime::WM_STOP;
@@ -354,6 +354,12 @@ fn on_overlay_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM
         }
         WM_CLOSE => {
             CLOSE_REQUESTED.with(|flag| flag.set(true));
+            LRESULT(0)
+        }
+        WM_GETOBJECT => automation::answer(window, wparam, lparam)
+            .unwrap_or_else(|| unsafe { DefWindowProcW(window, message, wparam, lparam) }),
+        WM_DESTROY => {
+            automation::detach(window);
             LRESULT(0)
         }
         WM_SETCURSOR if (lparam.0 & 0xFFFF) as u32 == HTCLIENT => match CURSOR.with(Cell::get) {

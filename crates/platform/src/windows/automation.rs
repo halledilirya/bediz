@@ -1,5 +1,6 @@
-//! Presents the label window to UI Automation as a tooltip, so screen readers hear each notice as
-//! it opens, changes and closes.
+//! Presents Bediz's own windows to UI Automation, so screen readers hear them: the label as a
+//! tooltip with each notice as it opens, changes and closes, and the overlay as a window that
+//! tells what changed in the selection.
 
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -11,11 +12,11 @@ use windows::Win32::UI::Accessibility::{
     IRawElementProviderSimple, IRawElementProviderSimple_Vtbl, IWindowProvider,
     IWindowProvider_Impl, NotificationKind_ActionAborted, NotificationKind_ActionCompleted,
     NotificationProcessing_ImportantMostRecent, ProviderOptions,
-    ProviderOptions_ServerSideProvider, ProviderOptions_UseComThreading, UIA_ControlTypePropertyId,
-    UIA_E_INVALIDOPERATION, UIA_EVENT_ID, UIA_PATTERN_ID, UIA_PROPERTY_ID,
-    UIA_ToolTipClosedEventId, UIA_ToolTipControlTypeId, UIA_ToolTipOpenedEventId,
-    UIA_Window_WindowClosedEventId, UIA_Window_WindowOpenedEventId, UIA_WindowPatternId,
-    UiaClientsAreListening, UiaDisconnectProvider, UiaHostProviderFromHwnd,
+    ProviderOptions_ServerSideProvider, ProviderOptions_UseComThreading, UIA_CONTROLTYPE_ID,
+    UIA_ControlTypePropertyId, UIA_E_INVALIDOPERATION, UIA_EVENT_ID, UIA_PATTERN_ID,
+    UIA_PROPERTY_ID, UIA_ToolTipClosedEventId, UIA_ToolTipControlTypeId, UIA_ToolTipOpenedEventId,
+    UIA_Window_WindowClosedEventId, UIA_Window_WindowOpenedEventId, UIA_WindowControlTypeId,
+    UIA_WindowPatternId, UiaClientsAreListening, UiaDisconnectProvider, UiaHostProviderFromHwnd,
     UiaRaiseAutomationEvent, UiaRaiseNotificationEvent, UiaReturnRawElementProvider,
     WindowInteractionState, WindowInteractionState_Running, WindowVisualState,
     WindowVisualState_Normal,
@@ -29,13 +30,34 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
 }
 
+const LABEL: &str = "Bediz.Label";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Label,
+    Overlay,
+}
+
+impl Role {
+    fn control(self) -> UIA_CONTROLTYPE_ID {
+        match self {
+            Self::Label => UIA_ToolTipControlTypeId,
+            Self::Overlay => UIA_WindowControlTypeId,
+        }
+    }
+}
+
 pub struct Announcer(IRawElementProviderSimple);
 
 impl Announcer {
-    pub fn attach(window: HWND) -> Self {
-        let provider = provider(window);
+    pub fn attach(window: HWND, role: Role) -> Self {
+        let provider = provider(window, role);
         PROVIDERS.with(|providers| providers.borrow_mut().push((window, provider.clone())));
         Self(provider)
+    }
+
+    pub fn say(&self, text: &str, activity: &str) -> Result<()> {
+        said(self, text, activity)
     }
 
     pub fn opened(&self, text: &str, warning: bool) -> Result<()> {
@@ -54,7 +76,7 @@ impl Announcer {
 trait Events {
     fn listening(&self) -> bool;
     fn raise(&self, event: UIA_EVENT_ID) -> Result<()>;
-    fn notify(&self, text: &str, warning: bool) -> Result<()>;
+    fn notify(&self, text: &str, warning: bool, activity: &str) -> Result<()>;
 }
 
 impl Events for Announcer {
@@ -66,7 +88,7 @@ impl Events for Announcer {
         unsafe { UiaRaiseAutomationEvent(&self.0, event) }
     }
 
-    fn notify(&self, text: &str, warning: bool) -> Result<()> {
+    fn notify(&self, text: &str, warning: bool, activity: &str) -> Result<()> {
         let kind = if warning {
             NotificationKind_ActionAborted
         } else {
@@ -78,7 +100,7 @@ impl Events for Announcer {
                 kind,
                 NotificationProcessing_ImportantMostRecent,
                 &BSTR::from(text),
-                &BSTR::from("Bediz.Label"),
+                &BSTR::from(activity),
             )
         }
     }
@@ -91,7 +113,7 @@ fn opened(events: &impl Events, text: &str, warning: bool) -> Result<()> {
     [
         events.raise(UIA_ToolTipOpenedEventId),
         events.raise(UIA_Window_WindowOpenedEventId),
-        events.notify(text, warning),
+        events.notify(text, warning, LABEL),
     ]
     .into_iter()
     .collect()
@@ -101,7 +123,14 @@ fn replaced(events: &impl Events, text: &str, warning: bool) -> Result<()> {
     if !events.listening() {
         return Ok(());
     }
-    events.notify(text, warning)
+    events.notify(text, warning, LABEL)
+}
+
+fn said(events: &impl Events, text: &str, activity: &str) -> Result<()> {
+    if !events.listening() {
+        return Ok(());
+    }
+    events.notify(text, false, activity)
 }
 
 fn closed(events: &impl Events) -> Result<()> {
@@ -154,6 +183,7 @@ struct Provider {
     count: AtomicU32,
     window: HWND,
     pattern: IUnknown,
+    control: UIA_CONTROLTYPE_ID,
 }
 
 static PROVIDER: IRawElementProviderSimple_Vtbl = IRawElementProviderSimple_Vtbl {
@@ -168,13 +198,14 @@ static PROVIDER: IRawElementProviderSimple_Vtbl = IRawElementProviderSimple_Vtbl
     HostRawElementProvider: host_provider,
 };
 
-fn provider(window: HWND) -> IRawElementProviderSimple {
+fn provider(window: HWND, role: Role) -> IRawElementProviderSimple {
     let pattern: IWindowProvider = WindowPattern { window }.into();
     let provider = Box::new(Provider {
         vtable: &PROVIDER,
         count: AtomicU32::new(1),
         window,
         pattern: pattern.into(),
+        control: role.control(),
     });
     unsafe { IRawElementProviderSimple::from_raw(Box::into_raw(provider).cast()) }
 }
@@ -250,7 +281,7 @@ unsafe extern "system" fn pattern_provider(
 }
 
 unsafe extern "system" fn property_value(
-    _: *mut c_void,
+    this: *mut c_void,
     property: UIA_PROPERTY_ID,
     value: *mut VARIANT,
 ) -> HRESULT {
@@ -258,7 +289,7 @@ unsafe extern "system" fn property_value(
         return E_POINTER;
     }
     let known = if property == UIA_ControlTypePropertyId {
-        VARIANT::from(UIA_ToolTipControlTypeId.0)
+        VARIANT::from(unsafe { provider_of(this) }.control.0)
     } else {
         VARIANT::default()
     };
@@ -382,9 +413,11 @@ mod tests {
             Ok(())
         }
 
-        fn notify(&self, text: &str, warning: bool) -> Result<()> {
+        fn notify(&self, text: &str, warning: bool, activity: &str) -> Result<()> {
             let kind = if warning { "aborted" } else { "completed" };
-            self.raised.borrow_mut().push(format!("{kind}: {text}"));
+            self.raised
+                .borrow_mut()
+                .push(format!("{kind} ({activity}): {text}"));
             Ok(())
         }
     }
@@ -398,7 +431,7 @@ mod tests {
             [
                 "tooltip opened",
                 "window opened",
-                "aborted: Not saved: the disk is full"
+                "aborted (Bediz.Label): Not saved: the disk is full"
             ]
         );
     }
@@ -407,7 +440,17 @@ mod tests {
     fn a_label_replaced_while_shown_only_says_its_new_text() {
         let events = Recorded::listening();
         replaced(&events, "Copied", false).unwrap();
-        assert_eq!(events.raised(), ["completed: Copied"]);
+        assert_eq!(events.raised(), ["completed (Bediz.Label): Copied"]);
+    }
+
+    #[test]
+    fn the_overlay_says_what_changed_under_its_own_activity_while_a_client_listens() {
+        let events = Recorded::listening();
+        said(&events, "800 × 600", "Bediz.Selection").unwrap();
+        assert_eq!(events.raised(), ["completed (Bediz.Selection): 800 × 600"]);
+        let unheard = Recorded::default();
+        said(&unheard, "800 × 600", "Bediz.Selection").unwrap();
+        assert!(unheard.raised().is_empty());
     }
 
     #[test]
@@ -436,12 +479,16 @@ mod tests {
         assert_eq!(failure.code(), E_FAIL);
         assert_eq!(
             events.raised(),
-            ["tooltip opened", "window opened", "completed: Copied"]
+            [
+                "tooltip opened",
+                "window opened",
+                "completed (Bediz.Label): Copied"
+            ]
         );
     }
 
     fn label() -> IRawElementProviderSimple {
-        provider(HWND::default())
+        provider(HWND::default(), Role::Label)
     }
 
     fn pattern(label: &IRawElementProviderSimple, id: UIA_PATTERN_ID) -> *mut c_void {
@@ -531,6 +578,17 @@ mod tests {
         assert_eq!(kind.vt(), VT_I4);
         assert_eq!(i32::try_from(&kind).unwrap(), UIA_ToolTipControlTypeId.0);
         assert_eq!(property(&label, UIA_NamePropertyId).vt(), VT_EMPTY);
+    }
+
+    #[test]
+    fn the_overlay_is_a_window_with_the_window_pattern() {
+        let overlay = provider(HWND::default(), Role::Overlay);
+        let kind = property(&overlay, UIA_ControlTypePropertyId);
+        assert_eq!(i32::try_from(&kind).unwrap(), UIA_WindowControlTypeId.0);
+        let found = pattern(&overlay, UIA_WindowPatternId);
+        assert!(!found.is_null());
+        let window = unsafe { IUnknown::from_raw(found) };
+        assert!(window.cast::<IWindowProvider>().is_ok());
     }
 
     #[test]

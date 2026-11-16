@@ -34,6 +34,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{BOOL, Result, w};
 
+use super::automation::{Announcer, Role};
 use super::gpu::Gpu;
 use super::marking::Decor;
 use super::readback;
@@ -62,6 +63,7 @@ pub struct Overlay {
     surfaces: Option<Surfaces>,
     swap_chain: IDXGISwapChain1,
     window: OwnedWindow,
+    announcer: Announcer,
     rect: Rect,
     dpi: u32,
     text: IDWriteTextFormat,
@@ -114,10 +116,12 @@ impl Overlay {
                 .MakeWindowAssociation(window.0, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES)
         }?;
         let dpi = monitor_dpi(rect);
+        let announcer = Announcer::attach(window.0, Role::Overlay);
         let mut overlay = Self {
             surfaces: None,
             swap_chain,
             window,
+            announcer,
             rect,
             dpi,
             text: text_format(gpu, scale_of(dpi))?,
@@ -131,6 +135,10 @@ impl Overlay {
 
     pub fn window(&self) -> HWND {
         self.window.0
+    }
+
+    pub fn announce(&self, text: &str, activity: &str) -> Result<()> {
+        self.announcer.say(text, activity)
     }
 
     pub fn rect(&self) -> Rect {

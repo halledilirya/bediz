@@ -77,9 +77,18 @@ impl Texts {
             discard_recording: self.get("recording-discard"),
             lock_area: self.get("recording-lock"),
             unlock_area: self.get("recording-unlock"),
+            selection_size: self.selection_size(),
             markup: self.markup_texts(),
             right_to_left: self.right_to_left(),
         }
+    }
+
+    fn selection_size(&self) -> String {
+        let mut args = FluentArgs::new();
+        args.set("width", MenuTexts::WIDTH);
+        args.set("height", MenuTexts::HEIGHT);
+        self.format("overlay-selection-size", Some(&args))
+            .replace([FIRST_STRONG_ISOLATE, POP_DIRECTIONAL_ISOLATE], "")
     }
 
     fn markup_texts(&self) -> MarkupTexts {
@@ -96,6 +105,7 @@ impl Texts {
             redact: self.get("markup-redact"),
             blur: self.get("markup-blur"),
             pixelate: self.get("markup-pixelate"),
+            no_tool: self.get("markup-no-tool"),
             colour: self.get("markup-colour"),
             undo: self.get("markup-undo"),
             redo: self.get("markup-redo"),
@@ -198,7 +208,7 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 75] = [
+    const USED: [&str; 77] = [
         "settings-title",
         "gif-title",
         "tray-record",
@@ -226,6 +236,7 @@ mod tests {
         "overlay-menu-last-region",
         "overlay-menu-cancel",
         "overlay-menu-record",
+        "overlay-selection-size",
         "recording-title",
         "recording-start",
         "recording-pause",
@@ -248,6 +259,7 @@ mod tests {
         "markup-redact",
         "markup-blur",
         "markup-pixelate",
+        "markup-no-tool",
         "markup-colour",
         "markup-undo",
         "markup-redo",
@@ -384,6 +396,20 @@ price = Costs $5
         })
         .collect();
         assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn the_selection_size_names_its_width_and_height_in_every_locale() {
+        for (code, _) in LOCALES {
+            let said = Texts::for_languages(&[code.to_owned()])
+                .menu_texts()
+                .selection_size_of(714, 105);
+            let width = said.find("714");
+            let height = said.find("105");
+            assert!(width.is_some() && height.is_some(), "{code}: {said}");
+            assert!(!said.contains(['{', '}']), "{code}: {said}");
+            assert!(said.chars().any(char::is_alphabetic), "{code}: {said}");
+        }
     }
 
     #[test]

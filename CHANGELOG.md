@@ -9,6 +9,7 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 - Marking up a screenshot before it is copied or saved: a pen, a highlighter, lines, arrows, rectangles, ellipses, text with emoji, numbered steps, an opaque black box that hides what is under it, and a blur and a pixelation that only soften it. Each has a key and a button in a bar beside the selection, with eight colours, a width set with the mouse wheel, undo and redo.
 - Marks stay editable until the screenshot is copied or saved: select one to move it, drag its corners, change its colour or width, or delete it. Esc deselects it before it closes the screenshot.
 - Text is typed as in any text box: the arrows, Home and End move the caret, Shift selects, Ctrl+A selects it all, Ctrl+Backspace and Ctrl+Delete erase a word, Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, and a click puts the caret where it lands.
+- Screen readers such as Narrator say the selection's size as it changes and the tool chosen, and read out the result of a copy or save from a Windows notification.
 
 ## [0.2.0] - 2026-11-13
 

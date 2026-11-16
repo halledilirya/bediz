@@ -1,5 +1,6 @@
 //! Acts on the commands the app sends, and shows the confirmation labels, held back while a
-//! selection is open, with errors kept up as long as Windows keeps its notifications.
+//! selection is open, with errors kept up as long as Windows keeps its notifications, and also
+//! as a Windows notification while a screen reader runs.
 
 use std::sync::PoisonError;
 use std::time::Duration;
@@ -12,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use super::{LABEL_MILLISECONDS, LABEL_TIMER, Runtime};
 use crate::event::{Command, Event, Label};
 use crate::windows::session::Purpose;
-use crate::windows::startup;
+use crate::windows::{startup, toast};
 
 impl Runtime {
     pub(super) fn on_commands(&mut self) {
@@ -109,6 +110,13 @@ impl Runtime {
         if let Err(error) = window.announce(&label, shown) {
             self.emit_notes(vec![format!(
                 "the confirmation could not be passed to a screen reader: {error}"
+            )]);
+        }
+        if toast::screen_reader_running()
+            && let Err(error) = toast::show(&label.lines)
+        {
+            self.emit_notes(vec![format!(
+                "the confirmation could not be shown as a Windows notification: {error}"
             )]);
         }
         let shown_for = if label.warning {

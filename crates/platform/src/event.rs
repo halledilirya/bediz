@@ -8,7 +8,7 @@ use bediz_core::delivery::{CopyError, Delivery, SaveError};
 use bediz_core::file_name::Pattern;
 use bediz_core::geometry::Rect;
 use bediz_core::hotkey::Hotkey;
-use bediz_core::markup::Swatch;
+use bediz_core::markup::{Swatch, Tool};
 use bediz_core::measurement::{Measurement, Memory};
 use bediz_core::notice::Notice;
 use bediz_core::recording::RecordingOptions;
@@ -136,8 +136,20 @@ pub struct MenuTexts {
     pub discard_recording: String,
     pub lock_area: String,
     pub unlock_area: String,
+    pub selection_size: String,
     pub markup: MarkupTexts,
     pub right_to_left: bool,
+}
+
+impl MenuTexts {
+    pub const WIDTH: &str = "{width}";
+    pub const HEIGHT: &str = "{height}";
+
+    pub fn selection_size_of(&self, width: u32, height: u32) -> String {
+        self.selection_size
+            .replace(Self::WIDTH, &width.to_string())
+            .replace(Self::HEIGHT, &height.to_string())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -154,6 +166,7 @@ pub struct MarkupTexts {
     pub redact: String,
     pub blur: String,
     pub pixelate: String,
+    pub no_tool: String,
     pub colour: String,
     pub undo: String,
     pub redo: String,
@@ -168,6 +181,23 @@ pub struct MarkupTexts {
 }
 
 impl MarkupTexts {
+    pub fn tool(&self, tool: Option<Tool>) -> &str {
+        match tool {
+            None => &self.no_tool,
+            Some(Tool::Pen) => &self.pen,
+            Some(Tool::Highlighter) => &self.highlighter,
+            Some(Tool::Line) => &self.line,
+            Some(Tool::Arrow) => &self.arrow,
+            Some(Tool::Rectangle) => &self.rectangle,
+            Some(Tool::Ellipse) => &self.ellipse,
+            Some(Tool::Text) => &self.text,
+            Some(Tool::Step) => &self.step,
+            Some(Tool::Redact) => &self.redact,
+            Some(Tool::Blur) => &self.blur,
+            Some(Tool::Pixelate) => &self.pixelate,
+        }
+    }
+
     pub fn swatch(&self, swatch: Swatch) -> &str {
         match swatch {
             Swatch::Red => &self.red,

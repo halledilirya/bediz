@@ -234,12 +234,13 @@ impl Runtime {
             self.raise_bars();
         }
         self.act(action);
-        self.place_bars();
+        self.follow_selection();
     }
 
-    fn place_bars(&mut self) {
+    fn follow_selection(&mut self) {
         self.place_ready_bar();
         self.place_markup_bar();
+        self.announce();
     }
 
     fn raise_bars(&self) {
@@ -325,7 +326,7 @@ impl Runtime {
             Point::new(cursor.x, cursor.y),
         );
         self.act(action);
-        self.place_bars();
+        self.follow_selection();
     }
 
     fn open_menu(&mut self, at: Point) {
@@ -373,7 +374,7 @@ impl Runtime {
         if let Err(error) = session.redraw(scene, windows) {
             self.draw_failed(&error);
         }
-        self.place_bars();
+        self.follow_selection();
     }
 
     pub(super) fn hide(&mut self) {
@@ -388,6 +389,7 @@ impl Runtime {
         self.live = None;
         self.ready = None;
         self.markup_bar = None;
+        self.heard = Default::default();
         if session.purpose() == Purpose::Recording
             && let Some(scene) = self.scene.as_ref()
             && let Err(error) = scene.exclude_from_capture(false)

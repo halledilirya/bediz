@@ -1,6 +1,7 @@
 //! The Windows platform: screen capture, the overlays, hotkeys, the clipboard, saving, recording,
 //! the dialogs and shell calls the app makes, and the thread that owns them.
 
+mod automation;
 mod capture;
 mod clipboard;
 mod clock;
@@ -32,6 +33,7 @@ mod shader;
 mod shell;
 mod single_instance;
 mod startup;
+mod toast;
 mod virtual_desktop;
 mod webview;
 mod window_class;

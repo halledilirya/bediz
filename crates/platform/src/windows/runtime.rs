@@ -1,6 +1,7 @@
 //! The thread that owns the overlay, hotkeys, recordings, copies and saves: it handles their
 //! messages, acts on the app's commands and reports what happens back to the app.
 
+mod announce;
 mod commands;
 mod delivery;
 mod discard;
@@ -57,6 +58,7 @@ use super::window_class::{self, MESSAGE_CLASS, OwnedWindow};
 use super::window_list::WindowList;
 use super::worker::Worker;
 use crate::event::{Command, Event, Failure, HotkeyState, Label, MenuTexts};
+use announce::Heard;
 use delivery::{PendingCopy, Tracked};
 use discard::Deletions;
 use markup_bar::MarkupBar;
@@ -133,6 +135,7 @@ struct Runtime {
     live: Option<Timer>,
     ready: Option<ReadyBar>,
     markup_bar: Option<MarkupBar>,
+    heard: Heard,
 }
 
 fn handles(event: Option<HANDLE>, timer: Option<HANDLE>) -> ([HANDLE; 2], usize) {
@@ -236,6 +239,7 @@ impl Runtime {
             live: None,
             ready: None,
             markup_bar: None,
+            heard: Heard::default(),
         })
     }
 
