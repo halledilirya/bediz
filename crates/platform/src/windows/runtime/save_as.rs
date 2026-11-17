@@ -24,6 +24,7 @@ const IMAGES_WAITING: usize = 2;
 pub(super) struct PendingSaveAs {
     dialog: u64,
     rect: Rect,
+    region: bool,
     unsaved: Unsaved,
     time: LocalTime,
     previous: HWND,
@@ -52,6 +53,7 @@ impl Runtime {
         let Some((rect, read)) = self.read_selection() else {
             return;
         };
+        let region = self.selects_region();
         let previous = self.close_overlay(false);
         let image = match read {
             Ok(image) => image,
@@ -62,7 +64,7 @@ impl Runtime {
             }
         };
         let time = clock::local_time();
-        let stem = self.file_name.stem(&time, rect.width(), rect.height());
+        let stem = self.file_name.stem(&time, image.width(), image.height());
         let suggestion = Suggestion {
             name: file_name::png(&stem, 1),
             folder: None,
@@ -71,6 +73,7 @@ impl Runtime {
         let pending = PendingSaveAs {
             dialog: 0,
             rect,
+            region,
             unsaved: Unsaved::Image(image),
             time,
             previous,
@@ -93,6 +96,7 @@ impl Runtime {
         let pending = PendingSaveAs {
             dialog: 0,
             rect: self.near_of(job).unwrap_or_default(),
+            region: false,
             unsaved: Unsaved::Encoded { job, png, path },
             time,
             previous: HWND::default(),
@@ -158,6 +162,7 @@ impl Runtime {
         match (chosen, pending.unsaved) {
             (Ok(Some(target)), Unsaved::Image(image)) => self.send_job(
                 pending.rect,
+                pending.region,
                 Ok(image),
                 Delivery::SAVE,
                 Some(target),
@@ -260,6 +265,7 @@ mod tests {
             pending: PendingSaveAs {
                 dialog: 0,
                 rect: Rect::default(),
+                region: true,
                 unsaved,
                 time: LocalTime {
                     year: 2026,

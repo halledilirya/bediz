@@ -1,5 +1,5 @@
-//! BGRA images: joining parts into one, encoding as PNG, the bottom-up rows the clipboard takes
-//! and a pixel's colour written as hex.
+//! BGRA images with premultiplied alpha: joining parts into one, encoding as PNG, the bottom-up
+//! rows the clipboard takes and a pixel's colour written as hex.
 
 use thiserror::Error;
 
@@ -136,10 +136,17 @@ impl Image {
         pixels
     }
 
+    pub fn is_opaque(&self) -> bool {
+        self.bgra
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|[_, _, _, alpha]| *alpha == u8::MAX)
+    }
+
     pub fn encode_png(&self) -> Result<Vec<u8>, ImageError> {
         let pixels = self.bgra.as_chunks::<4>().0;
-        let opaque = pixels.iter().all(|[_, _, _, alpha]| *alpha == u8::MAX);
-        let (color, samples) = if opaque {
+        let (color, samples) = if self.is_opaque() {
             let mut rgb = Vec::with_capacity(pixels.len() * 3);
             for [blue, green, red, _] in pixels {
                 rgb.extend_from_slice(&[*red, *green, *blue]);
@@ -147,8 +154,9 @@ impl Image {
             (png::ColorType::Rgb, rgb)
         } else {
             let mut rgba = Vec::with_capacity(pixels.len() * 4);
-            for [blue, green, red, alpha] in pixels {
-                rgba.extend_from_slice(&[*red, *green, *blue, *alpha]);
+            for &[blue, green, red, alpha] in pixels {
+                let straight = |level: u8| unpremultiplied(level, alpha);
+                rgba.extend_from_slice(&[straight(red), straight(green), straight(blue), alpha]);
             }
             (png::ColorType::Rgba, rgba)
         };
@@ -163,6 +171,14 @@ impl Image {
         writer.write_image_data(&samples)?;
         writer.finish()?;
         Ok(png)
+    }
+}
+
+fn unpremultiplied(level: u8, alpha: u8) -> u8 {
+    match alpha {
+        0 | u8::MAX => level,
+        _ => u8::try_from((u16::from(level) * 255 + u16::from(alpha) / 2) / u16::from(alpha))
+            .unwrap_or(u8::MAX),
     }
 }
 
@@ -273,6 +289,15 @@ mod tests {
         let (color, decoded) = decode(canvas.encode_png().unwrap());
         assert_eq!(color, png::ColorType::Rgba);
         assert_eq!(decoded, [0, 0, 0, 0, 30, 20, 10, 255]);
+    }
+
+    #[test]
+    fn a_partly_see_through_pixel_is_written_with_its_own_colour() {
+        let image = Image::from_bgra(2, 1, vec![100, 50, 25, 128, 7, 8, 9, 255]).unwrap();
+        assert!(!image.is_opaque());
+        let (color, decoded) = decode(image.encode_png().unwrap());
+        assert_eq!(color, png::ColorType::Rgba);
+        assert_eq!(decoded, [50, 100, 199, 128, 9, 8, 7, 255]);
     }
 
     #[test]

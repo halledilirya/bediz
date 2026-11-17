@@ -1,10 +1,12 @@
-//! Every monitor's overlay with its display and capture, handled as one: capturing, drawing,
-//! showing and hiding, reading a selection across monitors and freeing GPU memory.
+//! Every monitor's overlay with its display and capture, handled as one: capturing, laying an
+//! opened picture over the screen, drawing, showing and hiding, reading a selection across
+//! monitors and freeing GPU memory.
 
 use bediz_core::capture::{Allocation, Pixels};
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::Image;
 use bediz_core::measurement::{Memory, MonitorCapture};
+use bediz_core::picture;
 use windows::Win32::Foundation::{E_FAIL, HINSTANCE, HWND, POINT};
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetForegroundWindow};
@@ -130,6 +132,34 @@ impl Scene {
         self.capturer.capture(&self.displays, &self.overlays, notes)
     }
 
+    pub fn show_picture(&mut self, picture: &Image, at: Point) -> Result<Rect> {
+        let monitor = self
+            .rects
+            .iter()
+            .position(|rect| rect.contains(at))
+            .unwrap_or(0);
+        let shown = self
+            .rects
+            .get(monitor)
+            .and_then(|room| picture::shown_on(picture.width(), picture.height(), *room))
+            .ok_or_else(|| Error::new(E_FAIL, "no monitor has room for the image"))?;
+        let (Some(overlay), Some(found)) = (
+            self.overlays.get_mut(monitor),
+            self.displays.monitors.get(monitor),
+        ) else {
+            return Err(Error::new(E_FAIL, "the monitor is gone"));
+        };
+        self.capturer.forget_targets();
+        overlay.show_picture(gpu(&self.displays, found.gpu)?, picture, shown)?;
+        Ok(shown)
+    }
+
+    // The overlay held the picture over the screen, which capture would otherwise keep when unchanged.
+    pub fn forget_picture(&mut self) {
+        self.overlays.iter_mut().for_each(Overlay::forget_picture);
+        self.capturer.forget_targets();
+    }
+
     pub fn reopen_capture(&mut self) {
         self.capturer.reopen();
     }
@@ -160,7 +190,15 @@ impl Scene {
     }
 
     pub fn refresh_live(&mut self) -> Result<Vec<usize>> {
-        self.capturer.refresh(&self.displays, &self.overlays)
+        let changed = self.capturer.refresh(&self.displays, &self.overlays)?;
+        for &index in &changed {
+            if let (Some(overlay), Some(found)) =
+                (self.overlays.get(index), self.displays.monitors.get(index))
+            {
+                overlay.lay_picture(gpu(&self.displays, found.gpu)?);
+            }
+        }
+        Ok(changed)
     }
 
     pub fn grab(

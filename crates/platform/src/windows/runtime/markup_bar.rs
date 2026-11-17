@@ -1,5 +1,6 @@
-//! The bar of marking-up tools beside a screenshot's selection: placing it, showing the chosen
-//! tool and colour, acting on its buttons, and copying, cutting and pasting the text being typed.
+//! The bar of marking-up tools beside a screenshot's or an opened picture's selection: placing it,
+//! showing the chosen tool and colour, acting on its buttons, and copying, cutting and pasting the
+//! text being typed.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
@@ -16,7 +17,7 @@ use crate::windows::marking::Marking;
 use crate::windows::overlay_menu;
 use crate::windows::recording::controls::{Button, Controls, Stage};
 use crate::windows::recording::monitor_metrics;
-use crate::windows::session::{Purpose, Session};
+use crate::windows::session::Session;
 
 pub(super) struct MarkupBar {
     controls: Controls,
@@ -42,7 +43,7 @@ impl Runtime {
         let area = self
             .session
             .as_ref()
-            .filter(|session| session.purpose() == Purpose::Screenshot)
+            .filter(|session| session.purpose().is_still())
             .and_then(Session::settled)
             .zip(self.scene.as_ref())
             .and_then(|(selection, scene)| {

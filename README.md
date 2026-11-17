@@ -66,6 +66,8 @@ To mark up a screenshot, pick a tool in the bar beside the selection or press it
 
 Blur and pixelation only soften what is under them, and pixelated text can sometimes be read back; to hide a password or a name, use X, which keeps nothing of it.
 
+To mark up an image you already have, choose **Open an image ▸ From the clipboard** or **From a file…** in the tray menu. The image opens on the monitor under the pointer, at its own size or made smaller to fit, and the same tools and keys work on it. It is copied and saved at its own size, to a new file beside your screenshots; the file you opened is left as it was.
+
 To record a GIF, choose **Record ▸ GIF** in the tray menu or press the GIF shortcut, which you set in the settings; the selection then opens on the live screen. **Record a GIF** in the right-click menu records a selection made on a screenshot. Select a region on one monitor and press **Start**, or **Lock** it first to keep using the screen until you start. A frame marks the area and a bar shows the time with **Pause**, **Finish**, **Restart** and **Discard**; neither appears in the GIF. Pressed again, the GIF shortcut starts the recording, and once more, it finishes it. The GIF is saved with your screenshots and copied as a file, so it stays animated when you paste it into a chat, and a small window plays it and can copy, show, open or delete it.
 
 **Settings** in the tray menu, or starting Bediz again while it runs, opens the settings: the shortcuts, what Enter and a double-click do, where files are saved and how they are named, keeping screenshots out of the Win+V clipboard history, the GIF's frame rate, size and length, the language and the look. About shows the version, the licence notices and the log folder.

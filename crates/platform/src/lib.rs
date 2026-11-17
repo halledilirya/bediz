@@ -3,8 +3,8 @@
 mod event;
 
 pub use event::{
-    Command, Event, Failure, GifEvent, HotkeyState, Label, MarkupTexts, MenuTexts, QuitStep,
-    RecordingAction, RecordingState, SavedGif, Shortcut,
+    Command, Event, Failure, GifEvent, HotkeyState, ImageSource, Label, MarkupTexts, MenuTexts,
+    QuitStep, RecordingAction, RecordingState, SavedGif, Shortcut,
 };
 
 #[cfg(windows)]

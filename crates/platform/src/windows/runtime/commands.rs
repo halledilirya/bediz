@@ -28,6 +28,7 @@ impl Runtime {
                 }
                 Command::Capture => self.open(Duration::ZERO, Purpose::Screenshot),
                 Command::CaptureAfterMenu => self.open_after_menu(),
+                Command::MarkUp(from) => self.mark_up(from),
                 Command::RecordGif if self.closing() => {}
                 Command::RecordGif => self.open(Duration::ZERO, Purpose::Recording),
                 Command::RetryHotkey => {

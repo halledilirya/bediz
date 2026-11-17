@@ -1,8 +1,12 @@
-//! One selection on the overlays, for a screenshot or a recording: turns the mouse and keys into
-//! the selection, its marks, the window under the pointer and the action chosen, and redraws.
+//! One selection on the overlays, for a screenshot, a recording or an opened picture: turns the
+//! mouse and keys into the selection, its marks, the window under the pointer and the action
+//! chosen, and redraws.
 
 mod keys;
 mod marks;
+mod picture;
+
+pub use picture::Picture;
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
@@ -13,10 +17,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetSystemMetrics, IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
-    IDC_SIZEWE, LoadCursorW, MSG, SM_CXDRAG, SM_CYDRAG, WM_CHAR, WM_KEYDOWN, WM_KEYUP,
-    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP,
+    GetCursorPos, GetSystemMetrics, IDC_ARROW, IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
+    IDC_SIZENWSE, IDC_SIZEWE, LoadCursorW, MSG, SM_CXDRAG, SM_CYDRAG, WM_CHAR, WM_KEYDOWN,
+    WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -43,6 +47,21 @@ pub enum Action {
 pub enum Purpose {
     Screenshot,
     Recording,
+    Picture,
+}
+
+impl Purpose {
+    pub fn is_still(self) -> bool {
+        self != Self::Recording
+    }
+
+    pub fn shows_live_screen(self) -> bool {
+        self != Self::Screenshot
+    }
+
+    pub fn reshapes(self) -> bool {
+        self != Self::Picture
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +86,7 @@ pub struct Session {
     pointer: Option<Point>,
     views: Vec<View>,
     marking: Marking,
+    picture: Option<Picture>,
 }
 
 impl Session {
@@ -92,6 +112,7 @@ impl Session {
             pointer,
             views: Vec::new(),
             marking: Marking::new(scale, reply_to),
+            picture: None,
         }
     }
 
@@ -231,11 +252,14 @@ impl Session {
     fn inside_selection(&self, scene: &Scene, point: Point) -> bool {
         self.selection.is_some_and(|selection| {
             !selection.is_dragging()
-                && selection.grip_at(point, scene.reach_at(point)) == Some(Grip::Inside)
+                && self.grip(&selection, point, scene.reach_at(point)) == Some(Grip::Inside)
         })
     }
 
     fn press(&mut self, scene: &Scene, windows: Option<&WindowList>, point: Point) {
+        if !self.purpose.reshapes() {
+            return;
+        }
         if let Some(selection) = &mut self.selection
             && let Some(grip) = selection.grip_at(point, scene.reach_at(point))
         {
@@ -267,11 +291,16 @@ impl Session {
                 true
             }
             Some(selection) => {
+                let selection = *selection;
                 let reach = scene.reach_at(point);
-                let grip = selection.grip_at(point, reach);
-                let shape = self
-                    .mark_cursor(point, grip, reach)
-                    .unwrap_or_else(|| cursor_for(grip));
+                let grip = self.grip(&selection, point, reach);
+                let shape = self.mark_cursor(point, grip, reach).unwrap_or_else(|| {
+                    if self.purpose.reshapes() {
+                        cursor_for(grip)
+                    } else {
+                        IDC_ARROW
+                    }
+                });
                 show_cursor(shape);
                 false
             }
@@ -318,16 +347,19 @@ impl Session {
                 .and_then(|(pointer, windows)| windows.window_at(pointer)),
             (None, Some(_)) => None,
         };
-        let labelled = selection
-            .or(highlight)
-            .and_then(|rect| label_monitor(monitors, rect));
+        let labelled = selection.or(highlight).and_then(|rect| {
+            label_monitor(monitors, rect).map(|monitor| (monitor, self.size_of(rect)))
+        });
         let magnified = self.magnified();
         for (index, (bounds, drawn)) in monitors.iter().zip(self.views.iter_mut()).enumerate() {
             let shown_here = |rect: &Rect| bounds.intersection(rect).is_some();
             let view = View {
                 selection: selection.filter(shown_here),
+                handles: self.purpose.reshapes(),
                 highlight: highlight.filter(shown_here),
-                labelled: labelled == Some(index),
+                label: labelled
+                    .filter(|(monitor, _)| *monitor == index)
+                    .map(|(_, size)| size),
                 pointer: magnified.filter(|pointer| bounds.contains(*pointer)),
                 marks,
             };
@@ -349,7 +381,7 @@ impl Session {
 
 fn confirm(purpose: Purpose, enter: Delivery) -> Action {
     match purpose {
-        Purpose::Screenshot => Action::Deliver(enter),
+        Purpose::Screenshot | Purpose::Picture => Action::Deliver(enter),
         Purpose::Recording => Action::Record,
     }
 }
@@ -397,5 +429,17 @@ fn cursor_for(grip: Option<Grip>) -> PCWSTR {
 fn show_cursor(shape: PCWSTR) {
     if let Ok(cursor) = unsafe { LoadCursorW(None, shape) } {
         window_class::use_cursor(cursor);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_opened_picture_keeps_its_selection_and_shows_it_without_handles() {
+        assert!(Purpose::Screenshot.reshapes());
+        assert!(Purpose::Recording.reshapes());
+        assert!(!Purpose::Picture.reshapes());
     }
 }

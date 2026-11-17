@@ -1,9 +1,10 @@
-//! What the user is told after a capture, copy, save or recording, with each notice's locale id
-//! and argument and whether it is worth showing a label for.
+//! What the user is told after a capture, copy, save, recording or an image opened to mark up,
+//! with each notice's locale id and argument and whether it is worth showing a label for.
 
 use thiserror::Error;
 
 use crate::delivery::{CopyError, DeliveryError, SaveError};
+use crate::picture::OpenError;
 use crate::recording::{RecordingStop, clock_text};
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -32,6 +33,8 @@ pub enum Notice {
     GifNotDeleted(String),
     #[error("recording stopped: {0}")]
     RecordingStopped(RecordingStop),
+    #[error("image not opened: {0}")]
+    ImageNotOpened(OpenError),
 }
 
 impl Notice {
@@ -49,6 +52,7 @@ impl Notice {
             Self::GifCopiedAndSaved => "label-gif-copied-and-saved",
             Self::GifNotDeleted(_) => "label-gif-not-deleted",
             Self::RecordingStopped(stop) => stop.locale_id(),
+            Self::ImageNotOpened(error) => error.locale_id(),
         }
     }
 
@@ -59,6 +63,7 @@ impl Notice {
             Self::CopyFailed(CopyError::Other(reason))
             | Self::SaveFailed(SaveError::Other(reason))
             | Self::DeliveryFailed(DeliveryError::Other(reason))
+            | Self::ImageNotOpened(OpenError::Other(reason))
             | Self::GifNotDeleted(reason) => Some(("reason", reason.clone())),
             Self::RecordingStopped(RecordingStop::TimeLimit(limit)) => {
                 Some(("limit", clock_text(*limit)))
@@ -83,6 +88,7 @@ impl Notice {
                 | Self::DeliveryFailed(_)
                 | Self::CaptureFailed(_)
                 | Self::GifNotDeleted(_)
+                | Self::ImageNotOpened(_)
         )
     }
 }
@@ -190,6 +196,21 @@ mod tests {
         assert_eq!(kept.locale_id(), "label-gif-not-deleted");
         assert_eq!(kept.argument(), Some(("reason", "in use".to_owned())));
         assert!(kept.is_failure());
+    }
+
+    #[test]
+    fn an_image_not_opened_is_a_failure_with_windows_own_reason_only() {
+        let other = Notice::ImageNotOpened(OpenError::Other("access denied".to_owned()));
+        assert_eq!(other.locale_id(), "open-error-other");
+        assert_eq!(
+            other.argument(),
+            Some(("reason", "access denied".to_owned()))
+        );
+        assert!(other.is_failure());
+        let unreadable = Notice::ImageNotOpened(OpenError::Unreadable("bad header".to_owned()));
+        assert_eq!(unreadable.argument(), None);
+        assert!(unreadable.to_string().contains("bad header"));
+        assert!(Notice::ImageNotOpened(OpenError::NoImage).is_failure());
     }
 
     #[test]

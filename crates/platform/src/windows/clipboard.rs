@@ -1,9 +1,10 @@
 //! Puts images, text and files on the clipboard, always kept from the cloud clipboard, with images
 //! and files also kept out of the clipboard history when asked, and reads the text pasted into a
-//! text mark.
+//! text mark and the image or image file to mark up.
 
-use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
+use std::ffi::OsString;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bediz_core::image::Image;
@@ -16,15 +17,28 @@ use windows::Win32::System::DataExchange::{
 use windows::Win32::System::Memory::{
     GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
 };
-use windows::Win32::System::Ole::{CF_DIBV5, CF_HDROP, CF_UNICODETEXT, DROPEFFECT_COPY};
+use windows::Win32::System::Ole::{CF_DIB, CF_DIBV5, CF_HDROP, CF_UNICODETEXT, DROPEFFECT_COPY};
 use windows::Win32::UI::ColorSystem::LCS_sRGB;
-use windows::Win32::UI::Shell::DROPFILES;
+use windows::Win32::UI::Shell::{DROPFILES, DragQueryFileW, HDROP};
 use windows::core::{Error, PCWSTR, Result, w};
 
 pub enum Contents {
     Image { png: Arc<Vec<u8>>, dib: Vec<u8> },
     Text(Vec<u8>),
     File(Vec<u8>),
+}
+
+pub enum Pasted<T> {
+    Nothing,
+    Busy,
+    Image(T),
+    File(PathBuf),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Png,
+    Bitmap,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,6 +196,57 @@ fn read_text(format: u32) -> Result<Option<String>> {
     let text = String::from_utf16_lossy(units.get(..end).unwrap_or_default());
     let _ = unsafe { GlobalUnlock(memory) };
     Ok(Some(text))
+}
+
+// PNG keeps an image's transparency, and Windows makes the bitmap from any other image format.
+pub fn image<T>(read: impl FnOnce(Kind, &[u8]) -> T) -> Result<Pasted<T>> {
+    let (png, bitmap, files) = (Format::Png.id(), u32::from(CF_DIB.0), u32::from(CF_HDROP.0));
+    let found = [png, bitmap, files]
+        .into_iter()
+        .find(|format| *format != 0 && unsafe { IsClipboardFormatAvailable(*format) }.is_ok());
+    let Some(format) = found else {
+        return Ok(Pasted::Nothing);
+    };
+    if unsafe { OpenClipboard(None) }.is_err() {
+        return Ok(Pasted::Busy);
+    }
+    let read = unsafe { GetClipboardData(format) }.map(|handle| {
+        let pasted = if format == files {
+            first_file(HDROP(handle.0)).map(Pasted::File)
+        } else {
+            let kind = if format == png {
+                Kind::Png
+            } else {
+                Kind::Bitmap
+            };
+            locked(HGLOBAL(handle.0), |bytes| read(kind, bytes)).map(Pasted::Image)
+        };
+        pasted.unwrap_or(Pasted::Nothing)
+    });
+    let closed = unsafe { CloseClipboard() };
+    read.and_then(|pasted| closed.map(|()| pasted))
+}
+
+fn locked<T>(memory: HGLOBAL, read: impl FnOnce(&[u8]) -> T) -> Option<T> {
+    let size = unsafe { GlobalSize(memory) };
+    let source = unsafe { GlobalLock(memory) };
+    if source.is_null() {
+        return None;
+    }
+    let read = read(unsafe { std::slice::from_raw_parts(source.cast::<u8>(), size) });
+    let _ = unsafe { GlobalUnlock(memory) };
+    Some(read)
+}
+
+fn first_file(list: HDROP) -> Option<PathBuf> {
+    let length = unsafe { DragQueryFileW(list, 0, None) };
+    if length == 0 {
+        return None;
+    }
+    let mut name = vec![0u16; length as usize + 1];
+    let copied = unsafe { DragQueryFileW(list, 0, Some(&mut name)) };
+    name.truncate(copied as usize);
+    Some(PathBuf::from(OsString::from_wide(&name)))
 }
 
 // The flags go first and a failure empties the clipboard, so content never stays without them.

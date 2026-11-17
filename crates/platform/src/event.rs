@@ -18,6 +18,7 @@ use thiserror::Error;
 pub enum Command {
     Capture,
     CaptureAfterMenu,
+    MarkUp(ImageSource),
     RecordGif,
     RetryHotkey,
     TakePrintScreen,
@@ -56,6 +57,12 @@ pub enum Command {
     Resume,
     Recording(RecordingAction),
     Quit(QuitStep),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageSource {
+    Clipboard,
+    File,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,6 +144,7 @@ pub struct MenuTexts {
     pub lock_area: String,
     pub unlock_area: String,
     pub selection_size: String,
+    pub images: String,
     pub markup: MarkupTexts,
     pub right_to_left: bool,
 }

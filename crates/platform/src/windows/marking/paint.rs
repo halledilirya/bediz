@@ -11,7 +11,7 @@ use windows::Win32::Graphics::Direct2D::Common::{
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_ANTIALIAS_MODE_ALIASED, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_SOLID,
-    D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, D2D1_ELLIPSE,
+    D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, D2D1_ELLIPSE, D2D1_INTERPOLATION_MODE_LINEAR,
     D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_LINE_JOIN_ROUND, D2D1_STROKE_STYLE_PROPERTIES,
     ID2D1Bitmap1, ID2D1DeviceContext, ID2D1PathGeometry, ID2D1SolidColorBrush, ID2D1StrokeStyle,
 };
@@ -94,13 +94,18 @@ impl Ink<'_> {
         Ok(())
     }
 
-    pub fn picture(&self, bitmap: &ID2D1Bitmap1, area: Rect) {
+    pub fn picture(&self, bitmap: &ID2D1Bitmap1, area: Rect, smooth: bool) {
+        let interpolation = if smooth {
+            D2D1_INTERPOLATION_MODE_LINEAR
+        } else {
+            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR
+        };
         unsafe {
             self.canvas.DrawBitmap(
                 bitmap,
                 Some(&self.rect(area)),
                 1.0,
-                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                interpolation,
                 None,
                 None,
             );

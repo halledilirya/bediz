@@ -78,6 +78,7 @@ impl Texts {
             lock_area: self.get("recording-lock"),
             unlock_area: self.get("recording-unlock"),
             selection_size: self.selection_size(),
+            images: self.get("open-images"),
             markup: self.markup_texts(),
             right_to_left: self.right_to_left(),
         }
@@ -190,6 +191,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use bediz_core::delivery::{CopyError, DeliveryError, SaveError};
+    use bediz_core::picture::OpenError;
     use bediz_core::recording::{RecordingStop, TimeLimit};
 
     use super::*;
@@ -208,11 +210,15 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 77] = [
+    const USED: [&str; 81] = [
         "settings-title",
         "gif-title",
         "tray-record",
         "tray-record-gif",
+        "tray-open-image",
+        "tray-open-image-clipboard",
+        "tray-open-image-file",
+        "open-images",
         "tray-settings",
         "tray-check-updates",
         "tray-update-to",
@@ -510,6 +516,17 @@ price = Costs $5
             DeliveryError::Other(reason()),
             DeliveryError::Unexpected(reason()),
         ];
+        let open_errors = [
+            OpenError::NoImage,
+            OpenError::ClipboardBusy,
+            OpenError::TooLarge {
+                width: 1,
+                height: 1,
+            },
+            OpenError::Unreadable(reason()),
+            OpenError::Other(reason()),
+            OpenError::Unexpected(reason()),
+        ];
         [
             Notice::Copied,
             Notice::Saved,
@@ -527,6 +544,7 @@ price = Costs $5
         .chain(copy_errors.map(Notice::CopyFailed))
         .chain(save_errors.map(Notice::SaveFailed))
         .chain(delivery_errors.map(Notice::DeliveryFailed))
+        .chain(open_errors.map(Notice::ImageNotOpened))
         .collect()
     }
 

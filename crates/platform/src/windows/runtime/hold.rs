@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use super::Runtime;
-use super::delivery::CLIPBOARD_RETRY_MILLISECONDS;
+use super::copies::CLIPBOARD_RETRY_MILLISECONDS;
 use crate::windows::worker::Worker;
 
 #[derive(Clone, Copy, Default)]

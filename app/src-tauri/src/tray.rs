@@ -1,11 +1,11 @@
-//! The tray icon and its menu: capture, recording controls, hotkey problems, updates, settings,
-//! logs and quit.
+//! The tray icon and its menu: capture, recording controls, opening an image to mark up, hotkey
+//! problems, updates, settings, logs and quit.
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use bediz_core::settings::Settings;
-use bediz_platform::{Command, HotkeyState, RecordingAction, RecordingState};
+use bediz_platform::{Command, HotkeyState, ImageSource, RecordingAction, RecordingState};
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, Wry};
@@ -26,6 +26,9 @@ const RESUME: &str = "recording-resume";
 const FINISH: &str = "recording-finish";
 const RESTART: &str = "recording-restart";
 const DISCARD: &str = "recording-discard";
+const OPEN_IMAGE: &str = "tray-open-image";
+const OPEN_IMAGE_CLIPBOARD: &str = "tray-open-image-clipboard";
+const OPEN_IMAGE_FILE: &str = "tray-open-image-file";
 const RETRY: &str = "tray-retry";
 const TAKE_PRINT_SCREEN: &str = "tray-take-print-screen";
 const START_WITH_WINDOWS: &str = "tray-start-with-windows";
@@ -34,7 +37,7 @@ const CHECK_UPDATES: &str = "tray-check-updates";
 const UPDATE_TO: &str = "tray-update-to";
 const OPEN_LOGS: &str = "tray-open-logs";
 const QUIT: &str = "tray-quit";
-const STATUS_POSITION: usize = 3;
+const STATUS_POSITION: usize = 4;
 
 pub struct Tray {
     icon: TrayIcon<Wry>,
@@ -48,6 +51,9 @@ pub struct Tray {
     finish: MenuItem<Wry>,
     restart: MenuItem<Wry>,
     discard: MenuItem<Wry>,
+    open_image: Submenu<Wry>,
+    open_image_clipboard: MenuItem<Wry>,
+    open_image_file: MenuItem<Wry>,
     retry: MenuItem<Wry>,
     take_print_screen: MenuItem<Wry>,
     startup: CheckMenuItem<Wry>,
@@ -78,6 +84,15 @@ impl Tray {
         let discard = item(DISCARD)?;
         let record =
             Submenu::with_id_and_items(app, RECORD, texts.get(RECORD), true, &[&record_gif])?;
+        let open_image_clipboard = item(OPEN_IMAGE_CLIPBOARD)?;
+        let open_image_file = item(OPEN_IMAGE_FILE)?;
+        let open_image = Submenu::with_id_and_items(
+            app,
+            OPEN_IMAGE,
+            texts.get(OPEN_IMAGE),
+            true,
+            &[&open_image_clipboard, &open_image_file],
+        )?;
         let retry = item(RETRY)?;
         let take_print_screen = item(TAKE_PRINT_SCREEN)?;
         let startup = CheckMenuItem::with_id(
@@ -95,8 +110,14 @@ impl Tray {
         let status = MenuItem::new(app, "", false, None::<&str>)?;
         let separator = PredefinedMenuItem::separator(app)?;
         let below_take = PredefinedMenuItem::separator(app)?;
-        let mut items: Vec<&dyn IsMenuItem<Wry>> =
-            vec![&take, &record, &below_take, &startup, &settings];
+        let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![
+            &take,
+            &record,
+            &open_image,
+            &below_take,
+            &startup,
+            &settings,
+        ];
         if updater::offered() {
             items.push(&updates);
         }
@@ -119,6 +140,8 @@ impl Tray {
                 FINISH => setup::send(app, Command::Recording(RecordingAction::Finish)),
                 RESTART => setup::send(app, Command::Recording(RecordingAction::Restart)),
                 DISCARD => setup::send(app, Command::Recording(RecordingAction::Discard)),
+                OPEN_IMAGE_CLIPBOARD => setup::send(app, Command::MarkUp(ImageSource::Clipboard)),
+                OPEN_IMAGE_FILE => setup::send(app, Command::MarkUp(ImageSource::File)),
                 RETRY => setup::send(app, Command::RetryHotkey),
                 TAKE_PRINT_SCREEN => setup::send(app, Command::TakePrintScreen),
                 START_WITH_WINDOWS => settings::change(app, |current| Settings {
@@ -162,6 +185,9 @@ impl Tray {
             finish,
             restart,
             discard,
+            open_image,
+            open_image_clipboard,
+            open_image_file,
             retry,
             take_print_screen,
             startup,
@@ -182,6 +208,8 @@ impl Tray {
             (&self.finish, FINISH),
             (&self.restart, RESTART),
             (&self.discard, DISCARD),
+            (&self.open_image_clipboard, OPEN_IMAGE_CLIPBOARD),
+            (&self.open_image_file, OPEN_IMAGE_FILE),
             (&self.retry, RETRY),
             (&self.take_print_screen, TAKE_PRINT_SCREEN),
             (&self.settings, SETTINGS),
@@ -193,6 +221,7 @@ impl Tray {
         }
         let _ = self.startup.set_text(texts.get(START_WITH_WINDOWS));
         let _ = self.record.set_text(texts.get(RECORD));
+        let _ = self.open_image.set_text(texts.get(OPEN_IMAGE));
         let _ = self.icon.set_tooltip(Some(texts.get("tray-tooltip")));
     }
 

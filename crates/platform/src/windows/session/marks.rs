@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-use super::{Action, KeyPress, Purpose, Session, is_down};
+use super::{Action, KeyPress, Session, is_down};
 use crate::windows::marking::layout::Typed;
 use crate::windows::scene::Scene;
 
@@ -31,7 +31,7 @@ impl Session {
     }
 
     pub(super) fn press_mark(&mut self, scene: &Scene, window: HWND, point: Point) -> bool {
-        if self.purpose != Purpose::Screenshot {
+        if !self.purpose.is_still() {
             return false;
         }
         let Some(selection) = self.selection.filter(|selection| !selection.is_dragging()) else {
@@ -41,7 +41,7 @@ impl Session {
             return false;
         };
         let reach = scene.reach_at(point);
-        let on_handle = matches!(selection.grip_at(point, reach), Some(Grip::Handle(_)));
+        let on_handle = matches!(self.grip(&selection, point, reach), Some(Grip::Handle(_)));
         let on_corner = self
             .marking
             .markup()
@@ -102,7 +102,7 @@ impl Session {
         grip: Option<Grip>,
         reach: i32,
     ) -> Option<PCWSTR> {
-        if self.purpose != Purpose::Screenshot {
+        if !self.purpose.is_still() {
             return None;
         }
         let selected = self.marking.markup().selected();
@@ -139,7 +139,7 @@ impl Session {
     }
 
     pub(super) fn turn_wheel(&mut self, delta: i16) -> bool {
-        if self.purpose != Purpose::Screenshot || self.selected().is_none() {
+        if !self.purpose.is_still() || self.selected().is_none() {
             return false;
         }
         let steps = i32::from(delta) / WHEEL_DELTA as i32;

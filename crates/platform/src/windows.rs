@@ -1,5 +1,5 @@
-//! The Windows platform: screen capture, the overlays, hotkeys, the clipboard, saving, recording,
-//! the dialogs and shell calls the app makes, and the thread that owns them.
+//! The Windows platform: screen capture, the overlays, hotkeys, the clipboard, opening images,
+//! saving, recording, the dialogs and shell calls the app makes, and the thread that owns them.
 
 mod automation;
 mod capture;
@@ -19,6 +19,7 @@ mod memory;
 mod overlay;
 mod overlay_menu;
 mod package;
+mod picture;
 mod platform;
 mod print_screen_setting;
 mod question;

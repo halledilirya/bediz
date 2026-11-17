@@ -13,6 +13,7 @@ pub mod image;
 pub mod markup;
 pub mod measurement;
 pub mod notice;
+pub mod picture;
 pub mod recording;
 pub mod selection;
 pub mod settings;

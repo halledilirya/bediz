@@ -66,6 +66,7 @@ pub struct Marking {
     maker: Maker,
     asked: Option<Asked>,
     high_surrogate: Option<u16>,
+    within: Option<Rect>,
 }
 
 impl Marking {
@@ -83,7 +84,13 @@ impl Marking {
             maker: Maker::new(reply_to),
             asked: None,
             high_surrogate: None,
+            within: None,
         }
+    }
+
+    // The screen around an opened image is live and no part of it, so its effects never read it.
+    pub fn make_effects_from(&mut self, area: Rect) {
+        self.within = Some(area);
     }
 
     pub fn markup(&self) -> &Markup {
@@ -185,7 +192,8 @@ impl Marking {
         let Some(job) = effect::jobs(self.markup.marks()).nth(index) else {
             return;
         };
-        match beneath(&job, &self.previews, scene).map(|source| (job.mark.clone(), source)) {
+        let source = beneath(&job, &self.previews, scene, self.within);
+        match source.map(|source| (job.mark.clone(), source)) {
             Ok((mark, source)) => {
                 self.asked = Some(asked);
                 self.maker.order(Order { mark, source });
@@ -206,6 +214,9 @@ impl Marking {
         let mut wanted = None;
         let mut ready = true;
         for (index, job) in effect::jobs(self.markup.marks()).enumerate() {
+            if !seen(&job, self.within) {
+                continue;
+            }
             let under: Vec<u64> = shown.iter().map(|preview| preview.stamp).collect();
             if ready && let Some(kept) = reusable(&self.previews, &job, &under) {
                 shown.push(kept.clone());
@@ -261,7 +272,7 @@ impl Marking {
             return Ok(image);
         }
         let mut stamps = self.stamps;
-        let previews = made(marks, &self.previews, scene, &mut stamps);
+        let previews = made(marks, &self.previews, scene, self.within, &mut stamps);
         let missing = effect::jobs(marks).any(|job| {
             job.area.intersection(&rect).is_some()
                 && !previews
@@ -300,15 +311,21 @@ impl Marking {
     }
 }
 
-fn made(marks: &[Mark], earlier: &[Preview], scene: &Scene, stamps: &mut u64) -> Vec<Preview> {
+fn made(
+    marks: &[Mark],
+    earlier: &[Preview],
+    scene: &Scene,
+    within: Option<Rect>,
+    stamps: &mut u64,
+) -> Vec<Preview> {
     let mut made: Vec<Preview> = Vec::new();
-    for job in effect::jobs(marks) {
+    for job in effect::jobs(marks).filter(|job| seen(job, within)) {
         let under: Vec<u64> = made.iter().map(|preview| preview.stamp).collect();
         if let Some(kept) = reusable(earlier, &job, &under) {
             made.push(kept.clone());
             continue;
         }
-        let Some(effect) = beneath(&job, &made, scene)
+        let Some(effect) = beneath(&job, &made, scene, within)
             .ok()
             .and_then(|source| effect::apply(job.mark, &source))
         else {
@@ -337,14 +354,32 @@ fn reusable<'a>(earlier: &'a [Preview], job: &Job, under: &[u64]) -> Option<&'a 
     })
 }
 
-fn beneath(job: &Job, made: &[Preview], scene: &Scene) -> Result<Image> {
-    let screen = scene.read(job.area)?;
-    if job.beneath.is_empty() {
-        return Ok(screen);
+fn beneath(job: &Job, made: &[Preview], scene: &Scene, within: Option<Rect>) -> Result<Image> {
+    let area = read_area(job.area, within)
+        .ok_or_else(|| Error::new(E_FAIL, "the effect lies past the image"))?;
+    let mut source = scene.read(area)?;
+    if !job.beneath.is_empty() {
+        let gpu = scene.gpu_near(Point::new(area.left, area.top))?;
+        let effects: Vec<&Effect> = made.iter().map(|preview| &preview.effect).collect();
+        source = render::layered(source, area, job.beneath, &effects, gpu)?;
     }
-    let gpu = scene.gpu_near(Point::new(job.area.left, job.area.top))?;
-    let effects: Vec<&Effect> = made.iter().map(|preview| &preview.effect).collect();
-    render::layered(screen, job.area, job.beneath, &effects, gpu)
+    if area == job.area {
+        return Ok(source);
+    }
+    effect::extended(&source, area, job.area)
+        .ok_or_else(|| Error::new(E_FAIL, "the effect could not reach past the image"))
+}
+
+fn read_area(area: Rect, within: Option<Rect>) -> Option<Rect> {
+    match within {
+        Some(within) => area.intersection(&within),
+        None => Some(area),
+    }
+}
+
+// An effect wholly off an opened image is never seen, so it is neither made nor waited for.
+fn seen(job: &Job, within: Option<Rect>) -> bool {
+    read_area(job.area, within).is_some()
 }
 
 fn width_key(width: f32) -> u32 {
@@ -565,6 +600,60 @@ mod tests {
             .preview_of(&mark)
             .map(|preview| preview.stamp);
         assert_eq!(shown, Some(1));
+    }
+
+    #[test]
+    fn a_blur_moved_off_an_opened_image_holds_up_no_other_until_it_comes_back() {
+        let drawn = |within: Option<Rect>| {
+            let mut marking = Marking::new(1.0, HWND::default());
+            if let Some(area) = within {
+                marking.make_effects_from(area);
+            }
+            marking.draw(Tool::Blur, Point::new(10, 10));
+            marking.markup_mut().finish(Point::new(40, 40), false);
+            assert!(marking.markup_mut().nudge_selected(200, 200));
+            marking.draw(Tool::Pixelate, Point::new(10, 10));
+            marking.markup_mut().finish(Point::new(40, 40), false);
+            marking
+        };
+        let mut picture = drawn(Some(Rect::new(0, 0, 100, 100)));
+        let Some((1, asked)) = picture.settle_previews() else {
+            panic!("the pixelation on the image is made first");
+        };
+        let Some(pixelate) = picture.markup().marks().get(1).cloned() else {
+            panic!("the pixelation is drawn");
+        };
+        let area = effect::area_of(&pixelate).unwrap();
+        picture.asked = Some(asked);
+        picture.accept(Some(Effect {
+            id: pixelate.id,
+            area,
+            image: Image::from_bgra(
+                area.width(),
+                area.height(),
+                vec![9; (area.width() * area.height() * 4) as usize],
+            )
+            .unwrap(),
+        }));
+        assert!(picture.settle_previews().is_none());
+        assert!(!picture.stale());
+        assert!(picture.decor().preview_of(&pixelate).is_some());
+        assert!(picture.markup_mut().undo());
+        assert!(picture.markup_mut().undo());
+        assert!(matches!(picture.settle_previews(), Some((0, _))));
+        let mut screenshot = drawn(None);
+        assert!(matches!(screenshot.settle_previews(), Some((0, _))));
+    }
+
+    #[test]
+    fn an_opened_image_reads_only_its_own_pixels_and_a_screenshot_its_whole_area() {
+        let area = Rect::new(140, 70, 161, 91);
+        assert_eq!(read_area(area, None), Some(area));
+        assert_eq!(
+            read_area(area, Some(Rect::new(50, 50, 150, 150))),
+            Some(Rect::new(140, 70, 150, 91))
+        );
+        assert_eq!(read_area(area, Some(Rect::new(0, 0, 100, 100))), None);
     }
 
     #[test]

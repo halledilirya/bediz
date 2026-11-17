@@ -1,5 +1,6 @@
-//! The marks made from the pixels under them, a blur and a pixelation, and the marks each one is
-//! made over, since marks lie on each other in the order they were drawn.
+//! The marks made from the pixels under them, a blur and a pixelation, the marks each one is made
+//! over, since marks lie on each other in the order they were drawn, and the pixels it takes past
+//! the edge of an opened image.
 
 use crate::geometry::Rect;
 use crate::image::Image;
@@ -54,6 +55,28 @@ pub fn apply(mark: &Mark, source: &Image) -> Option<Effect> {
         area,
         image,
     })
+}
+
+// Each pixel past the image repeats the nearest one on its edge, as a blur does at its own edges.
+pub fn extended(image: &Image, at: Rect, to: Rect) -> Option<Image> {
+    if at.is_empty() || (at.width(), at.height()) != (image.width(), image.height()) {
+        return None;
+    }
+    let pixels = image.bgra().as_chunks::<4>().0;
+    let width = image.width() as usize;
+    let nearest =
+        |value: i32, start: i32, end: i32| usize::try_from(value.max(start).min(end - 1) - start);
+    let mut bgra = Vec::new();
+    bgra.try_reserve_exact(to.width() as usize * to.height() as usize * 4)
+        .ok()?;
+    for y in to.top..to.bottom {
+        let row = nearest(y, at.top, at.bottom).ok()?;
+        for x in to.left..to.right {
+            let column = nearest(x, at.left, at.right).ok()?;
+            bgra.extend_from_slice(pixels.get(row * width + column)?);
+        }
+    }
+    Image::from_bgra(to.width(), to.height(), bgra).ok()
 }
 
 fn pixelated(source: &Image, block: u32) -> Option<Image> {
@@ -318,5 +341,51 @@ mod tests {
         let made = apply(&pixelate, &source).unwrap();
         assert_eq!((made.id, made.area), (2, Rect::new(0, 0, 4, 4)));
         assert_eq!((made.image.width(), made.image.height()), (4, 4));
+    }
+
+    #[test]
+    fn past_an_image_each_pixel_repeats_the_nearest_one_on_its_edge() {
+        let bgra = [1, 2, 3, 4].into_iter().flat_map(|blue| [blue, 0, 0, 255]);
+        let image = Image::from_bgra(2, 2, bgra.collect()).unwrap();
+        let at = Rect::new(10, 10, 12, 12);
+        let wider = extended(&image, at, Rect::new(9, 9, 13, 12)).unwrap();
+        assert_eq!((wider.width(), wider.height()), (4, 3));
+        let blues: Vec<u8> = wider.bgra().iter().step_by(4).copied().collect();
+        assert_eq!(blues, [1, 1, 2, 2, 1, 1, 2, 2, 3, 3, 4, 4]);
+        assert_eq!(extended(&image, at, at), Some(image.clone()));
+        assert_eq!(extended(&image, Rect::new(10, 10, 13, 12), at), None);
+        assert_eq!(extended(&image, Rect::default(), at), None);
+    }
+
+    #[test]
+    fn an_effect_past_an_image_is_the_same_over_any_screen_around_it() {
+        let (area, on_image) = (Rect::new(140, 70, 161, 91), Rect::new(140, 70, 150, 91));
+        let screen = |around: u8| {
+            let bgra = (0..21 * 21).flat_map(|index| {
+                let level = if index % 21 < 10 { 255 } else { around };
+                [level, level, level, 255]
+            });
+            Image::from_bgra(21, 21, bgra.collect()).unwrap()
+        };
+        let image_part = |screen: &Image| {
+            let rows = screen
+                .bgra()
+                .chunks(21 * 4)
+                .flat_map(|row| row[..10 * 4].to_vec());
+            Image::from_bgra(10, 21, rows.collect()).unwrap()
+        };
+        let (from, to) = (Point::new(140, 70), Point::new(160, 90));
+        for shape in [Shape::Pixelate(from, to), Shape::Blur(from, to)] {
+            let effect = mark(1, shape);
+            assert_eq!(area_of(&effect), Some(area));
+            let from_image = |around| {
+                let source = extended(&image_part(&screen(around)), on_image, area).unwrap();
+                apply(&effect, &source).unwrap().image
+            };
+            assert_eq!(from_image(0), from_image(200));
+            assert!(from_image(0).bgra().iter().all(|level| *level == 255));
+            let from_screen = |around| apply(&effect, &screen(around)).unwrap().image;
+            assert_ne!(from_screen(0), from_screen(200));
+        }
     }
 }

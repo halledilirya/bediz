@@ -1,5 +1,5 @@
 //! Opens the overlay for a screenshot or a recording on a hotkey or the app's command, measures
-//! how fast it appeared, acts on the keys, clicks and menu choices made in it, and closes it.
+//! how fast it appeared, acts on the keys and clicks made in it, and closes it.
 
 use std::time::Duration;
 
@@ -10,23 +10,20 @@ use bediz_core::notice::Notice;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetForegroundWindow, KillTimer, MSG, SPI_GETSELECTIONFADE,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer, SystemParametersInfoW, WM_LBUTTONDBLCLK,
-    WM_LBUTTONDOWN, WM_RBUTTONUP,
+    GetCursorPos, GetForegroundWindow, KillTimer, MSG, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
+    WM_RBUTTONUP,
 };
-use windows::core::{BOOL, Error, Result};
+use windows::core::{Error, Result};
 
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure, Shortcut};
 use crate::windows::foreground::{self, Foreground};
 use crate::windows::hotkey;
-use crate::windows::overlay_menu::{self, Choice, Offer};
 use crate::windows::recording::Timer;
 use crate::windows::scene::Scene;
 use crate::windows::session::{Action, Purpose, Session};
+use crate::windows::virtual_desktop::VirtualDesktops;
 use bediz_core::recording;
-
-const MENU_FADE_MILLISECONDS: u32 = 500;
 
 impl Runtime {
     pub(super) fn open(&mut self, queued: Duration, purpose: Purpose) {
@@ -80,17 +77,7 @@ impl Runtime {
             .and_then(|()| scene.place())
             .and_then(|()| scene.draw_all());
         let presented = self.clock.since(start);
-        if let Some(desktops) = &self.desktops {
-            match desktops.bring_here(&scene.windows(), previous) {
-                Ok(true) => {
-                    notes.push("the overlay moved to the current virtual desktop".to_owned())
-                }
-                Ok(false) => {}
-                Err(error) => notes.push(format!(
-                    "the overlay's virtual desktop could not be checked: {error}"
-                )),
-            }
-        }
+        bring_here(self.desktops.as_ref(), scene, previous, &mut notes);
         let live = purpose == Purpose::Recording && {
             scene.begin_recording();
             match scene.exclude_from_capture(true) {
@@ -133,17 +120,7 @@ impl Runtime {
                 )),
             }
         }
-        match foreground {
-            Foreground::Taken => {}
-            Foreground::TakenAfterInput => {
-                notes.push("the overlay got the foreground only after an empty input".to_owned());
-            }
-            Foreground::Refused => {
-                notes.push(
-                    "the overlay did not get the foreground; a click on it takes it".to_owned(),
-                );
-            }
-        }
+        notes.extend(foreground_note(foreground));
         let first_view = match self.session.as_mut() {
             Some(session) => session.redraw(scene, self.detect_windows.then_some(&self.windows)),
             None => Ok(()),
@@ -180,24 +157,6 @@ impl Runtime {
         (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
         self.hide();
         self.rebuild_scene();
-    }
-
-    // The clicked menu item fades out for a moment and would be in the capture.
-    pub(super) fn open_after_menu(&mut self) {
-        let timer = menu_fades()
-            && unsafe {
-                SetTimer(
-                    Some(self.window.0),
-                    MENU_FADE_TIMER,
-                    MENU_FADE_MILLISECONDS,
-                    None,
-                )
-            } != 0;
-        if timer {
-            self.menu_capture = true;
-        } else {
-            self.open(Duration::ZERO, Purpose::Screenshot);
-        }
     }
 
     pub(super) fn on_live_tick(&mut self) {
@@ -237,7 +196,7 @@ impl Runtime {
         self.follow_selection();
     }
 
-    fn follow_selection(&mut self) {
+    pub(super) fn follow_selection(&mut self) {
         self.place_ready_bar();
         self.place_markup_bar();
         self.announce();
@@ -329,42 +288,6 @@ impl Runtime {
         self.follow_selection();
     }
 
-    fn open_menu(&mut self, at: Point) {
-        let (Some(texts), Some(scene), Some(session)) = (
-            self.menu_texts.as_ref(),
-            self.scene.as_ref(),
-            self.session.as_ref(),
-        ) else {
-            return;
-        };
-        let Some(owner) = scene.window_at(at) else {
-            return;
-        };
-        let offer = Offer {
-            selected: session.selected().is_some(),
-            last_region: self.last_region.is_some(),
-            enter: self.enter,
-            recording: session.purpose() == Purpose::Recording,
-        };
-        match overlay_menu::choose(owner, at, texts, &offer) {
-            Ok(Some(Choice::Deliver(delivery))) => self.deliver(delivery),
-            Ok(Some(Choice::SaveAs)) => self.save_as(),
-            Ok(Some(Choice::Record)) => self.record(menu_fade()),
-            Ok(Some(Choice::CopyColour)) => self.copy_colour(at),
-            Ok(Some(Choice::WholeMonitor)) => {
-                self.reselect(|session, scene| session.select_whole_monitor(scene, at));
-            }
-            Ok(Some(Choice::LastRegion)) => {
-                if let Some(region) = self.last_region {
-                    self.reselect(|session, scene| session.select_region(scene, region));
-                }
-            }
-            Ok(Some(Choice::Cancel)) => self.hide(),
-            Ok(None) => {}
-            Err(error) => (self.sink)(Event::Failed(Failure::Overlay(error.to_string()))),
-        }
-    }
-
     pub(super) fn reselect(&mut self, change: impl FnOnce(&mut Session, &Scene)) {
         let (Some(scene), Some(session)) = (self.scene.as_ref(), self.session.as_mut()) else {
             return;
@@ -390,11 +313,16 @@ impl Runtime {
         self.ready = None;
         self.markup_bar = None;
         self.heard = Default::default();
-        if session.purpose() == Purpose::Recording
+        if session.purpose().shows_live_screen()
             && let Some(scene) = self.scene.as_ref()
             && let Err(error) = scene.exclude_from_capture(false)
         {
             (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
+        }
+        if session.purpose() == Purpose::Picture
+            && let Some(scene) = self.scene.as_mut()
+        {
+            scene.forget_picture();
         }
         let _ = unsafe { ReleaseCapture() };
         if let Some(scene) = self.scene.as_ref()
@@ -416,7 +344,7 @@ impl Runtime {
         session.previous()
     }
 
-    fn rest_scene(&mut self) {
+    pub(super) fn rest_scene(&mut self) {
         let Some(scene) = self.scene.as_mut() else {
             return;
         };
@@ -429,32 +357,43 @@ impl Runtime {
     }
 }
 
-pub(super) fn menu_fade() -> Duration {
-    if menu_fades() {
-        Duration::from_millis(u64::from(MENU_FADE_MILLISECONDS))
-    } else {
-        Duration::ZERO
+pub(super) fn bring_here(
+    desktops: Option<&VirtualDesktops>,
+    scene: &Scene,
+    previous: HWND,
+    notes: &mut Vec<String>,
+) {
+    let Some(desktops) = desktops else {
+        return;
+    };
+    match desktops.bring_here(&scene.windows(), previous) {
+        Ok(true) => notes.push("the overlay moved to the current virtual desktop".to_owned()),
+        Ok(false) => {}
+        Err(error) => notes.push(format!(
+            "the overlay's virtual desktop could not be checked: {error}"
+        )),
     }
 }
 
-fn menu_fades() -> bool {
-    let mut fades = BOOL(0);
-    unsafe {
-        SystemParametersInfoW(
-            SPI_GETSELECTIONFADE,
-            0,
-            Some((&mut fades as *mut BOOL).cast()),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
+pub(super) fn foreground_note(foreground: Foreground) -> Option<String> {
+    match foreground {
+        Foreground::Taken => None,
+        Foreground::TakenAfterInput => {
+            Some("the overlay got the foreground only after an empty input".to_owned())
+        }
+        Foreground::Refused => {
+            Some("the overlay did not get the foreground; a click on it takes it".to_owned())
+        }
     }
-    .is_ok_and(|()| fades.as_bool())
 }
 
-fn pointer_rect() -> Rect {
+pub(super) fn pointer() -> Option<Point> {
     let mut cursor = POINT::default();
-    if unsafe { GetCursorPos(&mut cursor) }.is_err() {
-        return Rect::default();
-    }
-    let at = Point::new(cursor.x, cursor.y);
-    Rect::spanning(at, at)
+    unsafe { GetCursorPos(&mut cursor) }
+        .ok()
+        .map(|()| Point::new(cursor.x, cursor.y))
+}
+
+pub(super) fn pointer_rect() -> Rect {
+    pointer().map_or_else(Rect::default, |at| Rect::spanning(at, at))
 }

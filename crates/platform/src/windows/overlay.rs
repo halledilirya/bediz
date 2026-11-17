@@ -1,12 +1,15 @@
-//! One monitor's overlay window, where the user selects a region on the captured image and marks
-//! it up: its swap chain and surfaces, drawing the view, and showing and hiding it.
+//! One monitor's overlay window, where the user selects a region on the captured image, or an
+//! opened picture, and marks it up: its swap chain and surfaces, drawing the view, and showing
+//! and hiding it.
 
 mod paint;
+mod picture;
 
 use std::cell::RefCell;
 
 use bediz_core::geometry::{Point, Rect};
-use windows::Win32::Foundation::{HINSTANCE, HWND, RECT};
+use bediz_core::image::Image;
+use windows::Win32::Foundation::{E_FAIL, HINSTANCE, HWND, RECT};
 use windows::Win32::Graphics::Direct2D::{ID2D1Bitmap1, ID2D1Image};
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Graphics::DirectWrite::{
@@ -32,7 +35,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowDisplayAffinity, SetWindowPos, ShowWindow, USER_DEFAULT_SCREEN_DPI,
     WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
-use windows::core::{BOOL, Result, w};
+use windows::core::{BOOL, Error, Result, w};
 
 use super::automation::{Announcer, Role};
 use super::gpu::Gpu;
@@ -40,6 +43,7 @@ use super::marking::Decor;
 use super::readback;
 use super::window_class::{OVERLAY_CLASS, OwnedWindow};
 use paint::Painter;
+use picture::Laid;
 
 const PARKED: i32 = -32000;
 const LABEL_FONT_SIZE: f32 = 12.0;
@@ -47,8 +51,9 @@ const LABEL_FONT_SIZE: f32 = 12.0;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct View {
     pub selection: Option<Rect>,
+    pub handles: bool,
     pub highlight: Option<Rect>,
-    pub labelled: bool,
+    pub label: Option<(u32, u32)>,
     pub pointer: Option<Point>,
     pub marks: u64,
 }
@@ -68,6 +73,7 @@ pub struct Overlay {
     dpi: u32,
     text: IDWriteTextFormat,
     previews: RefCell<Vec<(u64, ID2D1Bitmap1)>>,
+    picture: Option<Laid>,
 }
 
 impl Overlay {
@@ -126,6 +132,7 @@ impl Overlay {
             dpi,
             text: text_format(gpu, scale_of(dpi))?,
             previews: RefCell::new(Vec::new()),
+            picture: None,
         };
         if allocate {
             overlay.allocate(gpu)?;
@@ -181,6 +188,7 @@ impl Overlay {
 
     pub fn release(&mut self) -> Result<()> {
         self.previews.borrow_mut().clear();
+        self.picture = None;
         if self.surfaces.take().is_none() {
             return Ok(());
         }
@@ -189,6 +197,28 @@ impl Overlay {
 
     pub fn forget_previews(&self) {
         self.previews.borrow_mut().clear();
+    }
+
+    pub fn show_picture(&mut self, gpu: &Gpu, picture: &Image, place: Rect) -> Result<()> {
+        let surfaces = self
+            .surfaces
+            .as_ref()
+            .ok_or_else(|| Error::new(E_FAIL, "the overlay holds no image"))?;
+        let local = place.translated(-self.rect.left, -self.rect.top);
+        let laid = Laid::new(gpu, picture, local, self.scale())?;
+        laid.copy_into(gpu, &surfaces.image);
+        self.picture = Some(laid);
+        Ok(())
+    }
+
+    pub fn lay_picture(&self, gpu: &Gpu) {
+        if let (Some(laid), Some(surfaces)) = (&self.picture, &self.surfaces) {
+            laid.copy_into(gpu, &surfaces.image);
+        }
+    }
+
+    pub fn forget_picture(&mut self) {
+        self.picture = None;
     }
 
     pub fn pixel(&self, gpu: &Gpu, at: Point) -> Option<[u8; 4]> {
@@ -207,10 +237,7 @@ impl Overlay {
         let (left, top) = (self.rect.left, self.rect.top);
         let bounds = self.rect.translated(-left, -top);
         let local = |area: Rect| area.translated(-left, -top);
-        let framed = view
-            .selection
-            .map(|area| (local(area), true))
-            .or(view.highlight.map(|area| (local(area), false)));
+        let framed = framed(view).map(|(area, handles)| (local(area), handles));
         let pointer = view
             .pointer
             .filter(|pointer| self.rect.contains(*pointer))
@@ -240,8 +267,8 @@ impl Overlay {
         painter.dim(framed.and_then(|(area, _)| area.intersection(&bounds)));
         if let Some((area, with_handles)) = framed {
             painter.frame(area, with_handles);
-            if view.labelled {
-                painter.size_label(area);
+            if let Some(size) = view.label {
+                painter.size_label(area, size);
             }
         }
         if let Some(selected) = decor.selected {
@@ -315,6 +342,12 @@ impl Overlay {
     }
 }
 
+fn framed(view: &View) -> Option<(Rect, bool)> {
+    view.selection
+        .map(|area| (area, view.handles))
+        .or(view.highlight.map(|area| (area, false)))
+}
+
 fn monitor_dpi(rect: Rect) -> u32 {
     let bounds = RECT {
         left: rect.left,
@@ -362,5 +395,29 @@ fn set_flag(window: HWND, attribute: DWMWINDOWATTRIBUTE, value: bool) -> Result<
             (&value as *const BOOL).cast(),
             size_of::<BOOL>() as u32,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_selection_has_handles_only_when_its_view_asks_and_a_window_never() {
+        let area = Rect::new(10, 20, 110, 220);
+        let selected = |handles| View {
+            selection: Some(area),
+            handles,
+            ..View::default()
+        };
+        assert_eq!(framed(&selected(true)), Some((area, true)));
+        assert_eq!(framed(&selected(false)), Some((area, false)));
+        let window = View {
+            highlight: Some(area),
+            handles: true,
+            ..View::default()
+        };
+        assert_eq!(framed(&window), Some((area, false)));
+        assert_eq!(framed(&View::default()), None);
     }
 }

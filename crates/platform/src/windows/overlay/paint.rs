@@ -86,8 +86,8 @@ impl Painter<'_> {
         }
     }
 
-    pub fn size_label(&self, area: Rect) {
-        let text = format!("{} \u{00d7} {}", area.width(), area.height());
+    pub fn size_label(&self, area: Rect, (width, height): (u32, u32)) {
+        let text = format!("{width} \u{00d7} {height}");
         let Some((width, height)) = self.measure(&text) else {
             return;
         };

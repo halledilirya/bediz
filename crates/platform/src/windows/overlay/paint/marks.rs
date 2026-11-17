@@ -124,7 +124,7 @@ impl Painter<'_> {
                 Err(_) => return,
             },
         };
-        ink.picture(&bitmap, preview.effect.area);
+        ink.picture(&bitmap, preview.effect.area, false);
     }
 
     fn placeholder(&self, mark: &Mark, ink: &Ink) {

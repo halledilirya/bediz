@@ -1,5 +1,5 @@
-//! The keys of a selection: what each one does on a screenshot or a recording, with or without a
-//! selection, and acting on it for the selection, the marks or the app.
+//! The keys of a selection: what each one does on a screenshot, a recording or an opened picture,
+//! with or without a selection, and acting on it for the selection, the marks or the app.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
@@ -55,6 +55,7 @@ impl Session {
                 markup.nudge_selected(dx, dy);
                 Some(Action::None)
             }
+            Response::Move { .. } if !self.purpose.reshapes() => None,
             Response::Move { dx, dy, resize } => {
                 let selection = self.selection.as_mut()?;
                 if resize {
@@ -119,8 +120,9 @@ fn respond(press: KeyPress, selected: bool, enter: Delivery, purpose: Purpose) -
         dy,
         resize: press.control,
     };
-    let screenshot = purpose == Purpose::Screenshot;
-    let marking = screenshot && selected;
+    let still = purpose.is_still();
+    let marking = still && selected;
+    let reshapes = purpose.reshapes();
     let response = match press.key {
         VK_Z if press.control && marking => {
             if press.shift {
@@ -136,22 +138,20 @@ fn respond(press: KeyPress, selected: bool, enter: Delivery, purpose: Purpose) -
         VK_ESCAPE => Response::Escape,
         VK_F4 if press.alt => Response::Act(Action::Cancel),
         VK_RETURN if selected => Response::Act(confirm(purpose, enter)),
-        VK_C if press.control && selected && screenshot => {
+        VK_C if press.control && selected && still => {
             Response::Act(Action::Deliver(Delivery::COPY))
         }
-        VK_S if press.control && !press.shift && selected && screenshot => {
+        VK_S if press.control && !press.shift && selected && still => {
             Response::Act(Action::Deliver(Delivery::SAVE))
         }
-        VK_S if press.control && press.shift && selected && screenshot => {
-            Response::Act(Action::SaveAs)
-        }
+        VK_S if press.control && press.shift && selected && still => Response::Act(Action::SaveAs),
         VK_LEFT => moved(-step, 0),
         VK_RIGHT => moved(step, 0),
         VK_UP => moved(0, -step),
         VK_DOWN => moved(0, step),
-        VK_A if press.control => Response::WholeMonitor,
-        VK_R if !press.control => Response::LastRegion,
-        VK_C if !press.control && screenshot => Response::CopyColour,
+        VK_A if press.control && reshapes => Response::WholeMonitor,
+        VK_R if !press.control && reshapes => Response::LastRegion,
+        VK_C if !press.control && still => Response::CopyColour,
         VK_APPS => Response::Menu,
         VK_F10 if press.shift => Response::Menu,
         VK_SHIFT | VK_MENU => Response::Modifiers,
@@ -288,6 +288,34 @@ mod tests {
             replayed(HOT_KEY_MODIFIERS(0), VK_C, true),
             Some(Response::CopyColour)
         );
+    }
+
+    #[test]
+    fn a_picture_takes_the_screenshot_keys_but_keeps_its_selection() {
+        let picture = |modifiers, key| replayed_for(Purpose::Picture, modifiers, key, true);
+        assert_eq!(
+            picture(HOT_KEY_MODIFIERS(0), VK_RETURN),
+            Some(Response::Act(Action::Deliver(Delivery::COPY_AND_SAVE)))
+        );
+        assert_eq!(
+            picture(MOD_CONTROL, VK_C),
+            Some(Response::Act(Action::Deliver(Delivery::COPY)))
+        );
+        assert_eq!(
+            picture(MOD_CONTROL | MOD_SHIFT, VK_S),
+            Some(Response::Act(Action::SaveAs))
+        );
+        assert_eq!(picture(MOD_CONTROL, VK_Z), Some(Response::Undo));
+        assert_eq!(
+            picture(HOT_KEY_MODIFIERS(0), VK_P),
+            Some(Response::Tool(Tool::Pen))
+        );
+        assert_eq!(
+            picture(HOT_KEY_MODIFIERS(0), VK_C),
+            Some(Response::CopyColour)
+        );
+        assert_eq!(picture(MOD_CONTROL, VK_A), None);
+        assert_eq!(picture(HOT_KEY_MODIFIERS(0), VK_R), None);
     }
 
     #[test]

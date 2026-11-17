@@ -40,6 +40,7 @@ pub struct Offer {
     pub last_region: bool,
     pub enter: Delivery,
     pub recording: bool,
+    pub picture: bool,
 }
 
 struct OwnedMenu(HMENU);
@@ -95,15 +96,19 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
         menu.item(SAVE, &texts.save, key(Delivery::SAVE, "Ctrl+S"), true)?;
         menu.item(SAVE_AS, &texts.save_as, "Ctrl+Shift+S", true)?;
         menu.separator()?;
-        menu.item(RECORD, &texts.record, "", true)?;
-        menu.separator()?;
+        if !offer.picture {
+            menu.item(RECORD, &texts.record, "", true)?;
+            menu.separator()?;
+        }
         unsafe { SetMenuDefaultItem(menu.0, item_for(offer.enter) as u32, 0) }?;
     }
     if !offer.recording {
         menu.item(COPY_COLOUR, &texts.copy_colour, "C", true)?;
     }
-    menu.item(WHOLE_MONITOR, &texts.whole_monitor, "Ctrl+A", true)?;
-    menu.item(LAST_REGION, &texts.last_region, "R", offer.last_region)?;
+    if !offer.picture {
+        menu.item(WHOLE_MONITOR, &texts.whole_monitor, "Ctrl+A", true)?;
+        menu.item(LAST_REGION, &texts.last_region, "R", offer.last_region)?;
+    }
     menu.separator()?;
     menu.item(CANCEL, &texts.cancel, "Esc", true)?;
     let flags = flags(texts.right_to_left);

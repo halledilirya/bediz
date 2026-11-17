@@ -13,6 +13,7 @@ use super::ready::ReadyBar;
 use crate::event::{Event, GifEvent, RecordingAction, RecordingState};
 use crate::windows::recording::controls::{self, Button};
 use crate::windows::recording::{Ended, Next, Pipeline, Recording, Request, StartError};
+use crate::windows::session::Purpose;
 use crate::windows::{clipboard, clock};
 
 pub(super) struct Finishing {
@@ -137,7 +138,10 @@ impl Runtime {
         ) else {
             return;
         };
-        let Some(selection) = session.selected() else {
+        let Some(selection) = session
+            .selected()
+            .filter(|_| session.purpose() != Purpose::Picture)
+        else {
             return;
         };
         let monitors = scene.monitor_rects();

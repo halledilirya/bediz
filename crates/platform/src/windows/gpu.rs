@@ -4,7 +4,8 @@
 use std::mem::ManuallyDrop;
 
 use bediz_core::image::Image;
-use windows::Win32::Foundation::{E_POINTER, HMODULE};
+use bediz_core::picture;
+use windows::Win32::Foundation::{E_FAIL, E_POINTER, HMODULE};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_SIZE_U, D2D1_ALPHA_MODE, D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED,
     D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
@@ -210,7 +211,24 @@ impl Gpu {
     }
 
     pub fn memory_bitmap(&self, image: &Image) -> Result<ID2D1Bitmap1> {
-        let properties = properties(D2D1_BITMAP_OPTIONS_NONE, D2D1_ALPHA_MODE_IGNORE);
+        self.created(image, D2D1_ALPHA_MODE_IGNORE)
+    }
+
+    // A picture larger than the device holds is halved first; it is only shown, never copied.
+    pub fn picture_bitmap(&self, image: &Image) -> Result<ID2D1Bitmap1> {
+        let most = unsafe { self.canvas.GetMaximumBitmapSize() }.max(1);
+        let mut smaller = None;
+        let mut current = image;
+        while current.width() > most || current.height() > most {
+            let half = picture::halved(current)
+                .ok_or_else(|| Error::new(E_FAIL, "the image could not be made smaller"))?;
+            current = smaller.insert(half);
+        }
+        self.created(current, D2D1_ALPHA_MODE_PREMULTIPLIED)
+    }
+
+    fn created(&self, image: &Image, alpha: D2D1_ALPHA_MODE) -> Result<ID2D1Bitmap1> {
+        let properties = properties(D2D1_BITMAP_OPTIONS_NONE, alpha);
         unsafe {
             self.canvas.CreateBitmap(
                 D2D_SIZE_U {

@@ -37,10 +37,9 @@ impl Runtime {
         let Some(session) = self.session.as_ref() else {
             return;
         };
-        let size = session
-            .settled()
-            .map(|selection| (selection.width(), selection.height()));
-        let news = self.heard.news(size, session.marking().tool());
+        let news = self
+            .heard
+            .news(session.settled_size(), session.marking().tool());
         let (Some(scene), Some(texts)) = (self.scene.as_ref(), self.menu_texts.as_ref()) else {
             return;
         };
