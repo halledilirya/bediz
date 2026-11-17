@@ -1,5 +1,5 @@
 //! Opens an image to mark up, from a file the user picks or from the clipboard, and reads it with
-//! the Windows Imaging Component, upright and premultiplied, on a thread of its own.
+//! the Windows Imaging Component, upright, in sRGB and premultiplied, on a thread of its own.
 
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -11,8 +11,10 @@ use bediz_core::picture::{self, OpenError};
 use windows::Win32::Foundation::{ERROR_CANCELLED, GENERIC_READ, HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_ContainerFormatBmp, GUID_WICPixelFormat32bppBGRA,
-    IWICBitmapDecoder, IWICBitmapFrameDecode, IWICImagingFactory, IWICPalette,
-    WICBitmapDitherTypeNone, WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand,
+    IWICBitmapDecoder, IWICBitmapFrameDecode, IWICBitmapSource, IWICColorContext,
+    IWICColorTransform, IWICImagingFactory, IWICPalette, WICBitmapDitherTypeNone,
+    WICBitmapPaletteTypeCustom, WICColorContextExifColorSpace, WICColorContextProfile,
+    WICDecodeMetadataCacheOnDemand,
 };
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PropVariantClear, PropVariantToUInt16,
@@ -26,7 +28,7 @@ use windows::Win32::UI::Shell::{
     FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FileOpenDialog, IFileOpenDialog,
 };
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-use windows::core::{Error, HSTRING, PCWSTR, w};
+use windows::core::{Error, HSTRING, Interface, PCWSTR, w};
 
 use super::clipboard::{self, Kind, Pasted};
 use super::runtime::WM_PICTURE;
@@ -40,6 +42,15 @@ const IMAGE_FILES: PCWSTR = w!(
 const IMAGING_FACILITY: u32 = 0x8898;
 const CLIPBOARD_ATTEMPTS: u32 = 10;
 const CLIPBOARD_RETRY: Duration = Duration::from_millis(25);
+const EXIF_SRGB: u32 = 1;
+const EXIF_ADOBE_RGB: u32 = 2;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Colours {
+    Profile,
+    Exif(u32),
+    Unknown,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -215,8 +226,13 @@ fn decode(factory: &IWICImagingFactory, decoder: &IWICBitmapDecoder) -> Result<I
         )
     }
     .map_err(open_error)?;
+    let transform = in_srgb(factory, &frame, &converter);
+    let source: &IWICBitmapSource = match &transform {
+        Some(transform) => transform,
+        None => &converter,
+    };
     let (mut width, mut height) = (0, 0);
-    unsafe { converter.GetSize(&mut width, &mut height) }.map_err(open_error)?;
+    unsafe { source.GetSize(&mut width, &mut height) }.map_err(open_error)?;
     picture::check_size(width, height)?;
     let too_large = || OpenError::TooLarge { width, height };
     let stride = width.checked_mul(4).ok_or_else(too_large)?;
@@ -226,7 +242,7 @@ fn decode(factory: &IWICImagingFactory, decoder: &IWICBitmapDecoder) -> Result<I
     let mut bgra = Vec::new();
     bgra.try_reserve_exact(length).map_err(|_| too_large())?;
     bgra.resize(length, 0);
-    unsafe { converter.CopyPixels(std::ptr::null(), stride, &mut bgra) }.map_err(open_error)?;
+    unsafe { source.CopyPixels(std::ptr::null(), stride, &mut bgra) }.map_err(open_error)?;
     if unsafe { decoder.GetContainerFormat() }.is_ok_and(|format| format == GUID_ContainerFormatBmp)
     {
         picture::fill_unused_alpha(&mut bgra);
@@ -234,6 +250,79 @@ fn decode(factory: &IWICImagingFactory, decoder: &IWICBitmapDecoder) -> Result<I
     let image = picture::premultiplied(width, height, bgra)
         .map_err(|error| OpenError::Unexpected(error.to_string()))?;
     Ok(picture::upright(&image, orientation(&frame)).unwrap_or(image))
+}
+
+// The overlay shows sRGB and the PNG is saved as sRGB, so an image's own profile is applied.
+fn in_srgb(
+    factory: &IWICImagingFactory,
+    frame: &IWICBitmapFrameDecode,
+    converted: &IWICBitmapSource,
+) -> Option<IWICColorTransform> {
+    let profile = profile_of(factory, frame)?;
+    let sources: [&IWICBitmapSource; 2] = [frame, converted];
+    to_srgb(factory, &sources, &profile)
+}
+
+fn profile_of(
+    factory: &IWICImagingFactory,
+    frame: &IWICBitmapFrameDecode,
+) -> Option<IWICColorContext> {
+    let mut count = 0;
+    // Microsoft's page counts the contexts with a null array; an empty slice's pointer is not null.
+    let counted = unsafe {
+        (frame.vtable().GetColorContexts)(frame.as_raw(), 0, std::ptr::null_mut(), &mut count)
+    };
+    if counted.is_err() || count == 0 {
+        return None;
+    }
+    let mut contexts = (0..count)
+        .map(|_| unsafe { factory.CreateColorContext() }.ok())
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .map(Some)
+        .collect::<Vec<_>>();
+    unsafe { frame.GetColorContexts(&mut contexts, &mut count) }.ok()?;
+    let contexts: Vec<IWICColorContext> = contexts.into_iter().flatten().collect();
+    let colours: Vec<Colours> = contexts.iter().map(colours_of).collect();
+    contexts.into_iter().nth(to_convert(&colours)?)
+}
+
+fn colours_of(context: &IWICColorContext) -> Colours {
+    match unsafe { context.GetType() } {
+        Ok(kind) if kind == WICColorContextProfile => Colours::Profile,
+        Ok(kind) if kind == WICColorContextExifColorSpace => {
+            unsafe { context.GetExifColorSpace() }.map_or(Colours::Unknown, Colours::Exif)
+        }
+        _ => Colours::Unknown,
+    }
+}
+
+// A profile says the most; of Exif's colour spaces only Adobe RGB is not sRGB.
+fn to_convert(colours: &[Colours]) -> Option<usize> {
+    colours
+        .iter()
+        .position(|colours| *colours == Colours::Profile)
+        .or_else(|| {
+            colours
+                .iter()
+                .position(|colours| *colours == Colours::Exif(EXIF_ADOBE_RGB))
+        })
+}
+
+// The transform takes only some pixel formats, so a frame in another goes through the converter.
+fn to_srgb(
+    factory: &IWICImagingFactory,
+    sources: &[&IWICBitmapSource],
+    profile: &IWICColorContext,
+) -> Option<IWICColorTransform> {
+    let srgb = unsafe { factory.CreateColorContext() }.ok()?;
+    unsafe { srgb.InitializeFromExifColorSpace(EXIF_SRGB) }.ok()?;
+    sources.iter().find_map(|source| {
+        let transform = unsafe { factory.CreateColorTransformer() }.ok()?;
+        unsafe { transform.Initialize(*source, profile, &srgb, &GUID_WICPixelFormat32bppBGRA) }
+            .ok()?;
+        Some(transform)
+    })
 }
 
 fn orientation(frame: &IWICBitmapFrameDecode) -> u16 {
@@ -270,7 +359,13 @@ mod tests {
 
     use windows::Win32::Foundation::E_ACCESSDENIED;
     use windows::Win32::Graphics::Gdi::BITMAPV5HEADER;
-    use windows::Win32::System::Com::COINIT_MULTITHREADED;
+    use windows::Win32::Graphics::Imaging::{
+        GUID_ContainerFormatPng, IWICBitmapFrameEncode, WICBitmapEncoderNoCache,
+    };
+    use windows::Win32::System::Com::{
+        COINIT_MULTITHREADED, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET,
+    };
+    use windows::Win32::UI::Shell::SHCreateMemStream;
     use windows::core::HRESULT;
 
     use super::*;
@@ -289,6 +384,93 @@ mod tests {
             .flat_map(|index| [index * 20, 255 - index * 20, 128, alpha])
             .collect();
         Image::from_bgra(4, 3, bgra).unwrap()
+    }
+
+    fn adobe_rgb_profile() -> Vec<u8> {
+        let fixed = |value: f64| ((value * 65536.0).round() as i32).to_be_bytes();
+        let xyz = |x: f64, y: f64, z: f64| {
+            [b"XYZ \0\0\0\0".as_slice(), &fixed(x), &fixed(y), &fixed(z)].concat()
+        };
+        let d50 = xyz(0.9642, 1.0, 0.8249);
+        let description = [
+            b"desc\0\0\0\0".as_slice(),
+            &5u32.to_be_bytes(),
+            b"test\0",
+            &[0u8; 78],
+        ];
+        let gamma = [b"curv\0\0\0\0".as_slice(), &1u32.to_be_bytes(), &[2u8, 51]];
+        let elements: [(&[&[u8; 4]], Vec<u8>); 7] = [
+            (&[b"desc"], description.concat()),
+            (&[b"cprt"], b"text\0\0\0\0none\0".to_vec()),
+            (&[b"wtpt"], d50.clone()),
+            (&[b"rXYZ"], xyz(0.6097, 0.3111, 0.0195)),
+            (&[b"gXYZ"], xyz(0.2053, 0.6257, 0.0609)),
+            (&[b"bXYZ"], xyz(0.1492, 0.0632, 0.7446)),
+            (&[b"rTRC", b"gTRC", b"bTRC"], gamma.concat()),
+        ];
+        let tags: usize = elements.iter().map(|(names, _)| names.len()).sum();
+        let start = 128 + 4 + tags * 12;
+        let (mut table, mut data) = ((tags as u32).to_be_bytes().to_vec(), Vec::new());
+        for (names, element) in &elements {
+            for name in *names {
+                table.extend_from_slice(*name);
+                table.extend_from_slice(&((start + data.len()) as u32).to_be_bytes());
+                table.extend_from_slice(&(element.len() as u32).to_be_bytes());
+            }
+            data.extend_from_slice(element);
+            data.resize(data.len().next_multiple_of(4), 0);
+        }
+        let mut header = vec![0; 128];
+        header[..4].copy_from_slice(&((start + data.len()) as u32).to_be_bytes());
+        header[8..12].copy_from_slice(&[2, 0x10, 0, 0]);
+        header[12..24].copy_from_slice(b"mntrRGB XYZ ");
+        header[36..40].copy_from_slice(b"acsp");
+        header[68..80].copy_from_slice(&d50[8..]);
+        [header, table, data].concat()
+    }
+
+    fn png_with_profile(bgra: &[u8], width: u32, profile: &[u8]) -> Vec<u8> {
+        let factory = factory().unwrap();
+        let context = unsafe { factory.CreateColorContext() }.unwrap();
+        unsafe { context.InitializeFromMemory(profile) }.unwrap();
+        let stream = unsafe { SHCreateMemStream(None) }.unwrap();
+        let encoder =
+            unsafe { factory.CreateEncoder(&GUID_ContainerFormatPng, std::ptr::null()) }.unwrap();
+        let (mut frame, mut options) = (None, None);
+        let mut format = GUID_WICPixelFormat32bppBGRA;
+        let height = bgra.len() as u32 / (width * 4);
+        unsafe {
+            encoder
+                .Initialize(&stream, WICBitmapEncoderNoCache)
+                .unwrap();
+            encoder.CreateNewFrame(&mut frame, &mut options).unwrap();
+            let frame: IWICBitmapFrameEncode = frame.unwrap();
+            frame.Initialize(options.as_ref()).unwrap();
+            frame.SetSize(width, height).unwrap();
+            frame.SetPixelFormat(&mut format).unwrap();
+            frame.SetColorContexts(&[Some(context)]).unwrap();
+            frame.WritePixels(height, width * 4, bgra).unwrap();
+            frame.Commit().unwrap();
+            encoder.Commit().unwrap();
+        }
+        assert_eq!(format, GUID_WICPixelFormat32bppBGRA);
+        let mut stat = STATSTG::default();
+        unsafe { stream.Stat(&mut stat, STATFLAG_NONAME) }.unwrap();
+        let mut png = vec![0u8; stat.cbSize as usize];
+        let mut read = 0;
+        unsafe {
+            stream.Seek(0, STREAM_SEEK_SET, None).unwrap();
+            stream
+                .Read(
+                    png.as_mut_ptr().cast(),
+                    png.len() as u32,
+                    Some(&raw mut read),
+                )
+                .ok()
+                .unwrap();
+        }
+        assert_eq!(read as usize, png.len());
+        png
     }
 
     #[test]
@@ -379,6 +561,65 @@ mod tests {
             copy_of(Kind::Bitmap, &[0; 20]),
             Err(OpenError::Unreadable(_))
         ));
+    }
+
+    #[test]
+    fn a_profile_or_adobe_rgb_is_converted_and_srgb_or_nothing_is_not() {
+        assert_eq!(to_convert(&[]), None);
+        assert_eq!(to_convert(&[Colours::Exif(EXIF_SRGB)]), None);
+        assert_eq!(to_convert(&[Colours::Exif(0xFFFF), Colours::Unknown]), None);
+        assert_eq!(to_convert(&[Colours::Exif(EXIF_ADOBE_RGB)]), Some(0));
+        let both = [Colours::Exif(EXIF_ADOBE_RGB), Colours::Profile];
+        assert_eq!(to_convert(&both), Some(1));
+    }
+
+    #[test]
+    fn adobe_rgb_colours_are_brought_to_srgb() {
+        with_com(|| {
+            let factory = factory().unwrap();
+            let pixels: [u8; 8] = [128, 128, 128, 255, 64, 128, 64, 255];
+            let bitmap = unsafe {
+                factory.CreateBitmapFromMemory(2, 1, &GUID_WICPixelFormat32bppBGRA, 8, &pixels)
+            }
+            .unwrap();
+            let adobe = unsafe { factory.CreateColorContext() }.unwrap();
+            unsafe { adobe.InitializeFromExifColorSpace(EXIF_ADOBE_RGB) }.unwrap();
+            let source: &IWICBitmapSource = &bitmap;
+            let transform = to_srgb(&factory, &[source], &adobe).unwrap();
+            let mut read = [0u8; 8];
+            unsafe { transform.CopyPixels(std::ptr::null(), 8, &mut read) }.unwrap();
+            for level in &read[..3] {
+                assert!(level.abs_diff(128) <= 3, "{read:?}");
+            }
+            assert!(read[6] < 32, "{read:?}");
+            assert_eq!([read[3], read[7]], [255, 255]);
+        });
+    }
+
+    #[test]
+    fn a_png_carrying_an_adobe_rgb_profile_opens_in_srgb() {
+        with_com(|| {
+            let green = [64u8, 128, 64, 255].repeat(4);
+            let png = png_with_profile(&green, 2, &adobe_rgb_profile());
+            let factory = factory().unwrap();
+            let stream = unsafe { factory.CreateStream() }.unwrap();
+            unsafe { stream.InitializeFromMemory(&png) }.unwrap();
+            let decoder = unsafe {
+                factory.CreateDecoderFromStream(
+                    &stream,
+                    std::ptr::null(),
+                    WICDecodeMetadataCacheOnDemand,
+                )
+            }
+            .unwrap();
+            let frame = unsafe { decoder.GetFrame(0) }.unwrap();
+            let profile = profile_of(&factory, &frame).unwrap();
+            assert_eq!(colours_of(&profile), Colours::Profile);
+            let read = from_bytes(&png).unwrap();
+            for pixel in read.bgra().chunks(4) {
+                assert!(pixel[2] < 32 && pixel[3] == 255, "{pixel:?}");
+            }
+        });
     }
 
     #[test]
