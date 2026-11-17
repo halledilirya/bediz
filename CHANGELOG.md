@@ -12,6 +12,10 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 - Screen readers such as Narrator say the selection's size as it changes and the tool chosen, and read out the result of a copy or save from a Windows notification.
 - Marking up an image from the clipboard or a file with the same tools, from **Open an image** in the tray menu; a large image is copied and saved at its own size.
 
+### Changed
+
+- A click beside a selection keeps it; drag there to start a new one.
+
 ## [0.2.0] - 2026-11-13
 
 ### Added

@@ -5,22 +5,22 @@
 mod keys;
 mod marks;
 mod picture;
+mod pointer;
 
 pub use picture::Picture;
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
-use bediz_core::selection::{Grip, Handle, Modifiers, Selection};
+use bediz_core::selection::{Modifiers, Selection};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::SystemServices::MK_LBUTTON;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetSystemMetrics, IDC_ARROW, IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
-    IDC_SIZENWSE, IDC_SIZEWE, LoadCursorW, MSG, SM_CXDRAG, SM_CYDRAG, WM_CHAR, WM_KEYDOWN,
-    WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    GetCursorPos, IDC_CROSS, LoadCursorW, MSG, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONUP, WM_SYSKEYDOWN,
+    WM_SYSKEYUP,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -29,6 +29,7 @@ use super::overlay::View;
 use super::scene::Scene;
 use super::window_class;
 use super::window_list::WindowList;
+use pointer::Click;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -72,17 +73,13 @@ pub struct KeyPress {
     pub shift: bool,
 }
 
-struct Click {
-    at: Point,
-    window: Rect,
-}
-
 pub struct Session {
     previous: HWND,
     enter: Delivery,
     purpose: Purpose,
     selection: Option<Selection>,
     click: Option<Click>,
+    beside: Option<Point>,
     pointer: Option<Point>,
     views: Vec<View>,
     marking: Marking,
@@ -109,6 +106,7 @@ impl Session {
             purpose,
             selection: None,
             click: None,
+            beside: None,
             pointer,
             views: Vec::new(),
             marking: Marking::new(scale, reply_to),
@@ -186,7 +184,10 @@ impl Session {
             // Alt+Tab or the Win key can take the mouse mid-drag; the button then comes up elsewhere.
             WM_MOUSEMOVE
                 if message.wParam.0 & MK_LBUTTON.0 as usize == 0
-                    && (self.click.is_some() || self.is_dragging() || self.marks_busy()) =>
+                    && (self.click.is_some()
+                        || self.beside.is_some()
+                        || self.is_dragging()
+                        || self.marks_busy()) =>
             {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, message.hwnd, point)
@@ -235,95 +236,18 @@ impl Session {
     }
 
     pub fn select_whole_monitor(&mut self, scene: &Scene, at: Point) {
-        self.click = None;
+        (self.click, self.beside) = (None, None);
         self.selection = Selection::whole_monitor(scene.monitor_rects(), at);
     }
 
     pub fn select_region(&mut self, scene: &Scene, region: Rect) {
-        self.click = None;
+        (self.click, self.beside) = (None, None);
         self.selection = Selection::restore(scene.monitor_rects(), region);
     }
 
     fn is_dragging(&self) -> bool {
         self.selection
             .is_some_and(|selection| selection.is_dragging())
-    }
-
-    fn inside_selection(&self, scene: &Scene, point: Point) -> bool {
-        self.selection.is_some_and(|selection| {
-            !selection.is_dragging()
-                && self.grip(&selection, point, scene.reach_at(point)) == Some(Grip::Inside)
-        })
-    }
-
-    fn press(&mut self, scene: &Scene, windows: Option<&WindowList>, point: Point) {
-        if !self.purpose.reshapes() {
-            return;
-        }
-        if let Some(selection) = &mut self.selection
-            && let Some(grip) = selection.grip_at(point, scene.reach_at(point))
-        {
-            selection.grab(grip, point);
-            show_cursor(cursor_for(Some(grip)));
-            return;
-        }
-        self.selection = Selection::start(scene.monitor_rects(), point);
-        self.click = windows
-            .and_then(|windows| windows.window_at(point))
-            .map(|window| Click { at: point, window });
-        show_cursor(IDC_CROSS);
-    }
-
-    fn hover(&mut self, scene: &Scene, point: Point) -> bool {
-        if self.marks_busy() {
-            self.drag_mark(point);
-            return true;
-        }
-        if let Some(click) = &self.click {
-            if !beyond_drag_threshold(click.at, point) {
-                return true;
-            }
-            self.click = None;
-        }
-        match &mut self.selection {
-            Some(selection) if selection.is_dragging() => {
-                selection.drag(point, modifiers());
-                true
-            }
-            Some(selection) => {
-                let selection = *selection;
-                let reach = scene.reach_at(point);
-                let grip = self.grip(&selection, point, reach);
-                let shape = self.mark_cursor(point, grip, reach).unwrap_or_else(|| {
-                    if self.purpose.reshapes() {
-                        cursor_for(grip)
-                    } else {
-                        IDC_ARROW
-                    }
-                });
-                show_cursor(shape);
-                false
-            }
-            None => true,
-        }
-    }
-
-    fn release(&mut self, scene: &Scene, window: HWND, point: Point) -> bool {
-        if self.marks_busy() {
-            self.release_mark(scene, window, point);
-            return true;
-        }
-        if let Some(click) = self.click.take() {
-            self.selection = Selection::restore(scene.monitor_rects(), click.window);
-            return true;
-        }
-        match &mut self.selection {
-            Some(selection) if selection.is_dragging() => {
-                selection.finish(point, modifiers());
-                true
-            }
-            _ => false,
-        }
     }
 
     pub fn redraw_all(&mut self, scene: &Scene, windows: Option<&WindowList>) -> Result<()> {
@@ -398,11 +322,6 @@ fn label_monitor(monitors: &[Rect], rect: Rect) -> Option<usize> {
         })
 }
 
-fn beyond_drag_threshold(from: Point, to: Point) -> bool {
-    let (width, height) = unsafe { (GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG)) };
-    (to.x - from.x).abs() > width.max(1) || (to.y - from.y).abs() > height.max(1)
-}
-
 fn modifiers() -> Modifiers {
     Modifiers {
         square: is_down(VK_SHIFT),
@@ -413,17 +332,6 @@ fn modifiers() -> Modifiers {
 fn is_down(key: VIRTUAL_KEY) -> bool {
     let state = unsafe { GetKeyState(i32::from(key.0)) };
     state < 0
-}
-
-fn cursor_for(grip: Option<Grip>) -> PCWSTR {
-    match grip {
-        None => IDC_CROSS,
-        Some(Grip::Inside) => IDC_SIZEALL,
-        Some(Grip::Handle(Handle::TopLeft | Handle::BottomRight)) => IDC_SIZENWSE,
-        Some(Grip::Handle(Handle::TopRight | Handle::BottomLeft)) => IDC_SIZENESW,
-        Some(Grip::Handle(Handle::Left | Handle::Right)) => IDC_SIZEWE,
-        Some(Grip::Handle(Handle::Top | Handle::Bottom)) => IDC_SIZENS,
-    }
 }
 
 fn show_cursor(shape: PCWSTR) {
