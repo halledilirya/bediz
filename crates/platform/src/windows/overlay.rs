@@ -55,7 +55,7 @@ pub struct View {
     pub highlight: Option<Rect>,
     pub label: Option<(u32, u32)>,
     pub pointer: Option<Point>,
-    pub marks: u64,
+    pub marks: Option<u64>,
 }
 
 struct Surfaces {

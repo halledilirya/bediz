@@ -12,6 +12,7 @@ pub use picture::Picture;
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
+use bediz_core::markup::{Mark, Markup, Shape, shape};
 use bediz_core::selection::{Modifiers, Selection};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::SystemServices::MK_LBUTTON;
@@ -32,6 +33,8 @@ use super::window_class;
 use super::window_list::WindowList;
 use live::LiveFrames;
 use pointer::Click;
+
+const HANDLES_REACH: i32 = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -285,6 +288,7 @@ impl Session {
             label_monitor(monitors, rect).map(|monitor| (monitor, self.size_of(rect)))
         });
         let magnified = self.magnified();
+        let unclipped = unclipped_area(self.marking.markup());
         for (index, (bounds, drawn)) in monitors.iter().zip(self.views.iter_mut()).enumerate() {
             let shown_here = |rect: &Rect| bounds.intersection(rect).is_some();
             let view = View {
@@ -295,7 +299,7 @@ impl Session {
                     .filter(|(monitor, _)| *monitor == index)
                     .map(|(_, size)| size),
                 pointer: magnified.filter(|pointer| bounds.contains(*pointer)),
-                marks,
+                marks: shows_marks(*bounds, selection, unclipped).then_some(marks),
             };
             if *drawn != view || self.live.owed(index) {
                 scene.draw_one(index, &view, &decor)?;
@@ -319,6 +323,41 @@ fn confirm(purpose: Purpose, enter: Delivery) -> Action {
         Purpose::Screenshot | Purpose::Picture => Action::Deliver(enter),
         Purpose::Recording => Action::Record,
     }
+}
+
+fn shows_marks(monitor: Rect, selection: Option<Rect>, unclipped: Option<Rect>) -> bool {
+    [selection, unclipped]
+        .into_iter()
+        .flatten()
+        .any(|area| monitor.intersection(&area).is_some())
+}
+
+// A selected mark's handles and a typed text's caret are drawn without the selection's clip.
+fn unclipped_area(markup: &Markup) -> Option<Rect> {
+    let composed = markup.composed().map(|composed| composed.mark);
+    [markup.selected(), markup.editing(), composed.as_ref()]
+        .into_iter()
+        .flatten()
+        .map(reach)
+        .reduce(|all, area| all.union(&area))
+}
+
+fn reach(mark: &Mark) -> Rect {
+    let mut by = HANDLES_REACH;
+    // A text not measured yet is estimated, and full-width characters run past the estimate.
+    if let Shape::Text {
+        text, extent: None, ..
+    } = &mark.shape
+    {
+        by = by.saturating_add(shape::text_extent(text, mark.width).0.ceil() as i32);
+    }
+    let bounds = shape::bounds(mark);
+    Rect::new(
+        bounds.left.saturating_sub(by),
+        bounds.top.saturating_sub(by),
+        bounds.right.saturating_add(by),
+        bounds.bottom.saturating_add(by),
+    )
 }
 
 fn label_monitor(monitors: &[Rect], rect: Rect) -> Option<usize> {
@@ -353,7 +392,44 @@ fn show_cursor(shape: PCWSTR) {
 
 #[cfg(test)]
 mod tests {
+    use bediz_core::markup::composition::Composition;
+    use bediz_core::markup::{Swatch, Tool};
+
     use super::*;
+
+    const LEFT: Rect = Rect::new(0, 0, 1920, 1080);
+    const RIGHT: Rect = Rect::new(1920, 0, 3840, 1080);
+
+    #[test]
+    fn marks_are_redrawn_only_on_the_monitors_they_can_show_on() {
+        let selection = Some(Rect::new(100, 100, 1800, 900));
+        assert!(shows_marks(LEFT, selection, None));
+        assert!(!shows_marks(RIGHT, selection, None));
+        let mut markup = Markup::default();
+        markup.draw(Tool::Line, Point::new(1700, 500), Swatch::Red.colour(), 3.0);
+        markup.finish(Point::new(1915, 500), false);
+        assert!(shows_marks(RIGHT, selection, unclipped_area(&markup)));
+        markup.deselect();
+        assert_eq!(unclipped_area(&markup), None);
+        assert!(!shows_marks(RIGHT, selection, unclipped_area(&markup)));
+    }
+
+    #[test]
+    fn a_text_being_composed_reaches_as_far_as_full_width_characters_go() {
+        let mut markup = Markup::default();
+        markup.draw(Tool::Text, Point::new(1800, 500), Swatch::Red.colour(), 3.0);
+        let units: Vec<u16> = "日本語日本語".encode_utf16().collect();
+        markup.compose(Composition::from_input_method(
+            &units,
+            &[],
+            &[],
+            units.len(),
+        ));
+        let full_width = 1800 + 6 * shape::text_size(3.0).ceil() as i32;
+        let reached = unclipped_area(&markup).map(|area| area.right);
+        assert!(reached.is_some_and(|right| right >= full_width));
+        assert!(shows_marks(RIGHT, None, unclipped_area(&markup)));
+    }
 
     #[test]
     fn only_an_opened_picture_keeps_its_selection_and_shows_it_without_handles() {
