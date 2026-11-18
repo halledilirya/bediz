@@ -4,6 +4,7 @@
 
 mod paint;
 mod picture;
+mod settled;
 
 use std::cell::RefCell;
 
@@ -44,6 +45,7 @@ use super::readback;
 use super::window_class::{OVERLAY_CLASS, OwnedWindow};
 use paint::Painter;
 use picture::Laid;
+use settled::Settled;
 
 const PARKED: i32 = -32000;
 const LABEL_FONT_SIZE: f32 = 12.0;
@@ -73,6 +75,7 @@ pub struct Overlay {
     dpi: u32,
     text: IDWriteTextFormat,
     previews: RefCell<Vec<(u64, ID2D1Bitmap1)>>,
+    settled: RefCell<Settled>,
     picture: Option<Laid>,
 }
 
@@ -132,6 +135,7 @@ impl Overlay {
             dpi,
             text: text_format(gpu, scale_of(dpi))?,
             previews: RefCell::new(Vec::new()),
+            settled: RefCell::new(Settled::default()),
             picture: None,
         };
         if allocate {
@@ -187,7 +191,7 @@ impl Overlay {
     }
 
     pub fn release(&mut self) -> Result<()> {
-        self.previews.borrow_mut().clear();
+        self.forget_marks();
         self.picture = None;
         if self.surfaces.take().is_none() {
             return Ok(());
@@ -195,8 +199,9 @@ impl Overlay {
         self.resize(1, 1)
     }
 
-    pub fn forget_previews(&self) {
+    pub fn forget_marks(&self) {
         self.previews.borrow_mut().clear();
+        self.settled.borrow_mut().forget();
     }
 
     pub fn show_picture(&mut self, gpu: &Gpu, picture: &Image, place: Rect) -> Result<()> {
@@ -250,19 +255,34 @@ impl Overlay {
             bounds,
             origin: Point::new(left, top),
         };
-        unsafe {
-            gpu.canvas.SetTarget(&surfaces.target);
-            gpu.canvas.BeginDraw();
-        }
-        painter.image(&surfaces.image_bitmap);
         let marked = view
             .selection
             .map(local)
             .and_then(|area| area.intersection(&bounds))
             .filter(|_| !decor.marks.is_empty());
-        if let Some(area) = marked {
-            let mut previews = self.previews.borrow_mut();
-            painter.marks(decor, area, &mut previews);
+        let mut previews = self.previews.borrow_mut();
+        let layer = marked.and_then(|area| {
+            self.settled.borrow_mut().lay(
+                &painter,
+                &surfaces.image_bitmap,
+                area,
+                decor,
+                &mut previews,
+            )
+        });
+        unsafe {
+            gpu.canvas.SetTarget(&surfaces.target);
+            gpu.canvas.BeginDraw();
+        }
+        match marked {
+            Some(area) => painter.marked(
+                &surfaces.image_bitmap,
+                area,
+                decor,
+                layer.as_ref(),
+                &mut previews,
+            ),
+            None => painter.image(&surfaces.image_bitmap, bounds),
         }
         painter.dim(framed.and_then(|(area, _)| area.intersection(&bounds)));
         if let Some((area, with_handles)) = framed {

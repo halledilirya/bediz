@@ -7,10 +7,12 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 ### Changed
 
 - With more than one monitor, marking up redraws only the monitor the marks are on instead of every monitor.
+- With many marks, drawing a new one is smoother: the marks drawn before it are kept as they are instead of being drawn again on every frame.
 
 ### Fixed
 
 - Drawing on an opened image is as smooth as on a screenshot, and the live screen behind it, or behind a GIF selection, keeps moving while you draw, drag or resize with the mouse.
+- Less graphics memory stays held after marking up or opening an image; part of it used to stay for minutes after the selection closed.
 
 ## [0.3.0] - 2026-11-18
 

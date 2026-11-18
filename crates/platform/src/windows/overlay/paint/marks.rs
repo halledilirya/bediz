@@ -1,5 +1,6 @@
-//! Draws the marks on an overlay in the order they were drawn, the frame and handles of the
-//! selected one, and the caret, selection and input method's composition of the text being typed.
+//! Draws the marks on an overlay in the order they were drawn, the settled ones as the layer that
+//! holds them, the frame and handles of the selected one, and the caret, selection and input
+//! method's composition of the text being typed.
 
 use bediz_core::geometry::Rect;
 use bediz_core::markup::composition::{Clause, Composed};
@@ -16,17 +17,46 @@ use super::{HANDLE_SIZE, Painter, rect_f};
 use crate::windows::marking::layout::Typed;
 use crate::windows::marking::paint::Ink;
 use crate::windows::marking::{Decor, Preview};
+use crate::windows::overlay::settled::Layer;
 
 const SELECTION_OPACITY: f32 = 0.4;
 const UNDERLINE: f32 = 16.0;
 
 impl Painter<'_> {
-    pub fn marks(&self, decor: &Decor, area: Rect, previews: &mut Vec<(u64, ID2D1Bitmap1)>) {
+    pub fn marked(
+        &self,
+        image: &ID2D1Bitmap1,
+        area: Rect,
+        decor: &Decor,
+        layer: Option<&Layer>,
+        previews: &mut Vec<(u64, ID2D1Bitmap1)>,
+    ) {
+        match layer {
+            Some(layer) => {
+                self.image_around(image, area);
+                self.image(&layer.bitmap, area);
+                let rest = decor.marks.get(layer.marks..).unwrap_or_default();
+                self.marks(decor, rest, area, previews);
+            }
+            None => {
+                self.image(image, self.bounds);
+                self.marks(decor, decor.marks, area, previews);
+            }
+        }
+    }
+
+    pub fn marks(
+        &self,
+        decor: &Decor,
+        marks: &[Mark],
+        area: Rect,
+        previews: &mut Vec<(u64, ID2D1Bitmap1)>,
+    ) {
         let canvas = &self.gpu.canvas;
         let ink = self.ink();
         let composed = decor.composed();
         unsafe { canvas.PushAxisAlignedClip(&rect_f(area), D2D1_ANTIALIAS_MODE_ALIASED) };
-        for mark in decor.marks {
+        for mark in marks {
             let mark = composed
                 .as_ref()
                 .filter(|composed| composed.mark.id == mark.id)

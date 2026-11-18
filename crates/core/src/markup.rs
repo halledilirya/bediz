@@ -106,6 +106,16 @@ impl Markup {
         self.find(self.editing?)
     }
 
+    pub fn settled(&self) -> usize {
+        let held = self.gesture.as_ref().map(Gesture::mark);
+        [self.selected, self.editing, held]
+            .into_iter()
+            .flatten()
+            .filter_map(|id| self.marks.iter().position(|mark| mark.id == id))
+            .min()
+            .unwrap_or(self.marks.len())
+    }
+
     pub fn deselect(&mut self) -> bool {
         if self.selected.take().is_none() {
             return false;
@@ -318,6 +328,31 @@ mod tests {
         assert!(markup.selected().is_none());
         assert_eq!(markup.marks().len(), 1);
         assert!(!markup.deselect());
+    }
+
+    #[test]
+    fn marks_are_settled_up_to_the_first_one_drawn_held_selected_or_typed() {
+        let mut markup = Markup::default();
+        assert_eq!(markup.settled(), 0);
+        drawn(&mut markup, Tool::Line, Point::new(0, 0), Point::new(40, 0));
+        assert_eq!(markup.settled(), 0);
+        markup.draw(Tool::Pen, Point::new(0, 20), RED, 3.0);
+        assert_eq!(markup.settled(), 1);
+        assert!(markup.finish(Point::new(40, 30), false));
+        assert_eq!(markup.settled(), 1);
+        assert!(markup.deselect());
+        assert_eq!(markup.settled(), 2);
+        assert!(markup.grab(Point::new(20, 0), 2, SCREEN));
+        assert_eq!(markup.settled(), 0);
+        assert!(markup.finish(Point::new(20, 50), false));
+        assert!(markup.deselect());
+        assert_eq!(markup.settled(), 2);
+        markup.draw(Tool::Text, Point::new(100, 100), RED, 3.0);
+        markup.type_text("a");
+        assert_eq!(markup.settled(), 2);
+        markup.end_editing();
+        assert!(markup.deselect());
+        assert_eq!(markup.settled(), 3);
     }
 
     #[test]

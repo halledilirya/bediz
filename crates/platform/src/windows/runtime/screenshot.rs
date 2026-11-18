@@ -331,18 +331,32 @@ impl Runtime {
         {
             (self.sink)(Event::Failed(Failure::Overlay(error.to_string())));
         }
+        let previous = session.previous();
+        let trim =
+            session.purpose() == Purpose::Picture || session.marking().markup().revision() != 0;
         // A locked region left the screen to the user, so the app they are in keeps the foreground.
         if give_back && locked {
-            foreground::give_back_from_us(session.previous());
+            foreground::give_back_from_us(previous);
         } else if give_back {
-            foreground::give_back(session.previous());
+            foreground::give_back(previous);
         }
+        // The idle line measures what stays once the session's images, marks and history are gone.
+        drop(session);
         self.rest_scene();
+        // Only images and marks grow the buffers, and the next opening has to make them again.
+        if trim
+            && let Some(scene) = self.scene.as_ref()
+            && let Err(error) = scene.trim()
+        {
+            self.emit_notes(vec![format!(
+                "the graphics memory could not be trimmed: {error}"
+            )]);
+        }
         self.report_idle();
         if let Some(label) = self.label_after_overlay.take() {
             self.show_label(label);
         }
-        session.previous()
+        previous
     }
 
     pub(super) fn rest_scene(&mut self) {

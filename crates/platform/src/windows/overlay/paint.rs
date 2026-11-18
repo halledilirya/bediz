@@ -34,14 +34,26 @@ pub struct Painter<'a> {
 }
 
 impl Painter<'_> {
-    pub fn image(&self, bitmap: &ID2D1Bitmap1) {
+    pub fn image(&self, bitmap: &ID2D1Bitmap1, area: Rect) {
+        self.copy(bitmap, &rect_f(area));
+    }
+
+    pub fn image_around(&self, bitmap: &ID2D1Bitmap1, hole: Rect) {
+        for shade in shades(&rect_f(self.bounds), &rect_f(hole)) {
+            if shade.right > shade.left && shade.bottom > shade.top {
+                self.copy(bitmap, &shade);
+            }
+        }
+    }
+
+    fn copy(&self, bitmap: &ID2D1Bitmap1, area: &D2D_RECT_F) {
         unsafe {
             self.gpu.canvas.DrawBitmap(
                 bitmap,
-                Some(&rect_f(self.bounds)),
+                Some(area),
                 1.0,
                 D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-                None,
+                Some(area),
                 None,
             );
         }

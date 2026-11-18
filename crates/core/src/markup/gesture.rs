@@ -25,6 +25,15 @@ pub(super) enum Gesture {
     },
 }
 
+impl Gesture {
+    pub(super) fn mark(&self) -> u64 {
+        match self {
+            Self::Draw { id, .. } | Self::Move { id, .. } => *id,
+            Self::Reshape { original, .. } => original.id,
+        }
+    }
+}
+
 impl Markup {
     pub fn draw(&mut self, tool: Tool, at: Point, colour: Colour, width: f32) {
         self.end_editing();

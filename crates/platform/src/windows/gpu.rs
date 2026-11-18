@@ -29,7 +29,7 @@ use windows::Win32::Graphics::DirectWrite::{
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{
-    IDXGIAdapter1, IDXGIDevice, IDXGIFactory2, IDXGISurface, IDXGISwapChain1,
+    IDXGIAdapter1, IDXGIDevice, IDXGIDevice3, IDXGIFactory2, IDXGISurface, IDXGISwapChain1,
 };
 use windows::core::{Error, Interface, Result};
 
@@ -159,6 +159,18 @@ impl Gpu {
         Ok(())
     }
 
+    // The driver keeps the buffers that drawing grew until it trims them on its own schedule.
+    pub fn trim(&self) -> Result<()> {
+        let device = unsafe { self.canvas.GetDevice() }?;
+        let dxgi_device: IDXGIDevice3 = self.device.cast()?;
+        unsafe {
+            self.context.ClearState();
+            device.ClearResources(0);
+            dxgi_device.Trim();
+        }
+        Ok(())
+    }
+
     pub fn image_texture(&self, width: u32, height: u32) -> Result<ID3D11Texture2D> {
         image_texture(&self.device, width, height)
     }
@@ -179,6 +191,11 @@ impl Gpu {
     pub fn source_bitmap(&self, texture: &ID3D11Texture2D) -> Result<ID2D1Bitmap1> {
         let surface: IDXGISurface = texture.cast()?;
         self.bitmap(&surface, D2D1_BITMAP_OPTIONS_NONE, D2D1_ALPHA_MODE_IGNORE)
+    }
+
+    pub fn layer_bitmap(&self, width: u32, height: u32) -> Result<ID2D1Bitmap1> {
+        let surface: IDXGISurface = self.image_texture(width, height)?.cast()?;
+        self.bitmap(&surface, D2D1_BITMAP_OPTIONS_TARGET, D2D1_ALPHA_MODE_IGNORE)
     }
 
     pub fn texture_with(&self, image: &Image) -> Result<ID3D11Texture2D> {
@@ -306,5 +323,113 @@ fn texture_description(width: u32, height: u32) -> D3D11_TEXTURE2D_DESC {
             Quality: 0,
         },
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use bediz_core::geometry::Rect;
+    use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
+    use windows::Win32::Graphics::Direct2D::{
+        D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1CreateFactory, ID2D1Image,
+    };
+    use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_WARP;
+    use windows::Win32::Graphics::DirectWrite::{
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_MEASURING_MODE_NATURAL,
+    };
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter};
+
+    use super::*;
+    use crate::windows::marking::layout;
+    use crate::windows::readback;
+
+    const WIDTH: u32 = 64;
+    const HEIGHT: u32 = 48;
+
+    pub fn warp() -> Gpu {
+        let mut device = None;
+        unsafe {
+            D3D11CreateDevice(
+                None::<&IDXGIAdapter>,
+                D3D_DRIVER_TYPE_WARP,
+                HMODULE::default(),
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                None,
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                None,
+                None,
+            )
+        }
+        .unwrap();
+        let device: ID3D11Device = device.unwrap();
+        let adapter: IDXGIAdapter1 = unsafe { device.cast::<IDXGIDevice>().unwrap().GetAdapter() }
+            .unwrap()
+            .cast()
+            .unwrap();
+        let factory: IDXGIFactory2 = unsafe { CreateDXGIFactory1() }.unwrap();
+        let d2d: ID2D1Factory1 =
+            unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) }.unwrap();
+        Gpu::create(&factory, &adapter, &d2d).unwrap()
+    }
+
+    fn drawn(gpu: &Gpu, source: &ID2D1Bitmap1, target: &ID2D1Bitmap1) -> Vec<u8> {
+        let format =
+            layout::text_format(&gpu.text, 14.0, DWRITE_FONT_WEIGHT_NORMAL, false).unwrap();
+        let text: Vec<u16> = "Ab".encode_utf16().collect();
+        let area = D2D_RECT_F {
+            left: 8.0,
+            top: 6.0,
+            right: 56.0,
+            bottom: 40.0,
+        };
+        unsafe {
+            gpu.canvas.SetTarget(target);
+            gpu.canvas.BeginDraw();
+            gpu.canvas.DrawBitmap(
+                source,
+                None,
+                1.0,
+                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                None,
+                None,
+            );
+            gpu.canvas.FillRectangle(&area, &gpu.dim);
+            gpu.canvas
+                .DrawRectangle(&area, &gpu.border, 2.0, &gpu.dashed);
+            gpu.canvas.DrawText(
+                &text,
+                &format,
+                &area,
+                &gpu.outline,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                DWRITE_MEASURING_MODE_NATURAL,
+            );
+        }
+        unsafe { gpu.canvas.EndDraw(None, None) }.unwrap();
+        unsafe { gpu.canvas.SetTarget(None::<&ID2D1Image>) };
+        let texture: ID3D11Texture2D = unsafe { target.GetSurface() }.unwrap().cast().unwrap();
+        let whole = Rect::new(0, 0, WIDTH as i32, HEIGHT as i32);
+        readback::read(gpu, &texture, whole)
+            .unwrap()
+            .bgra()
+            .to_vec()
+    }
+
+    #[test]
+    fn a_trimmed_device_draws_as_before() {
+        let gpu = warp();
+        let bgra = (0..WIDTH * HEIGHT)
+            .flat_map(|index| [(index % 251) as u8, (index / WIDTH * 5) as u8, 90, 255])
+            .collect();
+        let image = Image::from_bgra(WIDTH, HEIGHT, bgra).unwrap();
+        let source = gpu
+            .source_bitmap(&gpu.texture_with(&image).unwrap())
+            .unwrap();
+        let target = gpu.layer_bitmap(WIDTH, HEIGHT).unwrap();
+        let before = drawn(&gpu, &source, &target);
+        gpu.trim().unwrap();
+        assert_eq!(drawn(&gpu, &source, &target), before);
     }
 }

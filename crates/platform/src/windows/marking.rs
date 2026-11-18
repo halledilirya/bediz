@@ -32,6 +32,7 @@ pub struct Preview {
 #[derive(Clone, Copy, Default)]
 pub struct Decor<'a> {
     pub marks: &'a [Mark],
+    pub settled: usize,
     pub previews: &'a [Preview],
     pub selected: Option<&'a Mark>,
     pub editing: Option<&'a Mark>,
@@ -130,6 +131,7 @@ impl Marking {
     pub fn decor(&self) -> Decor<'_> {
         Decor {
             marks: self.markup.marks(),
+            settled: self.markup.settled(),
             previews: &self.previews,
             selected: self.markup.selected(),
             editing: self.markup.editing(),

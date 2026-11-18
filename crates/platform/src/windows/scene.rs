@@ -136,10 +136,16 @@ impl Scene {
         released.and(freed)
     }
 
+    pub fn trim(&self) -> Result<()> {
+        every(self.displays.gpus.iter().map(Gpu::trim))
+    }
+
+    // The settled marks' layer can hold the outline of a blur still being made, in these colours.
     pub fn use_colours(&self, colours: Option<&Colours>) {
         for gpu in &self.displays.gpus {
             gpu.use_colours(colours);
         }
+        self.overlays.iter().for_each(Overlay::forget_marks);
     }
 
     pub fn capture(&mut self, notes: &mut Vec<String>) -> Result<Vec<MonitorCapture>> {
@@ -319,7 +325,7 @@ impl Scene {
     }
 
     pub fn hide(&self) -> Result<()> {
-        self.overlays.iter().for_each(Overlay::forget_previews);
+        self.overlays.iter().for_each(Overlay::forget_marks);
         every(self.overlays.iter().map(Overlay::hide))
     }
 
