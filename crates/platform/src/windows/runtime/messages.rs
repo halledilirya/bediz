@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use bediz_core::recording::RecordingStop;
 use windows::Win32::Foundation::{HANDLE, HWND, WAIT_FAILED, WAIT_OBJECT_0};
-use windows::Win32::System::Threading::INFINITE;
+use windows::Win32::System::Threading::{INFINITE, WaitForSingleObject};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE,
     PeekMessageW, QS_ALLINPUT, TranslateMessage, WM_CHAR, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP,
@@ -40,11 +40,7 @@ impl Runtime {
     pub(super) fn pump(&mut self) {
         loop {
             let event = self.hotkey.wake_event();
-            let timer = self
-                .recording
-                .as_ref()
-                .and_then(Recording::timer)
-                .or_else(|| self.live.as_ref().map(Timer::handle));
+            let timer = self.timer();
             let (all, count) = handles(event, timer);
             let handles = all.get(..count).unwrap_or_default();
             let waited = unsafe {
@@ -80,6 +76,13 @@ impl Runtime {
                 Err(_) => self.recover(),
             }
         }
+    }
+
+    fn timer(&self) -> Option<HANDLE> {
+        self.recording
+            .as_ref()
+            .and_then(Recording::timer)
+            .or_else(|| self.live.as_ref().map(Timer::handle))
     }
 
     fn on_timer(&mut self) {
@@ -121,6 +124,13 @@ impl Runtime {
         while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
             if message.message == WM_QUIT || !self.dispatch(&message) || !self.after_message() {
                 return false;
+            }
+            // While the pointer moves over a redrawn overlay the queue never empties for the wait.
+            if self
+                .timer()
+                .is_some_and(|timer| unsafe { WaitForSingleObject(timer, 0) } == WAIT_OBJECT_0)
+            {
+                self.on_timer();
             }
         }
         // Sent messages and WinEvents run inside PeekMessageW, which then returns no message.

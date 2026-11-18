@@ -10,8 +10,8 @@ use bediz_core::notice::Notice;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetForegroundWindow, KillTimer, MSG, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
-    WM_RBUTTONUP,
+    GetCursorPos, GetForegroundWindow, GetQueueStatus, KillTimer, MSG, QS_INPUT, WM_LBUTTONDBLCLK,
+    WM_LBUTTONDOWN, WM_RBUTTONUP,
 };
 use windows::core::{Error, Result};
 
@@ -160,7 +160,7 @@ impl Runtime {
     }
 
     pub(super) fn on_live_tick(&mut self) {
-        let (Some(scene), Some(session)) = (self.scene.as_mut(), self.session.as_ref()) else {
+        let (Some(scene), Some(session)) = (self.scene.as_mut(), self.session.as_mut()) else {
             self.live = None;
             return;
         };
@@ -174,7 +174,8 @@ impl Runtime {
                 return;
             }
         };
-        if let Err(error) = session.repaint(scene, &changed) {
+        let input_waiting = (unsafe { GetQueueStatus(QS_INPUT) } >> 16) & QS_INPUT.0 != 0;
+        if let Err(error) = session.repaint(scene, &changed, input_waiting) {
             self.draw_failed(&error);
         }
     }

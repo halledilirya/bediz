@@ -2,6 +2,12 @@
 
 All notable changes to Bediz are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Drawing on an opened image is as smooth as on a screenshot, and the live screen behind it, or behind a GIF selection, keeps moving while you draw, drag or resize with the mouse.
+
 ## [0.3.0] - 2026-11-18
 
 ### Added

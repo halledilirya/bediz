@@ -3,6 +3,7 @@
 //! chosen, and redraws.
 
 mod keys;
+mod live;
 mod marks;
 mod picture;
 mod pointer;
@@ -29,6 +30,7 @@ use super::overlay::View;
 use super::scene::Scene;
 use super::window_class;
 use super::window_list::WindowList;
+use live::LiveFrames;
 use pointer::Click;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +84,7 @@ pub struct Session {
     beside: Option<Point>,
     pointer: Option<Point>,
     views: Vec<View>,
+    live: LiveFrames,
     marking: Marking,
     picture: Option<Picture>,
 }
@@ -109,6 +112,7 @@ impl Session {
             beside: None,
             pointer,
             views: Vec::new(),
+            live: LiveFrames::default(),
             marking: Marking::new(scale, reply_to),
             picture: None,
         }
@@ -134,9 +138,15 @@ impl Session {
         self.purpose
     }
 
-    pub fn repaint(&self, scene: &Scene, monitors: &[usize]) -> Result<()> {
+    pub fn repaint(
+        &mut self,
+        scene: &Scene,
+        refreshed: &[usize],
+        input_waiting: bool,
+    ) -> Result<()> {
+        let shown = self.live.arrived(refreshed, input_waiting);
         let decor = self.marking.decor();
-        for &index in monitors {
+        for index in shown {
             if let Some(view) = self.views.get(index) {
                 scene.draw_one(index, view, &decor)?;
             }
@@ -287,9 +297,10 @@ impl Session {
                 pointer: magnified.filter(|pointer| bounds.contains(*pointer)),
                 marks,
             };
-            if *drawn != view {
+            if *drawn != view || self.live.owed(index) {
                 scene.draw_one(index, &view, &decor)?;
                 *drawn = view;
+                self.live.drawn(index);
             }
         }
         Ok(())
