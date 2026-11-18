@@ -127,6 +127,7 @@ impl Runtime {
             Button::Save => self.deliver(Delivery::SAVE),
             _ => {}
         }
+        self.keep_typing_focus();
     }
 
     pub(super) fn copy_text(&mut self, cut: bool) {

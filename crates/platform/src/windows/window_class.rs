@@ -18,7 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HCURSOR, HTCLIENT,
     HTTRANSPARENT, IDC_CROSS, IDC_SIZEALL, LoadCursorW, MA_NOACTIVATE, RegisterClassExW, SetCursor,
     WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_DRAWITEM, WM_ERASEBKGND, WM_GETOBJECT, WM_HOTKEY, WM_LBUTTONDOWN,
+    WM_DISPLAYCHANGE, WM_DRAWITEM, WM_ERASEBKGND, WM_GETOBJECT, WM_HOTKEY, WM_IME_COMPOSITION,
+    WM_IME_ENDCOMPOSITION, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_LBUTTONDOWN,
     WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
     WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
 };
@@ -26,6 +27,7 @@ use windows::core::{Error, PCWSTR, Result, w};
 
 use super::automation;
 use super::hotkey::HOTKEY;
+use super::ime;
 use super::recording::border::{self, Line};
 use super::recording::controls::{self, drag, paint};
 use super::runtime::WM_STOP;
@@ -374,6 +376,10 @@ fn on_overlay_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM
             let _ = unsafe { ValidateRect(Some(window), None) };
             LRESULT(0)
         }
+        WM_IME_SETCONTEXT
+        | WM_IME_STARTCOMPOSITION
+        | WM_IME_COMPOSITION
+        | WM_IME_ENDCOMPOSITION => ime::answer(window, message, wparam, lparam),
         _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
     }
 }

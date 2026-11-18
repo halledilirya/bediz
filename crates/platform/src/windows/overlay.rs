@@ -274,9 +274,7 @@ impl Overlay {
         if let Some(selected) = decor.selected {
             painter.mark_handles(selected);
         }
-        if let Some(editing) = decor.editing {
-            painter.typing(editing, decor.cursor);
-        }
+        painter.typing(decor);
         if let Some(at) = pointer {
             painter.magnifier(&surfaces.image_bitmap, at, colour);
         }

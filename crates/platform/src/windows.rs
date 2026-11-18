@@ -12,6 +12,7 @@ mod folder;
 mod foreground;
 mod gpu;
 mod hotkey;
+mod ime;
 mod label_window;
 mod language;
 mod marking;

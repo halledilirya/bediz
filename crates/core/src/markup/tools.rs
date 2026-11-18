@@ -1,5 +1,7 @@
 //! The marking-up tools with their keys, and the colours they draw in.
 
+use super::{Mark, Shape};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
     Pen,
@@ -113,11 +115,52 @@ impl Swatch {
             Self::White => Colour::new(255, 255, 255),
         }
     }
+
+    pub fn of(mark: &Mark) -> Option<Self> {
+        if matches!(
+            mark.shape,
+            Shape::Redact(..) | Shape::Blur(..) | Shape::Pixelate(..)
+        ) {
+            return None;
+        }
+        Self::ALL
+            .into_iter()
+            .find(|swatch| swatch.colour() == mark.colour)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Point;
+
+    fn mark(shape: Shape, colour: Colour) -> Mark {
+        Mark {
+            id: 1,
+            shape,
+            colour,
+            width: 3.0,
+        }
+    }
+
+    #[test]
+    fn a_mark_shows_the_colour_it_is_drawn_in_and_an_effect_none() {
+        let text = Shape::Text {
+            at: Point::new(4, 4),
+            text: "a".to_owned(),
+            extent: None,
+        };
+        assert_eq!(
+            Swatch::of(&mark(text, Swatch::Blue.colour())),
+            Some(Swatch::Blue)
+        );
+        let arrow = Shape::Arrow(Point::new(0, 0), Point::new(9, 9));
+        assert_eq!(Swatch::of(&mark(arrow, Colour::new(1, 2, 3))), None);
+        for effect in [Shape::Redact, Shape::Blur, Shape::Pixelate] {
+            let covered = effect(Point::new(0, 0), Point::new(9, 9));
+            assert_eq!(Swatch::of(&mark(covered, Swatch::Red.colour())), None);
+        }
+    }
 
     #[test]
     fn every_tool_has_its_own_key_and_is_found_by_it_in_either_case() {

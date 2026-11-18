@@ -1,6 +1,6 @@
 //! The marking-up side of a selection's input: presses that draw or grab marks, dragging and
-//! letting them go, the pointer's shape over them, typing and moving the caret in a text, and
-//! the wheel that changes the width.
+//! letting them go, the pointer's shape over them, typing in a text with or without an input
+//! method, moving its caret, and the wheel that changes the width.
 
 use bediz_core::geometry::Point;
 use bediz_core::markup::typing::Motion;
@@ -18,6 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::PCWSTR;
 
 use super::{Action, KeyPress, Session, is_down};
+use crate::windows::ime::Update;
 use crate::windows::marking::layout::Typed;
 use crate::windows::scene::Scene;
 
@@ -31,6 +32,7 @@ impl Session {
     }
 
     pub(super) fn press_mark(&mut self, scene: &Scene, window: HWND, point: Point) -> bool {
+        self.marking.markup_mut().settle_composition();
         if !self.purpose.is_still() {
             return false;
         }
@@ -66,9 +68,7 @@ impl Session {
             }
             None => self.marking.draw(tool, point),
         }
-        if let Some(origin) = scene.origin_of(window) {
-            self.marking.place_composition(window, origin);
-        }
+        self.marking.place_composition(scene, window);
         true
     }
 
@@ -90,9 +90,7 @@ impl Session {
         {
             self.marking.markup_mut().edit_text(id);
             self.caret_to(scene, point);
-            if let Some(origin) = scene.origin_of(window) {
-                self.marking.place_composition(window, origin);
-            }
+            self.marking.place_composition(scene, window);
         }
     }
 
@@ -132,10 +130,14 @@ impl Session {
         }
         self.marking.type_unit(unit);
         self.marking.measure_texts(scene);
-        if let Some(origin) = scene.origin_of(window) {
-            self.marking.place_composition(window, origin);
-        }
+        self.marking.place_composition(scene, window);
         true
+    }
+
+    pub fn hear_input_method(&mut self, scene: &Scene, window: HWND, updates: Vec<Update>) {
+        self.marking.hear_input_method(updates);
+        self.marking.measure_texts(scene);
+        self.marking.place_composition(scene, window);
     }
 
     pub(super) fn turn_wheel(&mut self, delta: i16) -> bool {

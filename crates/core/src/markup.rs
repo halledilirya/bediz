@@ -1,6 +1,7 @@
 //! Marking up a selection before it is copied or saved: the marks drawn, selecting, moving and
 //! reshaping them, and undoing or redoing each change.
 
+pub mod composition;
 pub mod effect;
 mod gesture;
 pub mod shape;
@@ -12,6 +13,7 @@ pub use tools::{Colour, Swatch, Tool};
 
 use crate::geometry::Point;
 
+use composition::Composition;
 use gesture::Gesture;
 use typing::Cursor;
 
@@ -67,6 +69,7 @@ pub struct Markup {
     selected: Option<u64>,
     editing: Option<u64>,
     cursor: Cursor,
+    composition: Option<Composition>,
     revision: u64,
 }
 

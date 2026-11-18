@@ -2,6 +2,7 @@
 //! measured size of each text, the blurs and pixelations made from what lies under them, and
 //! the image copied or saved with every mark on it.
 
+mod composing;
 pub mod layout;
 mod maker;
 pub mod paint;
@@ -9,13 +10,11 @@ mod render;
 
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::Image;
+use bediz_core::markup::composition::{self, Composed, Composition};
 use bediz_core::markup::effect::{self, Effect, Job};
 use bediz_core::markup::typing::Cursor;
-use bediz_core::markup::{DEFAULT_WIDTH, Mark, Markup, Swatch, THICKEST, THINNEST, Tool, shape};
-use windows::Win32::Foundation::{E_FAIL, HWND, POINT};
-use windows::Win32::UI::Input::Ime::{
-    CFS_POINT, COMPOSITIONFORM, ImmGetContext, ImmReleaseContext, ImmSetCompositionWindow,
-};
+use bediz_core::markup::{DEFAULT_WIDTH, Mark, Markup, Swatch, THICKEST, THINNEST, Tool};
+use windows::Win32::Foundation::{E_FAIL, HWND};
 use windows::core::{Error, Result};
 
 use super::scene::Scene;
@@ -37,9 +36,14 @@ pub struct Decor<'a> {
     pub selected: Option<&'a Mark>,
     pub editing: Option<&'a Mark>,
     pub cursor: Cursor,
+    pub composing: Option<&'a Composition>,
 }
 
 impl Decor<'_> {
+    pub fn composed(&self) -> Option<Composed> {
+        composition::composed(self.editing?, self.cursor, self.composing?)
+    }
+
     pub fn preview_of(&self, mark: &Mark) -> Option<&Preview> {
         let area = effect::area_of(mark)?;
         self.previews
@@ -67,6 +71,7 @@ pub struct Marking {
     asked: Option<Asked>,
     high_surrogate: Option<u16>,
     within: Option<Rect>,
+    composing: bool,
 }
 
 impl Marking {
@@ -85,6 +90,7 @@ impl Marking {
             asked: None,
             high_surrogate: None,
             within: None,
+            composing: false,
         }
     }
 
@@ -106,7 +112,11 @@ impl Marking {
     }
 
     pub fn swatch(&self) -> Swatch {
-        self.swatch
+        self.markup
+            .editing()
+            .or(self.markup.selected())
+            .and_then(Swatch::of)
+            .unwrap_or(self.swatch)
     }
 
     pub fn version(&self) -> u64 {
@@ -124,6 +134,7 @@ impl Marking {
             selected: self.markup.selected(),
             editing: self.markup.editing(),
             cursor: self.markup.cursor().unwrap_or_default(),
+            composing: self.markup.composition(),
         }
     }
 
@@ -189,7 +200,8 @@ impl Marking {
         let Some((index, asked)) = self.settle_previews() else {
             return;
         };
-        let Some(job) = effect::jobs(self.markup.marks()).nth(index) else {
+        let marks = self.shown_marks();
+        let Some(job) = effect::jobs(&marks).nth(index) else {
             return;
         };
         let source = beneath(&job, &self.previews, scene, self.within);
@@ -210,10 +222,11 @@ impl Marking {
         if !self.stale() {
             return None;
         }
+        let marks = self.shown_marks();
         let mut shown: Vec<Preview> = Vec::new();
         let mut wanted = None;
         let mut ready = true;
-        for (index, job) in effect::jobs(self.markup.marks()).enumerate() {
+        for (index, job) in effect::jobs(&marks).enumerate() {
             if !seen(&job, self.within) {
                 continue;
             }
@@ -267,7 +280,8 @@ impl Marking {
     }
 
     pub fn compose(&self, image: Image, rect: Rect, scene: &Scene) -> Result<Image> {
-        let marks = self.markup.marks();
+        let shown = self.shown_marks();
+        let marks = shown.as_ref();
         if marks.is_empty() {
             return Ok(image);
         }
@@ -285,29 +299,6 @@ impl Marking {
         let effects: Vec<&Effect> = previews.iter().map(|preview| &preview.effect).collect();
         let gpu = scene.gpu_near(Point::new(rect.left, rect.top))?;
         render::layered(image, rect, marks, &effects, gpu)
-    }
-
-    pub fn place_composition(&self, window: HWND, origin: Point) {
-        let Some(mark) = self.markup.editing() else {
-            return;
-        };
-        let bounds = shape::bounds(mark);
-        let context = unsafe { ImmGetContext(window) };
-        if context.is_invalid() {
-            return;
-        }
-        let form = COMPOSITIONFORM {
-            dwStyle: CFS_POINT,
-            ptCurrentPos: POINT {
-                x: bounds.left - origin.x,
-                y: bounds.bottom - origin.y,
-            },
-            ..Default::default()
-        };
-        unsafe {
-            let _ = ImmSetCompositionWindow(context, &form);
-            let _ = ImmReleaseContext(window, context);
-        }
     }
 }
 
@@ -403,6 +394,43 @@ mod tests {
             beneath: job.beneath.to_vec(),
             under,
         }
+    }
+
+    fn composing(text: &str) -> Option<Composition> {
+        let units: Vec<u16> = text.encode_utf16().collect();
+        Composition::from_input_method(&units, &[], &[], units.len())
+    }
+
+    #[test]
+    fn a_blur_over_a_text_is_made_from_the_composition_shown_in_it() {
+        let mut marking = Marking::new(1.0, HWND::default());
+        marking.draw(Tool::Text, Point::new(2, 2));
+        marking.markup_mut().type_text("ab");
+        marking.markup_mut().end_editing();
+        marking.draw(Tool::Blur, Point::new(0, 0));
+        marking.markup_mut().finish(Point::new(19, 19), false);
+        let marks = marking.markup().marks().to_vec();
+        let (Some(job), Some(text)) = (effect::jobs(&marks).next(), marks.first()) else {
+            panic!("the blur lies over the text");
+        };
+        marking.previews = vec![made_over(&job, Vec::new())];
+        assert!(marking.settle_previews().is_none());
+        marking.markup_mut().edit_text(text.id);
+        let asked =
+            |marking: &mut Marking| marking.settle_previews().map(|(_, asked)| asked.beneath);
+        let shown = |marking: &Marking| marking.shown_marks().get(..1).map(<[Mark]>::to_vec);
+        for typing in ["に", "にほ"] {
+            marking.markup_mut().compose(composing(typing));
+            let expected = shown(&marking);
+            assert_ne!(expected.as_deref(), marks.get(..1));
+            assert_eq!(asked(&mut marking), expected);
+        }
+        marking.markup_mut().compose(None);
+        assert!(marking.settle_previews().is_none());
+        marking.markup_mut().compose(composing("にほ"));
+        marking.markup_mut().finish_composing("日本");
+        let expected = shown(&marking);
+        assert_eq!(asked(&mut marking), expected);
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! Every monitor's overlay with its display and capture, handled as one: capturing, laying an
 //! opened picture over the screen, drawing, showing and hiding, reading a selection across
-//! monitors and freeing GPU memory.
+//! monitors, freeing GPU memory and turning input methods on only while a text is typed.
+
+use std::cell::Cell;
 
 use bediz_core::capture::{Allocation, Pixels};
 use bediz_core::geometry::{Point, Rect};
@@ -17,6 +19,7 @@ use super::contrast::Colours;
 use super::displays::Displays;
 use super::foreground::{self, Foreground};
 use super::gpu::Gpu;
+use super::ime;
 use super::marking::Decor;
 use super::memory;
 use super::overlay::{Overlay, View};
@@ -29,6 +32,7 @@ pub struct Scene {
     capturer: Capturer,
     displays: Displays,
     rects: Vec<Rect>,
+    typing: Cell<Option<bool>>,
 }
 
 impl Scene {
@@ -62,6 +66,7 @@ impl Scene {
             capturer,
             displays,
             rects,
+            typing: Cell::new(None),
         };
         if allocation == Allocation::Ahead {
             scene.warm_up()?;
@@ -81,6 +86,15 @@ impl Scene {
         self.overlays
             .iter()
             .any(|overlay| overlay.window() == window)
+    }
+
+    pub fn allow_input_method(&self, typing: bool) {
+        if self.typing.replace(Some(typing)) == Some(typing) {
+            return;
+        }
+        for overlay in &self.overlays {
+            ime::allow(overlay.window(), typing);
+        }
     }
 
     pub fn announce(&self, text: &str, activity: &str) -> Result<()> {

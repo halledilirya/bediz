@@ -17,6 +17,7 @@ mod ready;
 mod recording;
 mod save_as;
 mod screenshot;
+mod typing;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;

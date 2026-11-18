@@ -1,7 +1,8 @@
 //! Draws the marks on an overlay in the order they were drawn, the frame and handles of the
-//! selected one, and the caret and selection of the text being typed.
+//! selected one, and the caret, selection and input method's composition of the text being typed.
 
 use bediz_core::geometry::Rect;
+use bediz_core::markup::composition::{Clause, Composed};
 use bediz_core::markup::typing::Cursor;
 use bediz_core::markup::{Colour, Mark, Shape, effect, shape};
 use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
@@ -9,6 +10,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_ANTIALIAS_MODE_ALIASED, ID2D1Bitmap1, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::Gdi::{COLOR_HIGHLIGHT, GetSysColor};
+use windows_numerics::Vector2;
 
 use super::{HANDLE_SIZE, Painter, rect_f};
 use crate::windows::marking::layout::Typed;
@@ -16,13 +18,19 @@ use crate::windows::marking::paint::Ink;
 use crate::windows::marking::{Decor, Preview};
 
 const SELECTION_OPACITY: f32 = 0.4;
+const UNDERLINE: f32 = 16.0;
 
 impl Painter<'_> {
     pub fn marks(&self, decor: &Decor, area: Rect, previews: &mut Vec<(u64, ID2D1Bitmap1)>) {
         let canvas = &self.gpu.canvas;
         let ink = self.ink();
+        let composed = decor.composed();
         unsafe { canvas.PushAxisAlignedClip(&rect_f(area), D2D1_ANTIALIAS_MODE_ALIASED) };
         for mark in decor.marks {
+            let mark = composed
+                .as_ref()
+                .filter(|composed| composed.mark.id == mark.id)
+                .map_or(mark, |composed| &composed.mark);
             match mark.shape {
                 Shape::Redact(..) => {
                     if let Some(covered) = effect::area_of(mark) {
@@ -83,7 +91,53 @@ impl Painter<'_> {
         }
     }
 
-    pub fn typing(&self, mark: &Mark, cursor: Cursor) {
+    pub fn typing(&self, decor: &Decor) {
+        match (decor.composed(), decor.editing) {
+            (Some(composed), _) => self.composing(&composed),
+            (None, Some(editing)) => self.caret_and_selection(editing, decor.cursor),
+            (None, None) => {}
+        }
+    }
+
+    fn composing(&self, composed: &Composed) {
+        let mark = &composed.mark;
+        let (Some(typed), Ok(brush)) = (
+            Typed::of(&self.gpu.text, mark),
+            self.ink().brush(mark.colour, 1.0),
+        ) else {
+            return;
+        };
+        let thin = (shape::text_size(mark.width) / UNDERLINE).round().max(1.0);
+        for (range, clause) in &composed.clauses {
+            let thickness = if *clause == Clause::Target {
+                thin * 2.0
+            } else {
+                thin
+            };
+            for part in typed.selection(range.clone()) {
+                let part = self.local(part);
+                let y = part.bottom - thickness / 2.0;
+                let from = Vector2::new(part.left + thin, y);
+                let to = Vector2::new((part.right - thin).max(part.left + thin), y);
+                let canvas = &self.gpu.canvas;
+                unsafe {
+                    match clause {
+                        Clause::Unconverted => {
+                            canvas.DrawLine(from, to, &brush, thickness, &self.gpu.dashed);
+                        }
+                        Clause::Converted | Clause::Target => {
+                            canvas.DrawLine(from, to, &brush, thickness, None::<&ID2D1StrokeStyle>);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(caret) = typed.caret(composed.caret) {
+            unsafe { self.gpu.canvas.FillRectangle(&self.local(caret), &brush) };
+        }
+    }
+
+    fn caret_and_selection(&self, mark: &Mark, cursor: Cursor) {
         let Some(typed) = Typed::of(&self.gpu.text, mark) else {
             return;
         };

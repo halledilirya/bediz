@@ -210,6 +210,7 @@ impl Runtime {
         if let Some(request) = window_class::take_controls_request() {
             self.on_controls(request);
         }
+        self.follow_input_method();
         if desktop_switch::take_switched() {
             self.stop_recording(Some(RecordingStop::Display));
             self.hide();

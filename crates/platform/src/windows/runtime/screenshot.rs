@@ -202,7 +202,7 @@ impl Runtime {
         self.announce();
     }
 
-    fn raise_bars(&self) {
+    pub(super) fn raise_bars(&self) {
         let raised = [
             self.ready.as_ref().map(|bar| bar.raise()),
             self.markup_bar.as_ref().map(|bar| bar.raise()),
