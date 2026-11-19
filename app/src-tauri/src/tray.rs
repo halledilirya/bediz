@@ -296,6 +296,7 @@ impl Tray {
         for item in every {
             let _ = self.record.remove(item);
         }
+        let _ = self.take.set_enabled(state == RecordingState::Off);
         let _ = self.delayed.set_enabled(state == RecordingState::Off);
         let shown: [&dyn IsMenuItem<Wry>; 4] = match state {
             RecordingState::Off => {

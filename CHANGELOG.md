@@ -11,6 +11,7 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 ### Changed
 
 - The tray menu is shorter: checking for updates, the log folder and About are under **Help**, and starting with Windows is set in the settings. A new version, once found, shows in the menu as **Update to version …**.
+- While a GIF records, **Take a screenshot** in the tray menu is greyed out instead of finishing the recording; **Record ▸ Finish** finishes it.
 
 ## [0.3.1] - 2026-11-19
 
