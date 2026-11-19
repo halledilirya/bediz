@@ -40,13 +40,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(Section::default());
     app.manage(GifState::default());
     app.manage(Messages(sender.clone()));
-    let tray = Tray::create(
-        app,
-        &texts,
-        log.directory().to_path_buf(),
-        sender.clone(),
-        settings.start_with_windows,
-    )?;
+    let tray = Tray::create(app, &texts, log.directory().to_path_buf(), sender.clone())?;
     let platform_events = sender.clone();
     let handle = app.handle().clone();
     match Platform::start(move |event| match event {

@@ -9,7 +9,7 @@ Bediz is in early development.
 
 ## Download
 
-Download `Bediz_<version>_x64-setup.exe` from the [latest release](https://github.com/halledilirya/bediz/releases/latest) and run it. It installs for your Windows user only, without administrator rights. Later versions install from **Check for updates** in the tray menu.
+Download `Bediz_<version>_x64-setup.exe` from the [latest release](https://github.com/halledilirya/bediz/releases/latest) and run it. It installs for your Windows user only, without administrator rights. Later versions install from **Help ▸ Check for updates** in the tray menu.
 
 The setup file is not code-signed yet, so Windows SmartScreen may say that it protected your PC: choose **More info**, then **Run anyway**. With Smart App Control on, Windows may refuse to run it at all.
 
@@ -27,7 +27,7 @@ Press **Print Screen** or click the tray icon. The screen freezes on every monit
 
 To capture a menu or a tooltip that closes when a key is pressed, choose **Delayed screenshot** in the tray menu, then open it before the seconds in the corner run out.
 
-Bediz starts with Windows unless you turn that off in the settings or the tray menu.
+Bediz starts with Windows unless you turn that off in the settings.
 
 | Key | Action |
 | --- | --- |

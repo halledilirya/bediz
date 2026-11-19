@@ -1,20 +1,18 @@
-//! The tray icon and its menu: capture, recording controls, opening an image to mark up, hotkey
-//! problems, updates, settings, logs and quit.
+//! The tray icon and its menu: capturing now or in a few seconds, recording controls, opening an
+//! image to mark up, hotkey problems, an update found, the settings, help and quit.
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use bediz_core::settings::Settings;
 use bediz_platform::{Command, HotkeyState, ImageSource, RecordingAction, RecordingState};
-use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{App, AppHandle, Manager, Wry};
+use tauri::{App, AppHandle, Wry};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::events::Message;
 use crate::i18n::Texts;
-use crate::settings;
 use crate::setup;
 use crate::updater;
 
@@ -39,11 +37,12 @@ const OPEN_IMAGE_CLIPBOARD: &str = "tray-open-image-clipboard";
 const OPEN_IMAGE_FILE: &str = "tray-open-image-file";
 const RETRY: &str = "tray-retry";
 const TAKE_PRINT_SCREEN: &str = "tray-take-print-screen";
-const START_WITH_WINDOWS: &str = "tray-start-with-windows";
-const SETTINGS: &str = "tray-settings";
-const CHECK_UPDATES: &str = "tray-check-updates";
 const UPDATE_TO: &str = "tray-update-to";
+const SETTINGS: &str = "tray-settings";
+const HELP: &str = "tray-help";
+const CHECK_UPDATES: &str = "tray-check-updates";
 const OPEN_LOGS: &str = "tray-open-logs";
+const ABOUT: &str = "tray-about";
 const QUIT: &str = "tray-quit";
 const DELAY_POSITION: usize = 1;
 const STATUS_POSITION: usize = 5;
@@ -68,15 +67,15 @@ pub struct Tray {
     open_image_file: MenuItem<Wry>,
     retry: MenuItem<Wry>,
     take_print_screen: MenuItem<Wry>,
-    startup: CheckMenuItem<Wry>,
+    update_to: MenuItem<Wry>,
     settings: MenuItem<Wry>,
+    help: Submenu<Wry>,
     updates: MenuItem<Wry>,
     open_logs: MenuItem<Wry>,
+    about: MenuItem<Wry>,
     quit: MenuItem<Wry>,
     separator: PredefinedMenuItem<Wry>,
 }
-
-pub struct StartupItem(CheckMenuItem<Wry>);
 
 impl Tray {
     pub fn create(
@@ -84,7 +83,6 @@ impl Tray {
         texts: &Texts,
         logs: PathBuf,
         messages: Sender<Message>,
-        start_with_windows: bool,
     ) -> tauri::Result<Self> {
         let item = |id: &str| MenuItem::with_id(app, id, texts.get(id), true, None::<&str>);
         let take = item(TAKE_SCREENSHOT)?;
@@ -118,36 +116,34 @@ impl Tray {
         )?;
         let retry = item(RETRY)?;
         let take_print_screen = item(TAKE_PRINT_SCREEN)?;
-        let startup = CheckMenuItem::with_id(
-            app,
-            START_WITH_WINDOWS,
-            texts.get(START_WITH_WINDOWS),
-            true,
-            start_with_windows,
-            None::<&str>,
-        )?;
+        let update_to = MenuItem::with_id(app, UPDATE_TO, "", true, None::<&str>)?;
         let settings = item(SETTINGS)?;
         let updates = item(CHECK_UPDATES)?;
         let open_logs = item(OPEN_LOGS)?;
+        let about = item(ABOUT)?;
+        let mut help_items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
+        if updater::offered() {
+            help_items.push(&updates);
+        }
+        help_items.extend([&open_logs as &dyn IsMenuItem<Wry>, &about]);
+        let help = Submenu::with_id_and_items(app, HELP, texts.get(HELP), true, &help_items)?;
         let quit = item(QUIT)?;
         let status = MenuItem::new(app, "", false, None::<&str>)?;
         let separator = PredefinedMenuItem::separator(app)?;
         let below_take = PredefinedMenuItem::separator(app)?;
-        let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![
-            &take,
-            &delayed,
-            &record,
-            &open_image,
-            &below_take,
-            &startup,
-            &settings,
-        ];
-        if updater::offered() {
-            items.push(&updates);
-        }
-        items.extend([&open_logs as &dyn IsMenuItem<Wry>, &quit]);
-        let menu = Menu::with_items(app, &items)?;
-        app.manage(StartupItem(startup.clone()));
+        let menu = Menu::with_items(
+            app,
+            &[
+                &take,
+                &delayed,
+                &record,
+                &open_image,
+                &below_take,
+                &settings,
+                &help,
+                &quit,
+            ],
+        )?;
         let mut builder = TrayIconBuilder::with_id(ID)
             .menu(&menu)
             .show_menu_on_left_click(false)
@@ -169,19 +165,18 @@ impl Tray {
                 OPEN_IMAGE_FILE => setup::send(app, Command::MarkUp(ImageSource::File)),
                 RETRY => setup::send(app, Command::RetryHotkey),
                 TAKE_PRINT_SCREEN => setup::send(app, Command::TakePrintScreen),
-                START_WITH_WINDOWS => settings::change(app, |current| Settings {
-                    start_with_windows: !current.start_with_windows,
-                    ..current.clone()
-                }),
                 SETTINGS => {
                     let _ = messages.send(Message::OpenSettings);
                 }
-                CHECK_UPDATES => {
+                UPDATE_TO | CHECK_UPDATES => {
                     let _ = messages.send(Message::ShowUpdates);
                 }
                 OPEN_LOGS => {
                     let logs = bediz_platform::seen_outside(&logs);
                     let _ = app.opener().open_path(logs.to_string_lossy(), None::<&str>);
+                }
+                ABOUT => {
+                    let _ = messages.send(Message::ShowAbout);
                 }
                 QUIT => {
                     let _ = messages.send(Message::Quit);
@@ -222,10 +217,12 @@ impl Tray {
             open_image_file,
             retry,
             take_print_screen,
-            startup,
+            update_to,
             settings,
+            help,
             updates,
             open_logs,
+            about,
             quit,
             separator,
         })
@@ -246,7 +243,9 @@ impl Tray {
             (&self.retry, RETRY),
             (&self.take_print_screen, TAKE_PRINT_SCREEN),
             (&self.settings, SETTINGS),
+            (&self.updates, CHECK_UPDATES),
             (&self.open_logs, OPEN_LOGS),
+            (&self.about, ABOUT),
             (&self.quit, QUIT),
         ];
         for (item, id) in items {
@@ -255,19 +254,34 @@ impl Tray {
         for (item, (id, _)) in self.delays.iter().zip(DELAYS) {
             let _ = item.set_text(texts.get(id));
         }
-        let _ = self.startup.set_text(texts.get(START_WITH_WINDOWS));
-        let _ = self.delayed.set_text(texts.get(DELAYED));
-        let _ = self.record.set_text(texts.get(RECORD));
-        let _ = self.open_image.set_text(texts.get(OPEN_IMAGE));
+        let submenus = [
+            (&self.delayed, DELAYED),
+            (&self.record, RECORD),
+            (&self.open_image, OPEN_IMAGE),
+            (&self.help, HELP),
+        ];
+        for (submenu, id) in submenus {
+            let _ = submenu.set_text(texts.get(id));
+        }
         let _ = self.icon.set_tooltip(Some(texts.get("tray-tooltip")));
     }
 
     pub fn show_update(&self, texts: &Texts, available: Option<&str>) {
-        let text = match available {
-            Some(version) => texts.get_with(UPDATE_TO, "version", version),
-            None => texts.get(CHECK_UPDATES),
+        let _ = self.menu.remove(&self.update_to);
+        let Some(version) = available else {
+            return;
         };
-        let _ = self.updates.set_text(text);
+        let _ = self
+            .update_to
+            .set_text(texts.get_with(UPDATE_TO, "version", version));
+        let settings = self
+            .menu
+            .items()
+            .ok()
+            .and_then(|items| items.iter().position(|item| *item.id() == SETTINGS));
+        if let Some(position) = settings {
+            let _ = self.menu.insert(&self.update_to, position);
+        }
     }
 
     pub fn show_recording(&self, state: RecordingState) {
@@ -342,15 +356,5 @@ impl Tray {
 pub fn show_icon(app: &AppHandle, visible: bool) {
     if let Some(icon) = app.tray_by_id(ID) {
         let _ = icon.set_visible(visible);
-    }
-}
-
-// Waiting for the main thread here could deadlock with a command that waits for the settings.
-pub fn show_start_with_windows(app: &AppHandle, on: bool) {
-    if let Some(startup) = app.try_state::<StartupItem>() {
-        let item = startup.0.clone();
-        let _ = app.run_on_main_thread(move || {
-            let _ = item.set_checked(on);
-        });
     }
 }

@@ -17,7 +17,6 @@ use crate::events::{Message, Messages};
 use crate::gif_window;
 use crate::settings_window;
 use crate::startup::{AT_START, StartupStatus};
-use crate::tray;
 use crate::update;
 
 const KEPT_NAME: &str = "settings.unreadable.json";
@@ -241,7 +240,6 @@ pub fn apply(app: &AppHandle, before: &Settings, after: &Settings) {
             });
         }
     }
-    tray::show_start_with_windows(app, after.start_with_windows);
     if before.language != after.language
         && let Some(messages) = app.try_state::<Messages>()
     {

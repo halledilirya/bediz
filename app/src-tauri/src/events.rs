@@ -30,6 +30,7 @@ pub enum Message {
     Platform(Event),
     OpenSettings,
     ShowUpdates,
+    ShowAbout,
     Updates(UpdateStatus),
     Language,
     Note(String),
@@ -127,6 +128,7 @@ impl Dispatcher {
             }
             Message::OpenSettings => self.open_settings(None),
             Message::ShowUpdates => self.show_updates(),
+            Message::ShowAbout => self.open_settings(Some(settings_window::ABOUT)),
             Message::Updates(status) => self.on_updates(&status),
             Message::Language => self.change_language(),
             Message::Note(note) => self.log.warn(&format!("note {note}")),

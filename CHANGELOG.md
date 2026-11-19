@@ -8,6 +8,10 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 
 - **Delayed screenshot** in the tray menu takes the screenshot 3, 5 or 10 seconds later, so a menu or a tooltip that closes when a key is pressed can be open when it is taken. The seconds left show in a corner and stay out of the screenshot; Print Screen takes it at once, and the tray menu can cancel it.
 
+### Changed
+
+- The tray menu is shorter: checking for updates, the log folder and About are under **Help**, and starting with Windows is set in the settings. A new version, once found, shows in the menu as **Update to version …**.
+
 ## [0.3.1] - 2026-11-19
 
 ### Changed

@@ -16,6 +16,7 @@ use crate::update;
 
 pub const LABEL: &str = "settings";
 pub const UPDATES: &str = "updates";
+pub const ABOUT: &str = "about";
 
 #[derive(Default)]
 pub struct Section(Mutex<Option<&'static str>>);

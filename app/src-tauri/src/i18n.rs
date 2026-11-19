@@ -210,7 +210,7 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 86] = [
+    const USED: [&str; 87] = [
         "settings-title",
         "gif-title",
         "tray-record",
@@ -235,8 +235,9 @@ mod tests {
         "tray-hotkey-snipping-tool",
         "tray-retry",
         "tray-take-print-screen",
-        "tray-start-with-windows",
+        "tray-help",
         "tray-open-logs",
+        "tray-about",
         "tray-quit",
         "overlay-menu-copy-and-save",
         "overlay-menu-copy",
