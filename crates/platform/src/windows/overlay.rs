@@ -2,9 +2,12 @@
 //! opened picture, and marks it up: its swap chain and surfaces, drawing the view, and showing
 //! and hiding it.
 
+mod frames;
 mod paint;
 mod picture;
 mod settled;
+
+pub use frames::SHOWN_WITHIN_MS;
 
 use std::cell::RefCell;
 
@@ -26,7 +29,8 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::{
     DXGI_MWA_NO_ALT_ENTER, DXGI_MWA_NO_WINDOW_CHANGES, DXGI_PRESENT, DXGI_SCALING_NONE,
-    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG, DXGI_SWAP_EFFECT_FLIP_DISCARD,
+    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG,
+    DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_EFFECT_FLIP_DISCARD,
     DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGISwapChain1,
 };
 use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromRect};
@@ -43,12 +47,15 @@ use super::gpu::Gpu;
 use super::marking::Decor;
 use super::readback;
 use super::window_class::{OVERLAY_CLASS, OwnedWindow};
+use frames::Frames;
 use paint::Painter;
 use picture::Laid;
 use settled::Settled;
 
 const PARKED: i32 = -32000;
 const LABEL_FONT_SIZE: f32 = 12.0;
+// A waitable swap chain queues one frame, not three, and ResizeBuffers must repeat the flag.
+const SWAP_CHAIN_FLAGS: DXGI_SWAP_CHAIN_FLAG = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct View {
@@ -69,6 +76,7 @@ struct Surfaces {
 pub struct Overlay {
     surfaces: Option<Surfaces>,
     swap_chain: IDXGISwapChain1,
+    frames: Frames,
     window: OwnedWindow,
     announcer: Announcer,
     rect: Rect,
@@ -114,12 +122,14 @@ impl Overlay {
             Scaling: DXGI_SCALING_NONE,
             SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
             AlphaMode: DXGI_ALPHA_MODE_IGNORE,
+            Flags: SWAP_CHAIN_FLAGS.0 as u32,
             ..Default::default()
         };
         let swap_chain = unsafe {
             gpu.factory
                 .CreateSwapChainForHwnd(&gpu.device, window.0, &description, None, None)
         }?;
+        let frames = Frames::of(&swap_chain);
         unsafe {
             gpu.factory
                 .MakeWindowAssociation(window.0, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES)
@@ -129,6 +139,7 @@ impl Overlay {
         let mut overlay = Self {
             surfaces: None,
             swap_chain,
+            frames,
             window,
             announcer,
             rect,
@@ -236,6 +247,29 @@ impl Overlay {
     }
 
     pub fn draw(&self, gpu: &Gpu, view: &View, decor: &Decor) -> Result<()> {
+        if self.surfaces.is_none() {
+            return Ok(());
+        }
+        self.frames.wait();
+        self.render(gpu, view, decor)?;
+        let presented = unsafe { self.swap_chain.Present(1, DXGI_PRESENT(0)) };
+        if presented.is_ok() {
+            self.frames.presented();
+        }
+        presented.ok()
+    }
+
+    // A cloaked window may keep its frame, and the hotkey's present would then wait for it.
+    pub fn warm_up(&self, gpu: &Gpu) -> Result<()> {
+        self.render(gpu, &View::default(), &Decor::default())
+    }
+
+    pub fn wait_for_frame(&self) -> bool {
+        self.frames.wait();
+        !self.frames.take_late()
+    }
+
+    fn render(&self, gpu: &Gpu, view: &View, decor: &Decor) -> Result<()> {
         let Some(surfaces) = &self.surfaces else {
             return Ok(());
         };
@@ -300,11 +334,11 @@ impl Overlay {
         }
         let drawn = unsafe { gpu.canvas.EndDraw(None, None) };
         unsafe { gpu.canvas.SetTarget(None::<&ID2D1Image>) };
-        drawn?;
-        unsafe { self.swap_chain.Present(1, DXGI_PRESENT(0)) }.ok()
+        drawn
     }
 
     pub fn place(&self) -> Result<()> {
+        self.frames.start();
         unsafe {
             SetWindowPos(
                 self.window.0,
@@ -332,6 +366,7 @@ impl Overlay {
     }
 
     pub fn hide(&self) -> Result<()> {
+        self.frames.stop();
         let cloaked = set_flag(self.window.0, DWMWA_CLOAK, true);
         let parked = unsafe {
             SetWindowPos(
@@ -349,13 +384,8 @@ impl Overlay {
 
     fn resize(&self, width: u32, height: u32) -> Result<()> {
         unsafe {
-            self.swap_chain.ResizeBuffers(
-                0,
-                width,
-                height,
-                DXGI_FORMAT_UNKNOWN,
-                DXGI_SWAP_CHAIN_FLAG(0),
-            )
+            self.swap_chain
+                .ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, SWAP_CHAIN_FLAGS)
         }
     }
 }

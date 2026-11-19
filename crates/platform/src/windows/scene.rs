@@ -126,7 +126,10 @@ impl Scene {
 
     // Allocations become resident on first use; drawing once keeps that cost off the hotkey.
     pub fn warm_up(&self) -> Result<()> {
-        self.draw_all()
+        for (overlay, monitor) in self.overlays.iter().zip(&self.displays.monitors) {
+            overlay.warm_up(gpu(&self.displays, monitor.gpu)?)?;
+        }
+        Ok(())
     }
 
     pub fn release(&mut self) -> Result<()> {
@@ -254,6 +257,14 @@ impl Scene {
             self.draw_one(index, &View::default(), &Decor::default())?;
         }
         Ok(())
+    }
+
+    pub fn wait_for_frames(&self) -> bool {
+        let mut in_time = true;
+        for overlay in &self.overlays {
+            in_time &= overlay.wait_for_frame();
+        }
+        in_time
     }
 
     pub fn draw_one(&self, monitor: usize, view: &View, decor: &Decor) -> Result<()> {

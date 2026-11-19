@@ -8,6 +8,7 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 
 - With more than one monitor, marking up redraws only the monitor the marks are on instead of every monitor.
 - With many marks, drawing a new one is smoother: the marks drawn before it are kept as they are instead of being drawn again on every frame.
+- Marks follow the pointer more closely while you draw: each frame is drawn from the pointer's newest position once the one before it is on the screen.
 
 ### Fixed
 

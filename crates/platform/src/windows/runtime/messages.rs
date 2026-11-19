@@ -1,6 +1,6 @@
-//! The runtime's loop: waits on messages, the Print Screen setting and the timer of a recording
-//! or of the live screen, hands each message to what handles it, and keeps a panic from ending
-//! the thread.
+//! The runtime's loop: waits on messages, the Print Screen setting, the timer of a recording or of
+//! the live screen and the overlay's last frame, hands each message to what handles it, and keeps
+//! a panic from ending the thread.
 
 use std::panic::AssertUnwindSafe;
 use std::time::Duration;
@@ -24,6 +24,7 @@ use crate::event::{Event, Failure};
 use crate::windows::clock;
 use crate::windows::desktop_switch;
 use crate::windows::hotkey;
+use crate::windows::overlay::SHOWN_WITHIN_MS;
 use crate::windows::recording::{Recording, Timer};
 use crate::windows::session::{Purpose, Session};
 use crate::windows::window_class;
@@ -121,7 +122,11 @@ impl Runtime {
 
     fn drain(&mut self) -> bool {
         let mut message = MSG::default();
-        while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+        loop {
+            self.wait_for_frames();
+            if !unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+                break;
+            }
             if message.message == WM_QUIT || !self.dispatch(&message) || !self.after_message() {
                 return false;
             }
@@ -135,6 +140,18 @@ impl Runtime {
         }
         // Sent messages and WinEvents run inside PeekMessageW, which then returns no message.
         self.after_message()
+    }
+
+    // Input read once the last frame is on the screen is drawn a frame sooner.
+    fn wait_for_frames(&self) {
+        if let Some(scene) = &self.scene
+            && !scene.wait_for_frames()
+        {
+            self.emit_notes(vec![format!(
+                "a frame was not on the screen within {SHOWN_WITHIN_MS} ms; the overlay draws \
+                 without waiting for frames until it opens again"
+            )]);
+        }
     }
 
     fn dispatch(&mut self, message: &MSG) -> bool {
