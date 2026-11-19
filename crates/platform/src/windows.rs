@@ -6,6 +6,7 @@ mod capture;
 mod clipboard;
 mod clock;
 mod contrast;
+mod countdown;
 mod desktop_switch;
 mod displays;
 mod folder;

@@ -5,6 +5,7 @@
 use std::sync::PoisonError;
 use std::time::Duration;
 
+use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     KillTimer, SPI_GETMESSAGEDURATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetTimer,
     SystemParametersInfoW,
@@ -28,6 +29,8 @@ impl Runtime {
                 }
                 Command::Capture => self.open(Duration::ZERO, Purpose::Screenshot),
                 Command::CaptureAfterMenu => self.open_after_menu(),
+                Command::CaptureIn(delay) => self.capture_in(delay),
+                Command::CancelDelay => self.cancel_delay(),
                 Command::MarkUp(from) => self.mark_up(from),
                 Command::RecordGif if self.closing() => {}
                 Command::RecordGif => self.open(Duration::ZERO, Purpose::Recording),
@@ -137,6 +140,14 @@ impl Runtime {
             self.emit_notes(vec![format!(
                 "the closing confirmation could not be passed to a screen reader: {error}"
             )]);
+        }
+    }
+
+    pub(super) fn close_label(&mut self, window: HWND) {
+        if self.label.as_ref().is_some_and(|label| label.is(window)) {
+            self.hide_label();
+        } else if self.counts_down_in(window) {
+            self.cancel_delay();
         }
     }
 }

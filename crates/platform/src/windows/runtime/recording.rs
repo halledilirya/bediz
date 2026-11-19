@@ -302,6 +302,7 @@ impl Runtime {
     // On quit a recording is stopped and kept, and every GIF still being written is finished.
     pub(super) fn finish_recordings(&mut self) {
         self.quitting = true;
+        self.cancel_delay();
         self.stop_recording(None);
         for finishing in std::mem::take(&mut self.finishing) {
             let Finishing {

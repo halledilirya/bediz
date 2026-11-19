@@ -210,7 +210,7 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 81] = [
+    const USED: [&str; 86] = [
         "settings-title",
         "gif-title",
         "tray-record",
@@ -226,6 +226,11 @@ mod tests {
         "tray-tooltip-hotkey-taken",
         "tray-tooltip-snipping-tool",
         "tray-take-screenshot",
+        "tray-delayed-screenshot",
+        "tray-delay-three",
+        "tray-delay-five",
+        "tray-delay-ten",
+        "tray-cancel-delay",
         "tray-hotkey-taken",
         "tray-hotkey-snipping-tool",
         "tray-retry",
@@ -415,6 +420,21 @@ price = Costs $5
             assert!(width.is_some() && height.is_some(), "{code}: {said}");
             assert!(!said.contains(['{', '}']), "{code}: {said}");
             assert!(said.chars().any(char::is_alphabetic), "{code}: {said}");
+        }
+    }
+
+    #[test]
+    fn every_delay_in_the_tray_names_its_own_seconds_in_every_locale() {
+        for (code, _) in LOCALES {
+            let texts = Texts::for_languages(&[code.to_owned()]);
+            for (id, seconds) in crate::tray::DELAYS {
+                let said = texts.get(id);
+                let numbers: Vec<&str> = said
+                    .split(|letter: char| !letter.is_ascii_digit())
+                    .filter(|number| !number.is_empty())
+                    .collect();
+                assert_eq!(numbers, [seconds.to_string()], "{code} {id}: {said}");
+            }
         }
     }
 

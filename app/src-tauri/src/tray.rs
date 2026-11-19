@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 
 use bediz_core::settings::Settings;
 use bediz_platform::{Command, HotkeyState, ImageSource, RecordingAction, RecordingState};
@@ -19,6 +20,13 @@ use crate::updater;
 
 const ID: &str = "main";
 const TAKE_SCREENSHOT: &str = "tray-take-screenshot";
+const DELAYED: &str = "tray-delayed-screenshot";
+pub const DELAYS: [(&str, u64); 3] = [
+    ("tray-delay-three", 3),
+    ("tray-delay-five", 5),
+    ("tray-delay-ten", 10),
+];
+const CANCEL_DELAY: &str = "tray-cancel-delay";
 const RECORD: &str = "tray-record";
 const RECORD_GIF: &str = "tray-record-gif";
 const PAUSE: &str = "recording-pause";
@@ -37,13 +45,17 @@ const CHECK_UPDATES: &str = "tray-check-updates";
 const UPDATE_TO: &str = "tray-update-to";
 const OPEN_LOGS: &str = "tray-open-logs";
 const QUIT: &str = "tray-quit";
-const STATUS_POSITION: usize = 4;
+const DELAY_POSITION: usize = 1;
+const STATUS_POSITION: usize = 5;
 
 pub struct Tray {
     icon: TrayIcon<Wry>,
     menu: Menu<Wry>,
     status: MenuItem<Wry>,
     take: MenuItem<Wry>,
+    delayed: Submenu<Wry>,
+    delays: Vec<MenuItem<Wry>>,
+    cancel_delay: MenuItem<Wry>,
     record: Submenu<Wry>,
     record_gif: MenuItem<Wry>,
     pause: MenuItem<Wry>,
@@ -76,6 +88,17 @@ impl Tray {
     ) -> tauri::Result<Self> {
         let item = |id: &str| MenuItem::with_id(app, id, texts.get(id), true, None::<&str>);
         let take = item(TAKE_SCREENSHOT)?;
+        let delays = DELAYS
+            .iter()
+            .map(|(id, _)| item(id))
+            .collect::<tauri::Result<Vec<_>>>()?;
+        let delay_items: Vec<&dyn IsMenuItem<Wry>> = delays
+            .iter()
+            .map(|delay| delay as &dyn IsMenuItem<Wry>)
+            .collect();
+        let delayed =
+            Submenu::with_id_and_items(app, DELAYED, texts.get(DELAYED), true, &delay_items)?;
+        let cancel_delay = item(CANCEL_DELAY)?;
         let record_gif = item(RECORD_GIF)?;
         let pause = item(PAUSE)?;
         let resume = item(RESUME)?;
@@ -112,6 +135,7 @@ impl Tray {
         let below_take = PredefinedMenuItem::separator(app)?;
         let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![
             &take,
+            &delayed,
             &record,
             &open_image,
             &below_take,
@@ -134,6 +158,7 @@ impl Tray {
         let icon = builder
             .on_menu_event(move |app, event| match event.id().as_ref() {
                 TAKE_SCREENSHOT => setup::send(app, Command::CaptureAfterMenu),
+                CANCEL_DELAY => setup::send(app, Command::CancelDelay),
                 RECORD_GIF => setup::send(app, Command::RecordGif),
                 PAUSE => setup::send(app, Command::Recording(RecordingAction::Pause)),
                 RESUME => setup::send(app, Command::Recording(RecordingAction::Resume)),
@@ -161,7 +186,11 @@ impl Tray {
                 QUIT => {
                     let _ = messages.send(Message::Quit);
                 }
-                _ => {}
+                other => {
+                    if let Some((_, seconds)) = DELAYS.iter().find(|(delay, _)| *delay == other) {
+                        setup::send(app, Command::CaptureIn(Duration::from_secs(*seconds)));
+                    }
+                }
             })
             .on_tray_icon_event(|icon, event| match event {
                 TrayIconEvent::Click {
@@ -178,6 +207,9 @@ impl Tray {
             menu,
             status,
             take,
+            delayed,
+            delays,
+            cancel_delay,
             record,
             record_gif,
             pause,
@@ -202,6 +234,7 @@ impl Tray {
     pub fn retext(&self, texts: &Texts) {
         let items = [
             (&self.take, TAKE_SCREENSHOT),
+            (&self.cancel_delay, CANCEL_DELAY),
             (&self.record_gif, RECORD_GIF),
             (&self.pause, PAUSE),
             (&self.resume, RESUME),
@@ -219,7 +252,11 @@ impl Tray {
         for (item, id) in items {
             let _ = item.set_text(texts.get(id));
         }
+        for (item, (id, _)) in self.delays.iter().zip(DELAYS) {
+            let _ = item.set_text(texts.get(id));
+        }
         let _ = self.startup.set_text(texts.get(START_WITH_WINDOWS));
+        let _ = self.delayed.set_text(texts.get(DELAYED));
         let _ = self.record.set_text(texts.get(RECORD));
         let _ = self.open_image.set_text(texts.get(OPEN_IMAGE));
         let _ = self.icon.set_tooltip(Some(texts.get("tray-tooltip")));
@@ -245,6 +282,7 @@ impl Tray {
         for item in every {
             let _ = self.record.remove(item);
         }
+        let _ = self.delayed.set_enabled(state == RecordingState::Off);
         let shown: [&dyn IsMenuItem<Wry>; 4] = match state {
             RecordingState::Off => {
                 let _ = self.record.append(&self.record_gif);
@@ -254,6 +292,17 @@ impl Tray {
             RecordingState::Paused => [&self.resume, &self.finish, &self.restart, &self.discard],
         };
         let _ = self.record.append_items(&shown);
+    }
+
+    pub fn show_delay(&self, waiting: bool) {
+        let _ = self.menu.remove(&self.delayed);
+        let _ = self.menu.remove(&self.cancel_delay);
+        let shown: &dyn IsMenuItem<Wry> = if waiting {
+            &self.cancel_delay
+        } else {
+            &self.delayed
+        };
+        let _ = self.menu.insert(shown, DELAY_POSITION);
     }
 
     pub fn show(&self, state: HotkeyState, texts: &Texts, key: &str) {

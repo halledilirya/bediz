@@ -49,6 +49,9 @@ impl Quitting {
 
 impl Runtime {
     pub(super) fn on_quit(&mut self, step: QuitStep) {
+        if step != QuitStep::Stay {
+            self.cancel_delay();
+        }
         match step {
             QuitStep::Ask => {
                 self.quit.get_or_insert_with(Quitting::default);

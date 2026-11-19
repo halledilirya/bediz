@@ -18,6 +18,8 @@ use thiserror::Error;
 pub enum Command {
     Capture,
     CaptureAfterMenu,
+    CaptureIn(Duration),
+    CancelDelay,
     MarkUp(ImageSource),
     RecordGif,
     RetryHotkey,
@@ -272,6 +274,7 @@ pub enum Event {
     Failed(Failure),
     SecondStart,
     Recording(RecordingState),
+    Delaying(bool),
     Gif(GifEvent),
     Unsaved(Option<u8>),
     ReadyToQuit,

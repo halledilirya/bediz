@@ -3,7 +3,6 @@
 
 pub mod border;
 pub mod controls;
-mod countdown;
 mod pipeline;
 mod pointer;
 mod ring;
@@ -15,6 +14,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use bediz_core::animation::AnimationError;
+use bediz_core::countdown;
 use bediz_core::cursor::Placement;
 use bediz_core::geometry::Rect;
 use bediz_core::recording::{self, COUNTDOWN, Pauses, RecordingStop};
@@ -22,11 +22,11 @@ use windows::Win32::Foundation::{HANDLE, HWND};
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use super::clock::{Clock, Tick};
+use super::countdown::Countdown;
 use super::foreground;
 use super::scene::Scene;
 use border::Border;
 use controls::Controls;
-use countdown::Countdown;
 pub use pipeline::{Ended, Pipeline};
 use pointer::{Pointer, Sample};
 use ring::Ring;
@@ -285,7 +285,7 @@ impl Recording {
             ));
             return Next::Stop(Some(RecordingStop::Display));
         }
-        let left = recording::countdown_number(COUNTDOWN.saturating_sub(elapsed));
+        let left = countdown::number(COUNTDOWN.saturating_sub(elapsed));
         if left > 0 {
             if let Some(countdown) = &mut self.countdown
                 && let Err(error) = countdown.show(left)

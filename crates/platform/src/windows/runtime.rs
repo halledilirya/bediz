@@ -4,6 +4,7 @@
 mod announce;
 mod commands;
 mod copies;
+mod delay;
 mod delivery;
 mod discard;
 mod displays;
@@ -58,6 +59,7 @@ use super::worker::Worker;
 use crate::event::{Command, Event, HotkeyState, Label, MenuTexts};
 use announce::Heard;
 use copies::PendingCopy;
+use delay::Delay;
 use delivery::Tracked;
 use discard::Deletions;
 use markup_bar::MarkupBar;
@@ -81,6 +83,7 @@ const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
 const CLIPBOARD_TIMER: usize = 3;
 const LABEL_TIMER: usize = 4;
+const DELAY_TIMER: usize = 5;
 const DISPLAY_SETTLE_MILLISECONDS: u32 = 500;
 const LABEL_MILLISECONDS: u32 = 1500;
 
@@ -92,6 +95,7 @@ struct Runtime {
     scene: Option<Scene>,
     displays_changed: bool,
     menu_capture: bool,
+    delay: Option<Delay>,
     held: bool,
     hotkey: Registration,
     gif_hotkey: Registration,
@@ -191,6 +195,7 @@ impl Runtime {
             scene: None,
             displays_changed: false,
             menu_capture: false,
+            delay: None,
             held: false,
             hotkey: Registration::new(window, hotkey::HOTKEY),
             gif_hotkey: Registration::new(window, hotkey::GIF_HOTKEY),

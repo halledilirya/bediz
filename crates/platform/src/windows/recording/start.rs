@@ -20,7 +20,6 @@ use windows::Win32::UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI;
 
 use super::border::{Border, Line};
 use super::controls::{Controls, Stage};
-use super::countdown::Countdown;
 use super::pipeline::Output;
 use super::pointer::Pointer;
 use super::ring::Ring;
@@ -29,6 +28,7 @@ use super::{Pipeline, Recording, Timer, visible};
 use crate::event::MenuTexts;
 use crate::windows::clock::Clock;
 use crate::windows::contrast::Colours;
+use crate::windows::countdown::Countdown;
 use crate::windows::memory;
 use crate::windows::save;
 use crate::windows::scene::Scene;

@@ -181,6 +181,7 @@ impl Dispatcher {
             }
             Event::SecondStart => self.open_settings(None),
             Event::Recording(state) => self.tray.show_recording(*state),
+            Event::Delaying(waiting) => self.tray.show_delay(*waiting),
             Event::Gif(event) => {
                 gif_window::on_event(&self.app, event, &self.texts.get("gif-title"), &self.sender);
             }
@@ -333,6 +334,8 @@ fn record(log: &Log, event: &Event) {
             update::shortcut_name(*shortcut)
         )),
         Event::LastRegion(_) | Event::Recording(_) | Event::Gif(_) | Event::Unsaved(_) => {}
+        Event::Delaying(true) => log.info("a delayed screenshot is counting down"),
+        Event::Delaying(false) => log.info("the delayed screenshot's countdown ended"),
         Event::ReadyToQuit => log.info("quitting"),
         Event::QuitCancelled => log.warn("quitting was given up: a GIF could not be saved"),
         Event::StartWithWindows { on, failure, .. } => {

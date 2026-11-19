@@ -22,6 +22,7 @@ impl Runtime {
         if self.opening_picture.is_some() || self.recording.is_some() || self.closing() {
             return;
         }
+        self.cancel_delay();
         self.pictures_asked = self.pictures_asked.wrapping_add(1);
         let source = match from {
             ImageSource::Clipboard => Source::Clipboard,
@@ -61,12 +62,13 @@ impl Runtime {
     }
 
     fn open_picture(&mut self, image: Image) {
-        if self.session.is_some() || self.held || self.recording.is_some() || self.closing() {
+        if !self.can_open() || self.closing() {
             self.emit_notes(vec![
                 "an image was opened while Bediz was busy, so it was not shown".to_owned(),
             ]);
             return;
         }
+        self.cancel_delay();
         let mut notes = Vec::new();
         if self.displays_changed || self.scene.is_none() {
             self.rebuild_scene();

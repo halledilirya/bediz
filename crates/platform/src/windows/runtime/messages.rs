@@ -16,9 +16,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::{
-    CLIPBOARD_TIMER, DISPLAY_TIMER, LABEL_TIMER, MENU_FADE_TIMER, Runtime, WM_COMMANDS,
-    WM_EFFECT_MADE, WM_FINISH_SAVES, WM_HOLD, WM_OUTCOMES, WM_PICTURE, WM_RECORDING, WM_SAVE_AS,
-    WM_SECOND_START, WM_STOP,
+    CLIPBOARD_TIMER, DELAY_TIMER, DISPLAY_TIMER, LABEL_TIMER, MENU_FADE_TIMER, Runtime,
+    WM_COMMANDS, WM_EFFECT_MADE, WM_FINISH_SAVES, WM_HOLD, WM_OUTCOMES, WM_PICTURE, WM_RECORDING,
+    WM_SAVE_AS, WM_SECOND_START, WM_STOP,
 };
 use crate::event::{Event, Failure};
 use crate::windows::clock;
@@ -176,6 +176,7 @@ impl Runtime {
             }
             WM_TIMER if own && message.wParam.0 == CLIPBOARD_TIMER => self.retry_clipboard(),
             WM_TIMER if own && message.wParam.0 == LABEL_TIMER => self.hide_label(),
+            WM_TIMER if own && message.wParam.0 == DELAY_TIMER => self.tick_delay(),
             WM_COMMANDS if own => self.on_commands(),
             WM_OUTCOMES if own => self.on_outcomes(),
             WM_SAVE_AS if own => self.on_save_as_answer(),
@@ -225,8 +226,8 @@ impl Runtime {
         if window_class::take_close_requested() {
             self.hide();
         }
-        if window_class::take_label_close_requested() {
-            self.hide_label();
+        if let Some(window) = window_class::take_label_close_requested() {
+            self.close_label(window);
         }
         if window_class::take_display_changed() {
             self.on_display_change();
@@ -241,6 +242,7 @@ impl Runtime {
         if desktop_switch::take_switched() {
             self.stop_recording(Some(RecordingStop::Display));
             self.hide();
+            self.cancel_delay();
             if let Some(scene) = self.scene.as_mut() {
                 scene.reopen_capture();
             }

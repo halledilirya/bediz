@@ -4,6 +4,7 @@
 
 pub mod animation;
 pub mod capture;
+pub mod countdown;
 pub mod cursor;
 pub mod delivery;
 pub mod file_name;

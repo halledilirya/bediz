@@ -25,6 +25,8 @@ To build Bediz yourself, see [CONTRIBUTING.md](CONTRIBUTING.md); [ARCHITECTURE.m
 
 Press **Print Screen** or click the tray icon. The screen freezes on every monitor; with HDR on, it keeps the colours you see instead of coming out washed out. Drag to select a region, which can span monitors, then press **Enter** to copy it and save it to Pictures\Screenshots as a PNG. If copying or saving fails, a short label says why. A file that exists is never replaced; the new one gets a number. Save as replaces a file only after Windows asks and you agree.
 
+To capture a menu or a tooltip that closes when a key is pressed, choose **Delayed screenshot** in the tray menu, then open it before the seconds in the corner run out.
+
 Bediz starts with Windows unless you turn that off in the settings or the tray menu.
 
 | Key | Action |

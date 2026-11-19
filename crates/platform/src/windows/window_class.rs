@@ -42,7 +42,7 @@ pub const CONTROLS_CLASS: PCWSTR = w!("BedizRecordingControls");
 thread_local! {
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CLOSE_REQUESTED: Cell<bool> = const { Cell::new(false) };
-    static LABEL_CLOSE_REQUESTED: Cell<bool> = const { Cell::new(false) };
+    static LABEL_CLOSE_REQUESTED: Cell<Option<HWND>> = const { Cell::new(None) };
     static CONTROLS_REQUEST: Cell<Option<controls::Request>> = const { Cell::new(None) };
     static COLOURS_CHANGED: Cell<bool> = const { Cell::new(false) };
     static CURSOR: Cell<Option<HCURSOR>> = const { Cell::new(None) };
@@ -79,8 +79,8 @@ pub fn take_close_requested() -> bool {
     CLOSE_REQUESTED.with(|flag| flag.replace(false))
 }
 
-pub fn take_label_close_requested() -> bool {
-    LABEL_CLOSE_REQUESTED.with(|flag| flag.replace(false))
+pub fn take_label_close_requested() -> Option<HWND> {
+    LABEL_CLOSE_REQUESTED.with(Cell::take)
 }
 
 pub fn take_colours_changed() -> bool {
@@ -210,7 +210,7 @@ unsafe extern "system" fn label_procedure(
             }
             // The runtime owns the label, so a close asked through UI Automation is left to it.
             WM_CLOSE => {
-                LABEL_CLOSE_REQUESTED.with(|flag| flag.set(true));
+                LABEL_CLOSE_REQUESTED.with(|asked| asked.set(Some(window)));
                 return LRESULT(0);
             }
             WM_DESTROY => automation::detach(window),

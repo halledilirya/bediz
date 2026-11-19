@@ -26,12 +26,18 @@ use crate::windows::virtual_desktop::VirtualDesktops;
 use bediz_core::recording;
 
 impl Runtime {
+    // A delay's countdown closes once the overlay shows, off the hotkey path; captures leave it out.
     pub(super) fn open(&mut self, queued: Duration, purpose: Purpose) {
+        self.show_overlay(queued, purpose);
+        self.cancel_delay();
+    }
+
+    fn show_overlay(&mut self, queued: Duration, purpose: Purpose) {
         let start = self.clock.now();
         if std::mem::take(&mut self.menu_capture) {
             let _ = unsafe { KillTimer(Some(self.window.0), MENU_FADE_TIMER) };
         }
-        if self.session.is_some() || self.held || self.recording.is_some() {
+        if !self.can_open() {
             return;
         }
         let mut notes = Vec::new();
@@ -145,7 +151,11 @@ impl Runtime {
         }
     }
 
-    fn capture_failed(&self, reason: String) {
+    pub(super) fn can_open(&self) -> bool {
+        self.session.is_none() && !self.held && self.recording.is_none()
+    }
+
+    pub(super) fn capture_failed(&self, reason: String) {
         (self.sink)(Event::Notice {
             notices: vec![Notice::CaptureFailed(reason)],
             near: pointer_rect(),

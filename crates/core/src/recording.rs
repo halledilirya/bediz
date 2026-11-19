@@ -98,10 +98,6 @@ pub fn output_size(width: u32, height: u32, longest_side: LongestSide) -> (u32, 
     (scaled(width), scaled(height))
 }
 
-pub fn countdown_number(remaining: Duration) -> u64 {
-    remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0)
-}
-
 pub fn size_warning(bytes: u64) -> Option<SizeWarning> {
     if bytes > X_LIMIT {
         Some(SizeWarning::X)
@@ -250,15 +246,6 @@ mod tests {
         assert_eq!(output_size(3840, 2160, side(1920)), (1920, 1080));
         assert_eq!(output_size(3840, 2160, LongestSide::KEPT), (3840, 2160));
         assert_eq!(output_size(500, 300, side(640)), (500, 300));
-    }
-
-    #[test]
-    fn the_countdown_shows_whole_seconds_left_rounded_up() {
-        assert_eq!(countdown_number(COUNTDOWN), 3);
-        assert_eq!(countdown_number(Duration::from_millis(2_001)), 3);
-        assert_eq!(countdown_number(Duration::from_millis(2_000)), 2);
-        assert_eq!(countdown_number(Duration::from_millis(1)), 1);
-        assert_eq!(countdown_number(Duration::ZERO), 0);
     }
 
     #[test]

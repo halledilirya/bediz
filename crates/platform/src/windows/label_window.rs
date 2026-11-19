@@ -3,7 +3,7 @@
 
 use std::ffi::c_void;
 
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, POINT, RECT, SIZE};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
 };
@@ -165,6 +165,10 @@ impl LabelWindow {
             d2d: unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) }?,
             text: unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED) }?,
         })
+    }
+
+    pub fn is(&self, window: HWND) -> bool {
+        self.window.0 == window
     }
 
     pub fn show(&self, label: &Label, colours: Option<&Colours>) -> Result<Shown> {

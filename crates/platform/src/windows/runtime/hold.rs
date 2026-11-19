@@ -10,6 +10,7 @@ use crate::windows::worker::Worker;
 #[derive(Clone, Copy, Default)]
 struct Open {
     selection: bool,
+    delay: bool,
     save_as: bool,
     recording: bool,
     writing: bool,
@@ -18,7 +19,12 @@ struct Open {
 
 impl Open {
     fn any(self) -> bool {
-        self.selection || self.save_as || self.recording || self.writing || self.deleting
+        self.selection
+            || self.delay
+            || self.save_as
+            || self.recording
+            || self.writing
+            || self.deleting
     }
 }
 
@@ -72,6 +78,7 @@ impl Barrier for Runtime {
     fn busy(&self) -> bool {
         Open {
             selection: self.session.is_some(),
+            delay: self.delay.is_some(),
             save_as: self.save_as.is_some(),
             recording: self.recording.is_some(),
             writing: !self.finishing.is_empty(),
@@ -238,6 +245,10 @@ mod tests {
         for open in [
             Open {
                 selection: true,
+                ..Open::default()
+            },
+            Open {
+                delay: true,
                 ..Open::default()
             },
             Open {

@@ -19,6 +19,7 @@ const MENU_FADE_MILLISECONDS: u32 = 500;
 impl Runtime {
     // The clicked menu item fades out for a moment and would be in the capture.
     pub(super) fn open_after_menu(&mut self) {
+        self.cancel_delay();
         let timer = menu_fades()
             && unsafe {
                 SetTimer(
