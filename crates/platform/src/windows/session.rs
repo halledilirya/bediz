@@ -7,8 +7,10 @@ mod live;
 mod marks;
 mod picture;
 mod pointer;
+mod words;
 
 pub use picture::Picture;
+pub use words::{Content, Highlights};
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
@@ -26,15 +28,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, Result};
 
-use super::marking::Marking;
+use super::marking::{Decor, Marking};
 use super::overlay::View;
 use super::scene::Scene;
 use super::window_class;
 use super::window_list::WindowList;
 use live::LiveFrames;
 use pointer::Click;
+use words::Words;
 
 const HANDLES_REACH: i32 = 32;
+const WAS_DOWN: isize = 1 << 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -47,6 +51,7 @@ pub enum Action {
     Menu(Point),
     CopyText { cut: bool },
     PasteText,
+    ReadText,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +81,7 @@ pub struct KeyPress {
     pub alt: bool,
     pub control: bool,
     pub shift: bool,
+    pub repeat: bool,
 }
 
 pub struct Session {
@@ -90,6 +96,8 @@ pub struct Session {
     live: LiveFrames,
     marking: Marking,
     picture: Option<Picture>,
+    words: Option<Words>,
+    words_read: u64,
 }
 
 impl Session {
@@ -118,6 +126,8 @@ impl Session {
             live: LiveFrames::default(),
             marking: Marking::new(scale, reply_to),
             picture: None,
+            words: None,
+            words_read: 0,
         }
     }
 
@@ -148,7 +158,7 @@ impl Session {
         input_waiting: bool,
     ) -> Result<()> {
         let shown = self.live.arrived(refreshed, input_waiting);
-        let decor = self.marking.decor();
+        let decor = decor(&self.marking, self.words.as_ref());
         for index in shown {
             if let Some(view) = self.views.get(index) {
                 scene.draw_one(index, view, &decor)?;
@@ -221,6 +231,7 @@ impl Session {
                     alt: message.message == WM_SYSKEYDOWN,
                     control: is_down(VK_CONTROL),
                     shift: is_down(VK_SHIFT),
+                    repeat: message.lParam.0 & WAS_DOWN != 0,
                 };
                 return self.press_key(scene, windows, last_region, press, point);
             }
@@ -271,9 +282,11 @@ impl Session {
     pub fn redraw(&mut self, scene: &Scene, windows: Option<&WindowList>) -> Result<()> {
         self.marking.measure_texts(scene);
         self.marking.refresh_previews(scene);
+        self.forget_stale_words();
         let monitors = scene.monitor_rects();
         self.views.resize(monitors.len(), View::default());
-        let decor = self.marking.decor();
+        let decor = decor(&self.marking, self.words.as_ref());
+        let words = words::id(self.words.as_ref());
         let marks = self.marking.version();
         let selection = self.selected();
         let highlight = match (&self.click, selection) {
@@ -300,6 +313,7 @@ impl Session {
                     .map(|(_, size)| size),
                 pointer: magnified.filter(|pointer| bounds.contains(*pointer)),
                 marks: shows_marks(*bounds, selection, unclipped).then_some(marks),
+                words: selection.filter(shown_here).and(words),
             };
             if *drawn != view || self.live.owed(index) {
                 scene.draw_one(index, &view, &decor)?;
@@ -322,6 +336,14 @@ fn confirm(purpose: Purpose, enter: Delivery) -> Action {
     match purpose {
         Purpose::Screenshot | Purpose::Picture => Action::Deliver(enter),
         Purpose::Recording => Action::Record,
+    }
+}
+
+fn decor<'a>(marking: &'a Marking, words: Option<&'a Words>) -> Decor<'a> {
+    Decor {
+        words: words::rects(words),
+        words_turn: words::turn(words),
+        ..marking.decor()
     }
 }
 

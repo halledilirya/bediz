@@ -65,6 +65,7 @@ impl Countdown {
             lines: vec![number.to_string()],
             near: self.near,
             warning: false,
+            at_once: true,
             language: "en".to_owned(),
             right_to_left: false,
         };

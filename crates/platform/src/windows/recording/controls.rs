@@ -70,6 +70,7 @@ pub enum Button {
     Redo = 23,
     Copy = 24,
     Save = 25,
+    ReadText = 26,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,6 +118,7 @@ impl Stage {
                 &[Button::Undo],
                 &[Button::Redo],
                 &[Button::Copy],
+                &[Button::ReadText],
                 &[Button::Save],
                 &[Button::Cancel],
             ],
@@ -125,7 +127,7 @@ impl Stage {
 }
 
 impl Button {
-    const ALL: [Self; 25] = [
+    const ALL: [Self; 26] = [
         Self::Start,
         Self::Pause,
         Self::Resume,
@@ -151,6 +153,7 @@ impl Button {
         Self::Redo,
         Self::Copy,
         Self::Save,
+        Self::ReadText,
     ];
 
     pub fn from_id(id: u16) -> Option<Self> {
@@ -210,6 +213,7 @@ impl Button {
             Self::Redo => Face::Glyph(0xE7A6),
             Self::Copy => Face::Glyph(0xE8C8),
             Self::Save => Face::Glyph(0xE74E),
+            Self::ReadText => Face::Glyph(0xE8FE),
         }
     }
 
@@ -240,6 +244,7 @@ impl Button {
             Self::Redo => &texts.markup.redo,
             Self::Copy => &texts.copy,
             Self::Save => &texts.save,
+            Self::ReadText => &texts.read_text,
         }
     }
 
@@ -255,6 +260,7 @@ impl Button {
             Self::Redo => "Ctrl+Y",
             Self::Copy => "Ctrl+C",
             Self::Save => "Ctrl+S",
+            Self::ReadText => "O",
             Self::Cancel => "Esc",
             _ => return None,
         };
@@ -587,7 +593,7 @@ mod tests {
             assert_eq!(Button::from_id(button.id()), Some(button));
         }
         assert_eq!(Button::from_id(0), None);
-        assert_eq!(Button::from_id(26), None);
+        assert_eq!(Button::from_id(27), None);
     }
 
     #[test]

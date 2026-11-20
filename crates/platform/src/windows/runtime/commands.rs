@@ -94,7 +94,7 @@ impl Runtime {
 
     // A label from a save that ended in the background must not cover the screen being selected.
     pub(super) fn show_label(&mut self, label: Label) {
-        if self.session.is_some() {
+        if self.session.is_some() && !label.at_once {
             let waiting = self.label_after_overlay.take();
             self.label_after_overlay = Some(deferred(waiting, label));
             return;
@@ -226,6 +226,7 @@ mod tests {
                 bottom: 10,
             },
             warning,
+            at_once: false,
             language: "en".to_owned(),
             right_to_left: false,
         }

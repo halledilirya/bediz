@@ -1,5 +1,5 @@
-//! Puts images, colours, GIFs and typed text on the clipboard in the order they were asked for,
-//! retrying while it is busy, and reports how each copy ended.
+//! Puts images, colours, GIFs, typed text and text read from the screen on the clipboard in the
+//! order they were asked for, retrying while it is busy, and reports how each copy ended.
 
 use std::path::Path;
 
@@ -9,9 +9,11 @@ use bediz_core::image::hex_colour;
 use bediz_core::notice::Notice;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
+use super::reading::Asked;
 use super::{CLIPBOARD_TIMER, Runtime};
 use crate::event::{Event, GifEvent};
 use crate::windows::clipboard::{self, Contents, Placed};
+use crate::windows::session::Highlights;
 
 pub(super) const CLIPBOARD_RETRY_MILLISECONDS: u32 = 25;
 const CLIPBOARD_ATTEMPTS: u32 = 10;
@@ -39,6 +41,10 @@ pub(super) enum Copied {
     },
     Gif {
         gif: u64,
+    },
+    ReadText {
+        asked: Asked,
+        words: Highlights,
     },
 }
 
@@ -203,6 +209,10 @@ impl Runtime {
                 self.notify(notices, near);
             }
             Copied::Gif { gif } => (self.sink)(Event::Gif(GifEvent::Copied { id: gif, result })),
+            Copied::ReadText { asked, words } => match result {
+                Ok(()) => self.text_copied(asked, words),
+                Err(error) => self.text_not_copied(error, &asked),
+            },
         }
     }
 
@@ -215,7 +225,7 @@ impl Runtime {
                 notices.push(Notice::GifSaved);
                 self.notify(notices, near);
             }
-            Copied::Colour { .. } | Copied::Gif { .. } => {}
+            Copied::Colour { .. } | Copied::Gif { .. } | Copied::ReadText { .. } => {}
         }
     }
 

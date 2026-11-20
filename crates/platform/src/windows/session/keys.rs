@@ -6,8 +6,8 @@ use bediz_core::geometry::{Point, Rect};
 use bediz_core::markup::{Markup, Tool};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_A, VK_ADD, VK_APPS, VK_BACK, VK_C, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F4,
-    VK_F10, VK_LEFT, VK_MENU, VK_OEM_MINUS, VK_OEM_PLUS, VK_R, VK_RETURN, VK_RIGHT, VK_S, VK_SHIFT,
-    VK_SUBTRACT, VK_UP, VK_Y, VK_Z,
+    VK_F10, VK_LEFT, VK_MENU, VK_O, VK_OEM_MINUS, VK_OEM_PLUS, VK_R, VK_RETURN, VK_RIGHT, VK_S,
+    VK_SHIFT, VK_SUBTRACT, VK_UP, VK_Y, VK_Z,
 };
 
 use super::{Action, KeyPress, Purpose, Session, confirm, modifiers};
@@ -152,6 +152,9 @@ fn respond(press: KeyPress, selected: bool, enter: Delivery, purpose: Purpose) -
         VK_A if press.control && reshapes => Response::WholeMonitor,
         VK_R if !press.control && reshapes => Response::LastRegion,
         VK_C if !press.control && still => Response::CopyColour,
+        VK_O if !press.control && !press.alt && !press.repeat && marking => {
+            Response::Act(Action::ReadText)
+        }
         VK_APPS => Response::Menu,
         VK_F10 if press.shift => Response::Menu,
         VK_SHIFT | VK_MENU => Response::Modifiers,
@@ -175,11 +178,11 @@ mod tests {
     use windows::Win32::Foundation::LPARAM;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, VIRTUAL_KEY, VK_A, VK_ADD, VK_C,
-        VK_DELETE, VK_ESCAPE, VK_F4, VK_LEFT, VK_NUMPAD1, VK_OEM_MINUS, VK_P, VK_R, VK_RETURN,
-        VK_S, VK_T, VK_Y, VK_Z,
+        VK_DELETE, VK_ESCAPE, VK_F4, VK_LEFT, VK_NUMPAD1, VK_O, VK_OEM_MINUS, VK_P, VK_R,
+        VK_RETURN, VK_S, VK_T, VK_Y, VK_Z,
     };
 
-    use super::{Action, Purpose, Response, edit_marks, respond};
+    use super::{Action, KeyPress, Purpose, Response, edit_marks, respond};
     use crate::windows::hotkey::as_key_press;
 
     fn replayed_for(
@@ -316,6 +319,33 @@ mod tests {
         );
         assert_eq!(picture(MOD_CONTROL, VK_A), None);
         assert_eq!(picture(HOT_KEY_MODIFIERS(0), VK_R), None);
+        assert_eq!(
+            picture(HOT_KEY_MODIFIERS(0), VK_O),
+            Some(Response::Act(Action::ReadText))
+        );
+    }
+
+    #[test]
+    fn o_reads_the_text_of_a_screenshot_or_picture_selection_only() {
+        assert_eq!(
+            replayed(HOT_KEY_MODIFIERS(0), VK_O, true),
+            Some(Response::Act(Action::ReadText))
+        );
+        assert_eq!(replayed(HOT_KEY_MODIFIERS(0), VK_O, false), None);
+        assert_eq!(replayed(MOD_CONTROL, VK_O, true), None);
+        assert_eq!(replayed(MOD_ALT, VK_O, true), None);
+        assert_eq!(
+            replayed_for(Purpose::Recording, HOT_KEY_MODIFIERS(0), VK_O, true),
+            None
+        );
+        let held = KeyPress {
+            repeat: true,
+            ..as_key_press(LPARAM((VK_O.0 as isize) << 16))
+        };
+        assert_eq!(
+            respond(held, true, Delivery::COPY_AND_SAVE, Purpose::Screenshot),
+            None
+        );
     }
 
     #[test]

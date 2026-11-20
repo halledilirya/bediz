@@ -172,7 +172,7 @@ mod tests {
         keys.sort_unstable();
         keys.dedup();
         assert_eq!(keys.len(), Tool::ALL.len());
-        for taken in ['R', 'C'] {
+        for taken in ['R', 'C', 'O'] {
             assert_eq!(Tool::for_key(taken), None);
         }
     }

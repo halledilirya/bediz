@@ -33,7 +33,7 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::core::{Error, Interface, Result};
 
-use super::contrast::Colours;
+use super::contrast::{Colours, highlight};
 
 const DIM: D2D1_COLOR_F = D2D1_COLOR_F {
     r: 0.0,
@@ -59,6 +59,7 @@ const GRID: D2D1_COLOR_F = D2D1_COLOR_F {
     b: 1.0,
     a: 0.2,
 };
+const WORD_OPACITY: f32 = 0.35;
 const DASHES: [f32; 2] = [4.0, 4.0];
 
 pub struct Gpu {
@@ -72,6 +73,7 @@ pub struct Gpu {
     pub border: ID2D1SolidColorBrush,
     pub outline: ID2D1SolidColorBrush,
     pub grid: ID2D1SolidColorBrush,
+    pub words: ID2D1SolidColorBrush,
     pub dashed: ID2D1StrokeStyle,
     pub pixel: ID3D11Texture2D,
 }
@@ -107,6 +109,7 @@ impl Gpu {
         let border = unsafe { canvas.CreateSolidColorBrush(&BORDER, None) }?;
         let outline = unsafe { canvas.CreateSolidColorBrush(&OUTLINE, None) }?;
         let grid = unsafe { canvas.CreateSolidColorBrush(&GRID, None) }?;
+        let words = unsafe { canvas.CreateSolidColorBrush(&word_colour(), None) }?;
         let dashed = unsafe {
             ID2D1Factory::CreateStrokeStyle(
                 d2d,
@@ -135,6 +138,7 @@ impl Gpu {
             border,
             outline,
             grid,
+            words,
             dashed,
             pixel,
         })
@@ -146,6 +150,7 @@ impl Gpu {
         unsafe {
             self.border.SetColor(&ink);
             self.outline.SetColor(&ground);
+            self.words.SetColor(&word_colour());
         }
     }
 
@@ -270,6 +275,13 @@ impl Gpu {
             self.canvas
                 .CreateBitmapFromDxgiSurface(surface, Some(&properties))
         }
+    }
+}
+
+fn word_colour() -> D2D1_COLOR_F {
+    D2D1_COLOR_F {
+        a: WORD_OPACITY,
+        ..highlight()
     }
 }
 

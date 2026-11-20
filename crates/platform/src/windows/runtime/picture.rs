@@ -146,6 +146,7 @@ impl Runtime {
         (self.sink)(Event::Notice {
             notices: vec![Notice::ImageNotOpened(error)],
             near: pointer_rect(),
+            at_once: false,
         });
     }
 }

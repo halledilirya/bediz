@@ -1,4 +1,5 @@
-//! Reads whether high contrast is on and its colours, and whether apps follow the dark theme.
+//! Reads the system's highlight colour, whether high contrast is on and its colours, and whether
+//! apps follow the dark theme.
 
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
@@ -18,9 +19,13 @@ pub struct Colours {
 
 pub fn contrast_colours() -> Option<Colours> {
     high_contrast().then(|| Colours {
-        ink: colour(unsafe { GetSysColor(COLOR_HIGHLIGHT) }),
+        ink: highlight(),
         ground: colour(unsafe { GetSysColor(COLOR_WINDOW) }),
     })
+}
+
+pub fn highlight() -> D2D1_COLOR_F {
+    colour(unsafe { GetSysColor(COLOR_HIGHLIGHT) })
 }
 
 // The value tao reads for a window that follows Windows, so this matches its title bar.

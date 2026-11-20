@@ -14,6 +14,7 @@ mod menu;
 mod messages;
 mod picture;
 mod quit;
+mod reading;
 mod ready;
 mod recording;
 mod save_as;
@@ -47,6 +48,7 @@ use super::contrast::{Colours, contrast_colours};
 use super::desktop_switch::DesktopSwitchHook;
 use super::hotkey::{self, Change, Registration};
 use super::label_window::LabelWindow;
+use super::ocr::Readings;
 use super::picture::Pictures;
 use super::recording::{Recording, Timer};
 use super::save_dialog::Answers;
@@ -64,6 +66,7 @@ use delivery::Tracked;
 use discard::Deletions;
 use markup_bar::MarkupBar;
 use quit::Quitting;
+use reading::{Asked, Turns};
 use ready::ReadyBar;
 use recording::Finishing;
 use save_as::{PendingSaveAs, Waiting};
@@ -78,6 +81,7 @@ pub const WM_HOLD: u32 = WM_APP + 7;
 pub const WM_RECORDING: u32 = WM_APP + 8;
 pub const WM_EFFECT_MADE: u32 = WM_APP + 9;
 pub const WM_PICTURE: u32 = WM_APP + 10;
+pub const WM_TEXT: u32 = WM_APP + 11;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -143,6 +147,8 @@ struct Runtime {
     pictures: Pictures,
     pictures_asked: u64,
     opening_picture: Option<u64>,
+    readings: Readings,
+    turns: Turns<Asked>,
 }
 
 pub fn run(
@@ -243,6 +249,8 @@ impl Runtime {
             pictures: Pictures::default(),
             pictures_asked: 0,
             opening_picture: None,
+            readings: Readings::default(),
+            turns: Turns::default(),
         })
     }
 

@@ -131,6 +131,8 @@ pub struct MenuTexts {
     pub save: String,
     pub save_as: String,
     pub copy_colour: String,
+    pub read_text: String,
+    pub text_copied: String,
     pub whole_monitor: String,
     pub last_region: String,
     pub cancel: String,
@@ -227,6 +229,7 @@ pub struct Label {
     pub lines: Vec<String>,
     pub near: Rect,
     pub warning: bool,
+    pub at_once: bool,
     pub language: String,
     pub right_to_left: bool,
 }
@@ -269,6 +272,7 @@ pub enum Event {
     Notice {
         notices: Vec<Notice>,
         near: Rect,
+        at_once: bool,
     },
     Note(String),
     Failed(Failure),

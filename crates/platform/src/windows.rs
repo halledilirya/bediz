@@ -18,6 +18,7 @@ mod label_window;
 mod language;
 mod marking;
 mod memory;
+mod ocr;
 mod overlay;
 mod overlay_menu;
 mod package;

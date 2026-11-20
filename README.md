@@ -43,10 +43,13 @@ Bediz starts with Windows unless you turn that off in the settings.
 | Ctrl+C | Only copy the selection |
 | Ctrl+S | Only save the selection |
 | Ctrl+Shift+S | Save the selection where you choose |
+| O | Copy the text in the selection |
 | Right-click, the menu key or Shift+F10 | Open a menu with these actions |
 | Esc | Cancel |
 
 To mark up a screenshot, pick a tool in the bar beside the selection or press its key, then draw inside the selection. The mark just drawn stays selected: drag it or its corners, recolour it, change its width or delete it, until a click elsewhere begins the next one. With no tool chosen (pick the same tool or press its key again), the selection can be moved and resized, and a click on any mark selects it. Marks lie on each other in the order they are drawn, and are copied and saved with the screenshot.
+
+To copy the text in a selection, press **O** or pick **Copy text** in the bar or the right-click menu. Windows reads it on your computer, in the first of your Windows languages it can read, and the words it found are highlighted while the selection stays open. Text under a black box is not read. When no language that reads text is installed, add one in Settings › Time & language › Language & region.
 
 | Key | Tool or action |
 | --- | --- |

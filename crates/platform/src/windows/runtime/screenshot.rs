@@ -159,6 +159,7 @@ impl Runtime {
         (self.sink)(Event::Notice {
             notices: vec![Notice::CaptureFailed(reason)],
             near: pointer_rect(),
+            at_once: false,
         });
     }
 
@@ -238,6 +239,7 @@ impl Runtime {
             Ok(Action::Menu(at)) => self.open_menu(at),
             Ok(Action::CopyText { cut }) => self.copy_text(cut),
             Ok(Action::PasteText) => self.paste_text(),
+            Ok(Action::ReadText) => self.read_text(),
             Err(error) => self.draw_failed(&error),
         }
     }
@@ -324,6 +326,7 @@ impl Runtime {
         self.ready = None;
         self.markup_bar = None;
         self.heard = Default::default();
+        self.turns.forget();
         if session.purpose().shows_live_screen()
             && let Some(scene) = self.scene.as_ref()
             && let Err(error) = scene.exclude_from_capture(false)

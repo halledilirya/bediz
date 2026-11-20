@@ -216,8 +216,20 @@ impl Runtime {
     }
 
     pub(super) fn notify(&self, notices: Vec<Notice>, near: Rect) {
+        self.tell(notices, near, false);
+    }
+
+    pub(super) fn notify_at_once(&self, notices: Vec<Notice>, near: Rect) {
+        self.tell(notices, near, true);
+    }
+
+    fn tell(&self, notices: Vec<Notice>, near: Rect, at_once: bool) {
         if !notices.is_empty() {
-            (self.sink)(Event::Notice { notices, near });
+            (self.sink)(Event::Notice {
+                notices,
+                near,
+                at_once,
+            });
         }
     }
 }

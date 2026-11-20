@@ -1,5 +1,5 @@
-//! What the user is told after a capture, copy, save, recording or an image opened to mark up,
-//! with each notice's locale id and argument and whether it is worth showing a label for.
+//! What the user is told after a capture, copy, save, recording, an image opened to mark up or a
+//! reading of text, with each notice's locale id and argument and whether it is worth a label.
 
 use thiserror::Error;
 
@@ -35,6 +35,12 @@ pub enum Notice {
     RecordingStopped(RecordingStop),
     #[error("image not opened: {0}")]
     ImageNotOpened(OpenError),
+    #[error("no text found")]
+    NoTextFound,
+    #[error("no Windows language can read text")]
+    NoTextLanguage,
+    #[error("text not read: {0}")]
+    TextNotRead(String),
 }
 
 impl Notice {
@@ -53,6 +59,9 @@ impl Notice {
             Self::GifNotDeleted(_) => "label-gif-not-deleted",
             Self::RecordingStopped(stop) => stop.locale_id(),
             Self::ImageNotOpened(error) => error.locale_id(),
+            Self::NoTextFound => "overlay-text-not-found",
+            Self::NoTextLanguage => "overlay-text-no-language",
+            Self::TextNotRead(_) => "overlay-text-failed",
         }
     }
 
@@ -89,6 +98,9 @@ impl Notice {
                 | Self::CaptureFailed(_)
                 | Self::GifNotDeleted(_)
                 | Self::ImageNotOpened(_)
+                | Self::NoTextFound
+                | Self::NoTextLanguage
+                | Self::TextNotRead(_)
         )
     }
 }

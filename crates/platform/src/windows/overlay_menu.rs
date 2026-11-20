@@ -23,11 +23,13 @@ const LAST_REGION: usize = 6;
 const CANCEL: usize = 7;
 const SAVE_AS: usize = 8;
 const RECORD: usize = 9;
+const READ_TEXT: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Deliver(Delivery),
     SaveAs,
+    ReadText,
     Record,
     CopyColour,
     WholeMonitor,
@@ -95,6 +97,7 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
         menu.item(COPY, &texts.copy, key(Delivery::COPY, "Ctrl+C"), true)?;
         menu.item(SAVE, &texts.save, key(Delivery::SAVE, "Ctrl+S"), true)?;
         menu.item(SAVE_AS, &texts.save_as, "Ctrl+Shift+S", true)?;
+        menu.item(READ_TEXT, &texts.read_text, "O", true)?;
         menu.separator()?;
         if !offer.picture {
             menu.item(RECORD, &texts.record, "", true)?;
@@ -178,6 +181,7 @@ fn choice(id: i32) -> Option<Choice> {
         COPY => Some(Choice::Deliver(Delivery::COPY)),
         SAVE => Some(Choice::Deliver(Delivery::SAVE)),
         SAVE_AS => Some(Choice::SaveAs),
+        READ_TEXT => Some(Choice::ReadText),
         RECORD => Some(Choice::Record),
         COPY_COLOUR => Some(Choice::CopyColour),
         WHOLE_MONITOR => Some(Choice::WholeMonitor),
@@ -234,5 +238,6 @@ mod tests {
         assert_eq!(choice(LAST_REGION as i32), Some(Choice::LastRegion));
         assert_eq!(choice(CANCEL as i32), Some(Choice::Cancel));
         assert_eq!(choice(RECORD as i32), Some(Choice::Record));
+        assert_eq!(choice(READ_TEXT as i32), Some(Choice::ReadText));
     }
 }

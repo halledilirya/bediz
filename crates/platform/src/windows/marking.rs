@@ -14,6 +14,7 @@ use bediz_core::markup::composition::{self, Composed, Composition};
 use bediz_core::markup::effect::{self, Effect, Job};
 use bediz_core::markup::typing::Cursor;
 use bediz_core::markup::{DEFAULT_WIDTH, Mark, Markup, Swatch, THICKEST, THINNEST, Tool};
+use bediz_core::ocr::Turn;
 use windows::Win32::Foundation::{E_FAIL, HWND};
 use windows::core::{Error, Result};
 
@@ -38,6 +39,8 @@ pub struct Decor<'a> {
     pub editing: Option<&'a Mark>,
     pub cursor: Cursor,
     pub composing: Option<&'a Composition>,
+    pub words: &'a [Rect],
+    pub words_turn: Option<Turn>,
 }
 
 impl Decor<'_> {
@@ -137,6 +140,8 @@ impl Marking {
             editing: self.markup.editing(),
             cursor: self.markup.cursor().unwrap_or_default(),
             composing: self.markup.composition(),
+            words: &[],
+            words_turn: None,
         }
     }
 

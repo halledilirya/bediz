@@ -18,7 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use super::{
     CLIPBOARD_TIMER, DELAY_TIMER, DISPLAY_TIMER, LABEL_TIMER, MENU_FADE_TIMER, Runtime,
     WM_COMMANDS, WM_EFFECT_MADE, WM_FINISH_SAVES, WM_HOLD, WM_OUTCOMES, WM_PICTURE, WM_RECORDING,
-    WM_SAVE_AS, WM_SECOND_START, WM_STOP,
+    WM_SAVE_AS, WM_SECOND_START, WM_STOP, WM_TEXT,
 };
 use crate::event::{Event, Failure};
 use crate::windows::clock;
@@ -186,6 +186,7 @@ impl Runtime {
             WM_RECORDING if own => self.on_recording_ended(),
             WM_EFFECT_MADE if own => self.reselect(|_, _| {}),
             WM_PICTURE if own => self.on_picture(),
+            WM_TEXT if own => self.on_text(),
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
             | WM_MOUSEWHEEL | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
                 if self.takes_input(message) =>

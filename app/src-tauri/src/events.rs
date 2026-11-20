@@ -174,11 +174,15 @@ impl Dispatcher {
                     update::start_with_windows_problem(&self.app, failure.as_deref());
                 }
             }
-            Event::Notice { notices, near } => {
+            Event::Notice {
+                notices,
+                near,
+                at_once,
+            } => {
                 let settings = current(&self.app);
                 let notices = notice::beside_gif_window(notices.clone(), settings.gif_window);
                 if notice::worth_a_label(&notices, settings.success_labels) {
-                    self.show_label(&notices, *near);
+                    self.show_label(&notices, *near, *at_once);
                 }
             }
             Event::SecondStart => self.open_settings(None),
@@ -289,7 +293,7 @@ impl Dispatcher {
         gif_window::language_changed(&self.app, &self.texts.get("gif-title"));
     }
 
-    fn show_label(&self, notices: &[Notice], near: Rect) {
+    fn show_label(&self, notices: &[Notice], near: Rect, at_once: bool) {
         let Some(platform) = self.app.try_state::<Platform>() else {
             return;
         };
@@ -300,6 +304,7 @@ impl Dispatcher {
                 .collect(),
             near,
             warning: notices.iter().any(Notice::is_failure),
+            at_once,
             language: self.texts.language().to_owned(),
             right_to_left: self.texts.right_to_left(),
         }));
@@ -356,7 +361,7 @@ fn record(log: &Log, event: &Event) {
             BUDGET.as_millis()
         )),
         Event::Measured(measurement) => log.info(&measurement.log_line()),
-        Event::Notice { notices, near } => {
+        Event::Notice { notices, near, .. } => {
             let said: Vec<String> = notices.iter().map(Notice::to_string).collect();
             let line = if near.width() > 1 || near.height() > 1 {
                 format!("{} {}x{}", said.join("; "), near.width(), near.height())

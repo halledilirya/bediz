@@ -125,6 +125,7 @@ impl Runtime {
             }),
             Button::Copy => self.deliver(Delivery::COPY),
             Button::Save => self.deliver(Delivery::SAVE),
+            Button::ReadText => self.read_text(),
             _ => {}
         }
         self.keep_typing_focus();

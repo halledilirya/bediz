@@ -65,6 +65,7 @@ pub struct View {
     pub label: Option<(u32, u32)>,
     pub pointer: Option<Point>,
     pub marks: Option<u64>,
+    pub words: Option<u64>,
 }
 
 struct Surfaces {
@@ -319,6 +320,9 @@ impl Overlay {
             None => painter.image(&surfaces.image_bitmap, bounds),
         }
         painter.dim(framed.and_then(|(area, _)| area.intersection(&bounds)));
+        if let Some(within) = framed.and_then(|(area, _)| area.intersection(&bounds)) {
+            painter.words(decor.words, decor.words_turn, within);
+        }
         if let Some((area, with_handles)) = framed {
             painter.frame(area, with_handles);
             if let Some(size) = view.label {

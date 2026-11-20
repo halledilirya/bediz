@@ -1,18 +1,21 @@
-//! Draws the parts of an overlay: the captured image, the dimmed surround, the frame and its
-//! handles, the size label and the magnifier with the colour under the pointer.
+//! Draws the parts of an overlay: the captured image, the dimmed surround, the words read from the
+//! selection, the frame and its handles, the size label and the magnifier with the colour under
+//! the pointer.
 
 mod marks;
 
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::hex_colour;
+use bediz_core::ocr::Turn;
 use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_ROUNDED_RECT,
-    ID2D1Bitmap1, ID2D1StrokeStyle,
+    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_DRAW_TEXT_OPTIONS_NONE,
+    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_ROUNDED_RECT, ID2D1Bitmap1, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_MEASURING_MODE_NATURAL, DWRITE_TEXT_METRICS, IDWriteTextFormat,
 };
+use windows_numerics::{Matrix3x2, Vector2};
 
 use crate::windows::gpu::Gpu;
 
@@ -69,6 +72,29 @@ impl Painter<'_> {
                     unsafe { canvas.FillRectangle(&shade, &self.gpu.dim) };
                 }
             }
+        }
+    }
+
+    pub fn words(&self, words: &[Rect], turn: Option<Turn>, within: Rect) {
+        if words.is_empty() {
+            return;
+        }
+        let canvas = &self.gpu.canvas;
+        unsafe { canvas.PushAxisAlignedClip(&rect_f(within), D2D1_ANTIALIAS_MODE_ALIASED) };
+        if let Some(turn) = turn {
+            let around = Vector2 {
+                X: turn.x - self.origin.x as f32,
+                Y: turn.y - self.origin.y as f32,
+            };
+            unsafe { canvas.SetTransform(&Matrix3x2::rotation_around(turn.degrees, around)) };
+        }
+        for word in words {
+            let local = word.translated(-self.origin.x, -self.origin.y);
+            unsafe { canvas.FillRectangle(&rect_f(local), &self.gpu.words) };
+        }
+        unsafe {
+            canvas.SetTransform(&Matrix3x2::identity());
+            canvas.PopAxisAlignedClip();
         }
     }
 

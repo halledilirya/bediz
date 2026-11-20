@@ -200,6 +200,7 @@ pub fn as_key_press(keys: LPARAM) -> KeyPress {
         alt: held(MOD_ALT),
         control: held(MOD_CONTROL),
         shift: held(MOD_SHIFT),
+        repeat: false,
     }
 }
 
@@ -299,6 +300,7 @@ mod tests {
             alt,
             control,
             shift,
+            repeat: false,
         };
         assert_eq!(
             as_key_press(held(MOD_CONTROL, VK_S)),

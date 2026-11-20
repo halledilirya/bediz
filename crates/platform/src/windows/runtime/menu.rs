@@ -57,6 +57,7 @@ impl Runtime {
         match overlay_menu::choose(owner, at, texts, &offer) {
             Ok(Some(Choice::Deliver(delivery))) => self.deliver(delivery),
             Ok(Some(Choice::SaveAs)) => self.save_as(),
+            Ok(Some(Choice::ReadText)) => self.read_text(),
             Ok(Some(Choice::Record)) => self.record(menu_fade()),
             Ok(Some(Choice::CopyColour)) => self.copy_colour(at),
             Ok(Some(Choice::WholeMonitor)) => {
