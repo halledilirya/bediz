@@ -10,7 +10,7 @@ use windows::Win32::Graphics::Direct2D::Common::{
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT,
-    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE,
+    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE,
     D2D1_ROUNDED_RECT, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, D2D1CreateFactory, ID2D1Factory,
 };
 use windows::Win32::Graphics::DirectWrite::{
@@ -279,10 +279,11 @@ impl LabelWindow {
         };
 
         let canvas = MemoryBitmap::new(width, height)?;
+        // A hardware target keeps a GPU device of its own alive for the rest of the app's life.
         let target = unsafe {
             self.d2d
                 .CreateDCRenderTarget(&D2D1_RENDER_TARGET_PROPERTIES {
-                    r#type: D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                    r#type: D2D1_RENDER_TARGET_TYPE_SOFTWARE,
                     pixelFormat: D2D1_PIXEL_FORMAT {
                         format: DXGI_FORMAT_B8G8R8A8_UNORM,
                         alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
