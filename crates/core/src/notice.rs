@@ -1,5 +1,6 @@
 //! What the user is told after a capture, copy, save, recording, an image opened to mark up or a
-//! reading of text, with each notice's locale id and argument and whether it is worth a label.
+//! reading of text and QR codes, with each notice's locale id and argument and whether it is worth
+//! a label.
 
 use thiserror::Error;
 
@@ -37,6 +38,10 @@ pub enum Notice {
     ImageNotOpened(OpenError),
     #[error("copied text")]
     TextCopied,
+    #[error("copied a QR code")]
+    CodeCopied(String),
+    #[error("copied QR codes")]
+    CodesCopied(String),
     #[error("no text found")]
     NoTextFound,
     #[error("no Windows language can read text")]
@@ -66,6 +71,8 @@ impl Notice {
             Self::RecordingStopped(stop) => stop.locale_id(),
             Self::ImageNotOpened(error) => error.locale_id(),
             Self::TextCopied => "overlay-text-copied",
+            Self::CodeCopied(_) => "overlay-qr-copied",
+            Self::CodesCopied(_) => "overlay-qrs-copied",
             Self::NoTextFound => "overlay-text-not-found",
             Self::NoTextLanguage => "overlay-text-no-language",
             Self::TextLanguageMissing => "overlay-text-language-missing",
@@ -78,6 +85,9 @@ impl Notice {
     pub fn argument(&self) -> Option<(&'static str, String)> {
         match self {
             Self::ColourCopied(colour) => Some(("colour", colour.clone())),
+            Self::CodeCopied(content) | Self::CodesCopied(content) => {
+                Some(("content", content.clone()))
+            }
             Self::CopyFailed(CopyError::Other(reason))
             | Self::SaveFailed(SaveError::Other(reason))
             | Self::DeliveryFailed(DeliveryError::Other(reason))
@@ -90,9 +100,16 @@ impl Notice {
         }
     }
 
-    // Words copied leave the selection open, so nothing else shows that the copy happened.
+    // Words copied leave the selection open, so nothing else shows that the copy happened; a QR
+    // code can hide a link, so what it says is always shown.
     pub fn is_announcement(&self) -> bool {
-        matches!(self, Self::RecordingStopped(_) | Self::TextCopied)
+        matches!(
+            self,
+            Self::RecordingStopped(_)
+                | Self::TextCopied
+                | Self::CodeCopied(_)
+                | Self::CodesCopied(_)
+        )
     }
 
     pub fn is_saved_gif(&self) -> bool {
@@ -166,6 +183,21 @@ mod tests {
             false
         ));
         assert_eq!(Notice::TextCopied.locale_id(), "overlay-text-copied");
+    }
+
+    #[test]
+    fn what_a_qr_code_says_is_always_shown_and_never_logged() {
+        let link = Notice::CodeCopied("https://example.com".to_owned());
+        assert!(worth_a_label(std::slice::from_ref(&link), false));
+        assert!(!link.is_failure());
+        assert_eq!(
+            link.argument(),
+            Some(("content", "https://example.com".to_owned()))
+        );
+        assert!(!link.to_string().contains("example"));
+        let several = Notice::CodesCopied("secret\nlink".to_owned());
+        assert!(worth_a_label(std::slice::from_ref(&several), false));
+        assert!(!several.to_string().contains("secret"));
     }
 
     #[test]

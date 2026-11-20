@@ -1,5 +1,6 @@
-//! Reads the text in an image with Windows' own recognizer, on a thread of its own, in the language
-//! chosen or the first of the user's Windows languages it can read, and lists those it can read.
+//! Reads the text in an image with Windows' own recognizer, and its QR codes alongside, on threads
+//! of their own, in the language chosen or the first of the user's Windows languages it can read,
+//! and lists those it can read.
 
 use std::ffi::c_void;
 use std::io;
@@ -9,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use bediz_core::image::Image;
 use bediz_core::ocr::{self, Bounds, Page, Placement, Script, Word};
+use bediz_core::qr::{self, Scan};
 use windows::Globalization::Language;
 use windows::Graphics::Imaging::{BitmapBufferAccessMode, BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
@@ -39,9 +41,15 @@ pub struct Reading {
     pub took: Duration,
 }
 
+pub struct Looked {
+    pub scan: Scan,
+    pub took: Duration,
+}
+
 pub struct Read {
     pub request: u64,
     pub result: Result<Reading, ReadError>,
+    pub codes: Result<Looked, String>,
 }
 
 pub type Readings = Arc<Mutex<Option<Read>>>;
@@ -59,21 +67,59 @@ pub fn read(
         .name("bediz-ocr".to_owned())
         .spawn(move || {
             let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-            let reading = || recognize(image, language.as_deref(), first_listed());
-            let result = catch_unwind(AssertUnwindSafe(reading)).unwrap_or_else(|_| {
-                Err(ReadError::Failed(
-                    "an internal error was caught while reading the text".to_owned(),
-                ))
+            let reading = || read_and_look(&image, language.as_deref());
+            let (result, codes) = catch_unwind(AssertUnwindSafe(reading)).unwrap_or_else(|_| {
+                let caught = "an internal error was caught while reading the text";
+                (
+                    Err(ReadError::Failed(caught.to_owned())),
+                    Err(caught.to_owned()),
+                )
             });
             if com {
                 unsafe { CoUninitialize() };
             }
-            *readings.lock().unwrap_or_else(PoisonError::into_inner) =
-                Some(Read { request, result });
+            *readings.lock().unwrap_or_else(PoisonError::into_inner) = Some(Read {
+                request,
+                result,
+                codes,
+            });
             let window = HWND(window as *mut c_void);
             let _ = unsafe { PostMessageW(Some(window), WM_TEXT, WPARAM(0), LPARAM(0)) };
         })?;
     Ok(())
+}
+
+fn read_and_look(
+    image: &Image,
+    chosen: Option<&str>,
+) -> (Result<Reading, ReadError>, Result<Looked, String>) {
+    std::thread::scope(|scope| {
+        let looking = std::thread::Builder::new()
+            .name("bediz-qr".to_owned())
+            .spawn_scoped(scope, || {
+                let started = Instant::now();
+                let scan = qr::find(image);
+                Looked {
+                    scan,
+                    took: started.elapsed(),
+                }
+            });
+        let reading = || recognize(image, chosen, first_listed());
+        let result = catch_unwind(AssertUnwindSafe(reading)).unwrap_or_else(|_| {
+            Err(ReadError::Failed(
+                "an internal error was caught while reading the text".to_owned(),
+            ))
+        });
+        let codes = match looking {
+            Ok(looking) => looking
+                .join()
+                .map_err(|_| "an internal error was caught while looking for QR codes".to_owned()),
+            Err(error) => Err(format!(
+                "the thread that looks for QR codes could not start: {error}"
+            )),
+        };
+        (result, codes)
+    })
 }
 
 pub fn text_languages() -> io::Result<Vec<String>> {
@@ -122,7 +168,7 @@ fn after_install(error: ReadError, first: Option<&[String]>, asked: Option<&str>
 }
 
 fn recognize(
-    image: Image,
+    image: &Image,
     chosen: Option<&str>,
     first: Option<&[String]>,
 ) -> Result<Reading, ReadError> {
@@ -139,7 +185,7 @@ fn recognize(
         .unwrap_or_default();
     let tried = chosen.unwrap_or(&language);
     let (lines, placement, passes) =
-        passes(&engine, &image).map_err(|error| after_install(error, first, Some(tried)))?;
+        passes(&engine, image).map_err(|error| after_install(error, first, Some(tried)))?;
     Ok(Reading {
         placement,
         lines: ocr::rows(lines, Script::of(&language)),

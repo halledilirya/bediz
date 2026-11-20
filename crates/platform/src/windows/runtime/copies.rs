@@ -49,6 +49,7 @@ pub(super) enum Copied {
     },
     Words {
         near: Rect,
+        said: Notice,
     },
 }
 
@@ -217,7 +218,7 @@ impl Runtime {
                 Ok(()) => self.text_copied(asked, found),
                 Err(error) => self.text_not_copied(error, &asked),
             },
-            Copied::Words { near } => self.words_copied(near, result),
+            Copied::Words { near, said } => self.words_copied(near, said, result),
         }
     }
 

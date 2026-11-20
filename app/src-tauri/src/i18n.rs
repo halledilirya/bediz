@@ -569,6 +569,8 @@ price = Costs $5
             Notice::RecordingStopped(RecordingStop::Memory),
             Notice::RecordingStopped(RecordingStop::Display),
             Notice::TextCopied,
+            Notice::CodeCopied(reason()),
+            Notice::CodesCopied(reason()),
             Notice::NoTextFound,
             Notice::NoTextLanguage,
             Notice::TextLanguageMissing,
@@ -611,6 +613,16 @@ price = Costs $5
         assert!(reason.contains("network gone"), "{reason}");
         let unexpected = texts.notice(&Notice::CaptureFailed("GDI failed as well".to_owned()));
         assert!(!unexpected.contains("GDI"), "{unexpected}");
+        let code = texts.notice(&Notice::CodeCopied("https://example.com".to_owned()));
+        let (heading, content) = code.split_once('\n').unwrap_or_default();
+        assert!(!heading.contains("example"), "{code:?}");
+        assert!(content.contains("https://example.com"), "{code:?}");
+        let codes = texts.notice(&Notice::CodesCopied("first\nsecond".to_owned()));
+        let (first, second) = codes.split_once("first").unwrap_or_default();
+        assert!(
+            !first.contains("second") && second.contains("\nsecond"),
+            "{codes:?}"
+        );
         for notice in every_notice() {
             assert_ne!(texts.notice(&notice), notice.locale_id());
         }

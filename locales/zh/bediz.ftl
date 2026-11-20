@@ -44,11 +44,17 @@ overlay-menu-copy = 复制
 overlay-menu-save = 保存
 overlay-menu-save-as = 另存为…
 overlay-menu-copy-colour = 复制颜色
-overlay-menu-read-text = 复制文字
+overlay-menu-read-text = 复制文字或二维码
 overlay-text-copied = 已复制文字
+overlay-qr-copied =
+    已复制二维码：
+    { $content }
+overlay-qrs-copied =
+    已复制多个二维码：
+    { $content }
 overlay-menu-join-lines = 合并各行
 overlay-menu-keep-indentation = 保留缩进
-overlay-text-not-found = 选区中未找到文字。
+overlay-text-not-found = 选区中未找到文字或二维码。
 overlay-text-no-language = Windows 未安装可识别文字的语言。请在 设置 › 时间和语言 › 语言和区域 中添加。
 overlay-text-language-missing = 为识别文字选择的语言未在 Windows 中安装。请在 Bediz 设置中选择其他语言，或在 设置 › 时间和语言 › 语言和区域 中添加。
 overlay-text-failed = 无法读取文字：发生了意外情况；详细信息已记录在日志中。

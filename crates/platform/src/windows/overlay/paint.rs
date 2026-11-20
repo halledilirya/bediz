@@ -1,6 +1,6 @@
-//! Draws the parts of an overlay: the captured image, the dimmed surround, the words read from the
-//! selection, the frame and its handles, the size label and the magnifier with the colour under
-//! the pointer.
+//! Draws the parts of an overlay: the captured image, the dimmed surround, the words and QR codes
+//! read from the selection, the frame and its handles, the size label and the magnifier with the
+//! colour under the pointer.
 
 mod marks;
 

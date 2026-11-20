@@ -44,11 +44,17 @@ overlay-menu-copy = 복사
 overlay-menu-save = 저장
 overlay-menu-save-as = 다른 이름으로 저장…
 overlay-menu-copy-colour = 색 복사
-overlay-menu-read-text = 텍스트 복사
+overlay-menu-read-text = 텍스트 또는 QR 코드 복사
 overlay-text-copied = 텍스트를 복사했습니다
+overlay-qr-copied =
+    QR 코드를 복사했습니다:
+    { $content }
+overlay-qrs-copied =
+    여러 QR 코드를 복사했습니다:
+    { $content }
 overlay-menu-join-lines = 줄 합치기
 overlay-menu-keep-indentation = 들여쓰기 유지
-overlay-text-not-found = 선택 영역에서 텍스트를 찾지 못했습니다.
+overlay-text-not-found = 선택 영역에서 텍스트나 QR 코드를 찾지 못했습니다.
 overlay-text-no-language = 텍스트를 읽을 수 있는 언어가 Windows에 설치되어 있지 않습니다. 설정 › 시간 및 언어 › 언어 및 지역에서 추가하세요.
 overlay-text-language-missing = 텍스트를 읽도록 선택한 언어가 Windows에 설치되어 있지 않습니다. Bediz 설정에서 다른 언어를 선택하거나 설정 › 시간 및 언어 › 언어 및 지역에서 추가하세요.
 overlay-text-failed = 텍스트를 읽지 못했습니다: 예기치 않은 문제가 발생했습니다. 자세한 내용은 로그에 있습니다.

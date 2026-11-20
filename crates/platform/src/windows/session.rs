@@ -347,6 +347,7 @@ fn decor<'a>(marking: &'a Marking, words: Option<&'a Words>) -> Decor<'a> {
     Decor {
         words: words::rects(words),
         words_turn: words::turn(words),
+        codes: words::code_rects(words),
         words_chosen: words::chosen(words),
         ..marking.decor()
     }

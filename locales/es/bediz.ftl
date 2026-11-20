@@ -44,11 +44,17 @@ overlay-menu-copy = Copiar
 overlay-menu-save = Guardar
 overlay-menu-save-as = Guardar como…
 overlay-menu-copy-colour = Copiar color
-overlay-menu-read-text = Copiar texto
+overlay-menu-read-text = Copiar texto o código QR
 overlay-text-copied = Texto copiado
+overlay-qr-copied =
+    Código QR copiado:
+    { $content }
+overlay-qrs-copied =
+    Códigos QR copiados:
+    { $content }
 overlay-menu-join-lines = Unir líneas
 overlay-menu-keep-indentation = Conservar la sangría
-overlay-text-not-found = No se encontró texto en la selección.
+overlay-text-not-found = No se encontró texto ni ningún código QR en la selección.
 overlay-text-no-language = Windows no tiene instalado ningún idioma que pueda leer texto. Agregue uno en Configuración › Hora e idioma › Idioma y región.
 overlay-text-language-missing = El idioma elegido para leer texto no está instalado en Windows. Elija otro en la configuración de Bediz o agréguelo en Configuración › Hora e idioma › Idioma y región.
 overlay-text-failed = No se pudo leer el texto: ocurrió algo inesperado; los detalles están en el registro.

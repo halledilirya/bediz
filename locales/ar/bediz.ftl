@@ -44,11 +44,17 @@ overlay-menu-copy = نسخ
 overlay-menu-save = حفظ
 overlay-menu-save-as = حفظ باسم…
 overlay-menu-copy-colour = نسخ اللون
-overlay-menu-read-text = نسخ النص
+overlay-menu-read-text = نسخ النص أو رمز QR
 overlay-text-copied = تم نسخ النص
+overlay-qr-copied =
+    تم نسخ رمز QR:
+    { $content }
+overlay-qrs-copied =
+    تم نسخ رموز QR:
+    { $content }
 overlay-menu-join-lines = دمج الأسطر
 overlay-menu-keep-indentation = الإبقاء على المسافة البادئة
-overlay-text-not-found = لم يُعثر على نص في التحديد.
+overlay-text-not-found = لم يُعثر على نص أو رمز QR في التحديد.
 overlay-text-no-language = لا توجد في Windows لغة مثبتة يمكنها قراءة النص. أضف لغة من الإعدادات › الوقت واللغة › اللغة والمنطقة.
 overlay-text-language-missing = اللغة المختارة لقراءة النص غير مثبتة في Windows. اختر لغة أخرى من إعدادات Bediz، أو أضفها من الإعدادات › الوقت واللغة › اللغة والمنطقة.
 overlay-text-failed = تعذّرت قراءة النص: حدث أمر غير متوقع؛ التفاصيل في السجل.

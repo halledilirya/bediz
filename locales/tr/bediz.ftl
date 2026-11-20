@@ -44,11 +44,17 @@ overlay-menu-copy = Kopyala
 overlay-menu-save = Kaydet
 overlay-menu-save-as = Farklı kaydet…
 overlay-menu-copy-colour = Rengi kopyala
-overlay-menu-read-text = Metni kopyala
+overlay-menu-read-text = Metni ya da QR kodunu kopyala
 overlay-text-copied = Metin kopyalandı
+overlay-qr-copied =
+    QR kodu kopyalandı:
+    { $content }
+overlay-qrs-copied =
+    QR kodları kopyalandı:
+    { $content }
 overlay-menu-join-lines = Satırları birleştir
 overlay-menu-keep-indentation = Girintiyi koru
-overlay-text-not-found = Seçimde metin bulunamadı.
+overlay-text-not-found = Seçimde metin ya da QR kodu bulunamadı.
 overlay-text-no-language = Windows'ta metin okuyabilen bir dil yüklü değil. Ayarlar › Saat ve dil › Dil ve bölge'den bir dil ekle.
 overlay-text-language-missing = Metin okumak için seçilen dil Windows'ta yüklü değil. Bediz'in ayarlarından başka bir dil seç ya da onu Ayarlar › Saat ve dil › Dil ve bölge'den ekle.
 overlay-text-failed = Metin okunamadı: beklenmeyen bir şey oldu; ayrıntılar günlükte.

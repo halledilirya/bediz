@@ -1,11 +1,13 @@
-//! The words read from the selection, shown only while the selection and its marks stay as they
-//! were when it was read: a run of them chosen with the mouse, or all of them, and their text.
+//! The words and QR codes read from the selection, shown only while the selection and its marks
+//! stay as they were when it was read: a run of words chosen with the mouse, or all of them, and
+//! their text.
 
 use std::ops::RangeInclusive;
 
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::markup::{Mark, Markup};
 use bediz_core::ocr::{Layout, Passage, Turn};
+use bediz_core::qr::Code;
 use bediz_core::selection::Grip;
 
 use super::Session;
@@ -21,12 +23,14 @@ pub struct Content {
 pub struct Found {
     pub passage: Passage,
     pub turn: Option<Turn>,
+    pub codes: Vec<Code>,
 }
 
 pub struct Words {
     content: Content,
     found: Found,
     rects: Vec<Rect>,
+    code_rects: Vec<Rect>,
     chosen: Option<Chosen>,
     press: Option<Press>,
     stamp: u64,
@@ -72,10 +76,12 @@ impl Session {
             .words()
             .map(|word| word.bounds.covering())
             .collect();
+        let code_rects = found.codes.iter().map(Code::covering).collect();
         self.words = Some(Words {
             content,
             found,
             rects,
+            code_rects,
             chosen: None,
             press: None,
             stamp: 0,
@@ -90,10 +96,15 @@ impl Session {
     pub fn words_text(&self, layout: Layout) -> Option<String> {
         let words = self.words.as_ref()?;
         let passage = &words.found.passage;
-        Some(match words.chosen {
+        let text = match words.chosen {
             Some(chosen) => passage.chosen_text(chosen.range(), layout),
             None => passage.text(layout),
-        })
+        };
+        (!text.is_empty()).then_some(text)
+    }
+
+    pub fn codes_to_copy(&self) -> &[Code] {
+        self.words.as_ref().map_or(&[], Words::codes_to_copy)
     }
 
     pub fn chosen_words(&self) -> Option<(usize, usize)> {
@@ -215,6 +226,13 @@ impl Words {
         let focus = self.found.passage.nearest(x, y)?;
         anchor.map(|anchor| Chosen { anchor, focus })
     }
+
+    fn codes_to_copy(&self) -> &[Code] {
+        match self.chosen {
+            Some(_) => &[],
+            None => &self.found.codes,
+        }
+    }
 }
 
 impl Chosen {
@@ -241,6 +259,10 @@ impl Content {
 
 pub(super) fn rects(words: Option<&Words>) -> &[Rect] {
     words.map_or(&[], |words| words.rects.as_slice())
+}
+
+pub(super) fn code_rects(words: Option<&Words>) -> &[Rect] {
+    words.map_or(&[], |words| words.code_rects.as_slice())
 }
 
 pub(super) fn turn(words: Option<&Words>) -> Option<Turn> {
@@ -281,6 +303,15 @@ mod tests {
                 Script::Spaced,
             ),
             turn,
+            codes: vec![Code {
+                text: "https://example.com".to_owned(),
+                corners: [
+                    (300.0, 200.0),
+                    (380.0, 200.0),
+                    (380.0, 280.0),
+                    (300.0, 280.0),
+                ],
+            }],
         }
     }
 
@@ -288,6 +319,7 @@ mod tests {
         Words {
             content: Content::of(SELECTION, &Markup::default()),
             rects: vec![Rect::new(110, 110, 150, 130), Rect::new(160, 110, 200, 130)],
+            code_rects: vec![Rect::new(300, 200, 380, 280)],
             found: found(turn),
             chosen,
             press: None,
@@ -315,6 +347,7 @@ mod tests {
     #[test]
     fn the_highlights_their_turn_and_the_words_chosen_come_from_the_words_shown() {
         assert!(rects(None).is_empty());
+        assert!(code_rects(None).is_empty());
         assert_eq!(turn(None), None);
         assert_eq!(chosen(None), None);
         assert_eq!(stamp(None), None);
@@ -329,10 +362,21 @@ mod tests {
         };
         let words = shown(Some(backwards), Some(tilt));
         assert_eq!(rects(Some(&words)).len(), 2);
+        assert_eq!(code_rects(Some(&words)), [Rect::new(300, 200, 380, 280)]);
         assert_eq!(turn(Some(&words)), Some(tilt));
         assert_eq!(chosen(Some(&words)), Some((0, 1)));
         assert_eq!(chosen(Some(&shown(None, None))), None);
         assert_eq!(stamp(Some(&words)), Some(4));
+    }
+
+    #[test]
+    fn the_codes_are_copied_unless_words_are_chosen() {
+        assert_eq!(shown(None, None).codes_to_copy().len(), 1);
+        let chosen = Chosen {
+            anchor: 0,
+            focus: 0,
+        };
+        assert!(shown(Some(chosen), None).codes_to_copy().is_empty());
     }
 
     #[test]

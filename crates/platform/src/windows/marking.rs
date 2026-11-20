@@ -42,6 +42,7 @@ pub struct Decor<'a> {
     pub words: &'a [Rect],
     pub words_turn: Option<Turn>,
     pub words_chosen: Option<(usize, usize)>,
+    pub codes: &'a [Rect],
 }
 
 impl Decor<'_> {
@@ -144,6 +145,7 @@ impl Marking {
             words: &[],
             words_turn: None,
             words_chosen: None,
+            codes: &[],
         }
     }
 
