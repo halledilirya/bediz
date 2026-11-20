@@ -1,9 +1,11 @@
-//! The overlay's menus: the context menu that copies, saves or records the selection, copies a
-//! colour, picks the whole monitor or the last region, or cancels, and the colour of marks.
+//! The overlay's menus: the context menu that copies, saves or records the selection, copies its
+//! text and sets how the lines are copied, copies a colour, picks the whole monitor or the last
+//! region, or cancels, and the colour of marks.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::Point;
 use bediz_core::markup::Swatch;
+use bediz_core::ocr::Layout;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, HMENU, MF_CHECKED, MF_GRAYED, MF_SEPARATOR,
@@ -24,12 +26,17 @@ const CANCEL: usize = 7;
 const SAVE_AS: usize = 8;
 const RECORD: usize = 9;
 const READ_TEXT: usize = 10;
+const COPY_WORDS: usize = 11;
+const JOIN_LINES: usize = 12;
+const KEEP_INDENTATION: usize = 13;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Deliver(Delivery),
     SaveAs,
     ReadText,
+    CopyWords,
+    Layout(Layout),
     Record,
     CopyColour,
     WholeMonitor,
@@ -43,6 +50,7 @@ pub struct Offer {
     pub enter: Delivery,
     pub recording: bool,
     pub picture: bool,
+    pub words: Option<Layout>,
 }
 
 struct OwnedMenu(HMENU);
@@ -55,15 +63,18 @@ impl Drop for OwnedMenu {
 
 impl OwnedMenu {
     fn item(&self, id: usize, text: &str, key: &str, enabled: bool) -> Result<()> {
-        let label: Vec<u16> = label(text, key)
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let flags = if enabled {
-            MF_STRING
-        } else {
-            MF_STRING | MF_GRAYED
-        };
+        self.add(id, &label(text, key), enabled, false)
+    }
+
+    fn add(&self, id: usize, label: &str, enabled: bool, checked: bool) -> Result<()> {
+        let label: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut flags = MF_STRING;
+        if !enabled {
+            flags |= MF_GRAYED;
+        }
+        if checked {
+            flags |= MF_CHECKED;
+        }
         unsafe { AppendMenuW(self.0, flags, id, PCWSTR(label.as_ptr())) }
     }
 
@@ -88,16 +99,30 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
                 own
             }
         };
+        let copy_key = if offer.words.is_some() { "" } else { "Ctrl+C" };
         menu.item(
             COPY_AND_SAVE,
             &texts.copy_and_save,
             key(Delivery::COPY_AND_SAVE, ""),
             true,
         )?;
-        menu.item(COPY, &texts.copy, key(Delivery::COPY, "Ctrl+C"), true)?;
+        menu.item(COPY, &texts.copy, key(Delivery::COPY, copy_key), true)?;
         menu.item(SAVE, &texts.save, key(Delivery::SAVE, "Ctrl+S"), true)?;
         menu.item(SAVE_AS, &texts.save_as, "Ctrl+Shift+S", true)?;
-        menu.item(READ_TEXT, &texts.read_text, "O", true)?;
+        match offer.words {
+            Some(layout) => {
+                menu.separator()?;
+                menu.item(COPY_WORDS, &texts.read_text, "Ctrl+C", true)?;
+                menu.add(JOIN_LINES, &texts.join_lines, true, layout.join_lines)?;
+                menu.add(
+                    KEEP_INDENTATION,
+                    &texts.keep_indentation,
+                    !layout.join_lines,
+                    layout.keep_indentation,
+                )?;
+            }
+            None => menu.item(READ_TEXT, &texts.read_text, "O", true)?,
+        }
         menu.separator()?;
         if !offer.picture {
             menu.item(RECORD, &texts.record, "", true)?;
@@ -109,14 +134,15 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
         menu.item(COPY_COLOUR, &texts.copy_colour, "C", true)?;
     }
     if !offer.picture {
-        menu.item(WHOLE_MONITOR, &texts.whole_monitor, "Ctrl+A", true)?;
+        let key = if offer.words.is_some() { "" } else { "Ctrl+A" };
+        menu.item(WHOLE_MONITOR, &texts.whole_monitor, key, true)?;
         menu.item(LAST_REGION, &texts.last_region, "R", offer.last_region)?;
     }
     menu.separator()?;
     menu.item(CANCEL, &texts.cancel, "Esc", true)?;
     let flags = flags(texts.right_to_left);
     let chosen = unsafe { TrackPopupMenuEx(menu.0, flags.0, at.x, at.y, owner, None) };
-    Ok(choice(chosen.0))
+    Ok(choice(chosen.0, offer.words.unwrap_or_default()))
 }
 
 pub fn choose_colour(
@@ -175,13 +201,22 @@ fn item_for(delivery: Delivery) -> usize {
     }
 }
 
-fn choice(id: i32) -> Option<Choice> {
+fn choice(id: i32, layout: Layout) -> Option<Choice> {
     match usize::try_from(id).ok()? {
         COPY_AND_SAVE => Some(Choice::Deliver(Delivery::COPY_AND_SAVE)),
         COPY => Some(Choice::Deliver(Delivery::COPY)),
         SAVE => Some(Choice::Deliver(Delivery::SAVE)),
         SAVE_AS => Some(Choice::SaveAs),
         READ_TEXT => Some(Choice::ReadText),
+        COPY_WORDS => Some(Choice::CopyWords),
+        JOIN_LINES => Some(Choice::Layout(Layout {
+            join_lines: !layout.join_lines,
+            ..layout
+        })),
+        KEEP_INDENTATION => Some(Choice::Layout(Layout {
+            keep_indentation: !layout.keep_indentation,
+            ..layout
+        })),
         RECORD => Some(Choice::Record),
         COPY_COLOUR => Some(Choice::CopyColour),
         WHOLE_MONITOR => Some(Choice::WholeMonitor),
@@ -197,8 +232,8 @@ mod tests {
 
     #[test]
     fn a_closed_menu_chooses_nothing() {
-        assert_eq!(choice(0), None);
-        assert_eq!(choice(-1), None);
+        assert_eq!(choice(0, Layout::default()), None);
+        assert_eq!(choice(-1, Layout::default()), None);
         assert_eq!(swatch_for(0), None);
         assert_eq!(swatch_for(-1), None);
     }
@@ -234,10 +269,34 @@ mod tests {
 
     #[test]
     fn every_item_maps_to_its_choice() {
-        assert_eq!(choice(COPY as i32), Some(Choice::Deliver(Delivery::COPY)));
-        assert_eq!(choice(LAST_REGION as i32), Some(Choice::LastRegion));
-        assert_eq!(choice(CANCEL as i32), Some(Choice::Cancel));
-        assert_eq!(choice(RECORD as i32), Some(Choice::Record));
-        assert_eq!(choice(READ_TEXT as i32), Some(Choice::ReadText));
+        let chosen = |id: usize| choice(id as i32, Layout::default());
+        assert_eq!(chosen(COPY), Some(Choice::Deliver(Delivery::COPY)));
+        assert_eq!(chosen(LAST_REGION), Some(Choice::LastRegion));
+        assert_eq!(chosen(CANCEL), Some(Choice::Cancel));
+        assert_eq!(chosen(RECORD), Some(Choice::Record));
+        assert_eq!(chosen(READ_TEXT), Some(Choice::ReadText));
+        assert_eq!(chosen(COPY_WORDS), Some(Choice::CopyWords));
+    }
+
+    #[test]
+    fn a_line_switch_turns_its_own_setting_over_and_keeps_the_other() {
+        let joined = Layout {
+            join_lines: true,
+            keep_indentation: true,
+        };
+        assert_eq!(
+            choice(JOIN_LINES as i32, joined),
+            Some(Choice::Layout(Layout {
+                join_lines: false,
+                keep_indentation: true,
+            }))
+        );
+        assert_eq!(
+            choice(KEEP_INDENTATION as i32, Layout::default()),
+            Some(Choice::Layout(Layout {
+                join_lines: false,
+                keep_indentation: true,
+            }))
+        );
     }
 }

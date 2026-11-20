@@ -186,6 +186,11 @@
   translate: -20px 0;
 }
 
+.switch input:disabled,
+.switch input:disabled + .switch-text {
+  opacity: 0.4;
+}
+
 .switch-text {
   order: 1;
   min-width: 40px;
@@ -316,6 +321,15 @@
 
   .switch input:checked::before {
     background: HighlightText;
+  }
+
+  .switch input:disabled {
+    border-color: GrayText;
+    background: transparent;
+  }
+
+  .switch input:disabled::before {
+    background: GrayText;
   }
 
   .segmented input:checked + label,

@@ -1,5 +1,6 @@
 //! The keys of a selection: what each one does on a screenshot, a recording or an opened picture,
-//! with or without a selection, and acting on it for the selection, the marks or the app.
+//! with or without a selection or the words read from it, and acting on it for the selection, the
+//! marks, the words or the app.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
@@ -14,11 +15,18 @@ use super::{Action, KeyPress, Purpose, Session, confirm, modifiers};
 use crate::windows::scene::Scene;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Held {
+    selected: bool,
+    words: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Response {
     Act(Action),
     Escape,
     Move { dx: i32, dy: i32, resize: bool },
     WholeMonitor,
+    ChooseAllWords,
     LastRegion,
     CopyColour,
     Menu,
@@ -41,7 +49,16 @@ impl Session {
         if let Some(handled) = self.typing_key(press) {
             return handled;
         }
-        let response = respond(press, self.selected().is_some(), self.enter, self.purpose)?;
+        let held = Held {
+            selected: self.selected().is_some(),
+            words: self.shows_words(),
+        };
+        let response = respond(press, held, self.enter, self.purpose)?;
+        let left_words =
+            matches!(response, Response::Escape | Response::Tool(_)) && self.leave_words();
+        if left_words && response == Response::Escape {
+            return Some(Action::None);
+        }
         let markup = self.marking.markup_mut();
         match response {
             Response::Act(action) => Some(action),
@@ -51,6 +68,7 @@ impl Session {
                 }
                 Some(Action::None)
             }
+            Response::ChooseAllWords => self.choose_all_words().then_some(Action::None),
             Response::Move { dx, dy, .. } if markup.selected().is_some() => {
                 markup.nudge_selected(dx, dy);
                 Some(Action::None)
@@ -113,7 +131,8 @@ fn edit_marks(markup: &mut Markup, response: Response) -> bool {
     markup.revision() != revision
 }
 
-fn respond(press: KeyPress, selected: bool, enter: Delivery, purpose: Purpose) -> Option<Response> {
+fn respond(press: KeyPress, held: Held, enter: Delivery, purpose: Purpose) -> Option<Response> {
+    let Held { selected, words } = held;
     let step = if press.shift { 10 } else { 1 };
     let moved = |dx, dy| Response::Move {
         dx,
@@ -138,6 +157,8 @@ fn respond(press: KeyPress, selected: bool, enter: Delivery, purpose: Purpose) -
         VK_ESCAPE => Response::Escape,
         VK_F4 if press.alt => Response::Act(Action::Cancel),
         VK_RETURN if selected => Response::Act(confirm(purpose, enter)),
+        VK_C if press.control && words => Response::Act(Action::CopyWords),
+        VK_A if press.control && words => Response::ChooseAllWords,
         VK_C if press.control && selected && still => {
             Response::Act(Action::Deliver(Delivery::COPY))
         }
@@ -182,8 +203,18 @@ mod tests {
         VK_RETURN, VK_S, VK_T, VK_Y, VK_Z,
     };
 
-    use super::{Action, KeyPress, Purpose, Response, edit_marks, respond};
+    use super::{Action, Held, KeyPress, Purpose, Response, edit_marks, respond};
     use crate::windows::hotkey::as_key_press;
+
+    fn pressed(
+        purpose: Purpose,
+        modifiers: HOT_KEY_MODIFIERS,
+        key: VIRTUAL_KEY,
+        held: Held,
+    ) -> Option<Response> {
+        let keys = LPARAM(((key.0 as isize) << 16) | modifiers.0 as isize);
+        respond(as_key_press(keys), held, Delivery::COPY_AND_SAVE, purpose)
+    }
 
     fn replayed_for(
         purpose: Purpose,
@@ -191,13 +222,11 @@ mod tests {
         key: VIRTUAL_KEY,
         selected: bool,
     ) -> Option<Response> {
-        let keys = LPARAM(((key.0 as isize) << 16) | modifiers.0 as isize);
-        respond(
-            as_key_press(keys),
+        let held = Held {
             selected,
-            Delivery::COPY_AND_SAVE,
-            purpose,
-        )
+            words: false,
+        };
+        pressed(purpose, modifiers, key, held)
     }
 
     fn replayed(
@@ -342,10 +371,44 @@ mod tests {
             repeat: true,
             ..as_key_press(LPARAM((VK_O.0 as isize) << 16))
         };
+        let selected = Held {
+            selected: true,
+            words: false,
+        };
         assert_eq!(
-            respond(held, true, Delivery::COPY_AND_SAVE, Purpose::Screenshot),
+            respond(held, selected, Delivery::COPY_AND_SAVE, Purpose::Screenshot),
             None
         );
+    }
+
+    #[test]
+    fn with_words_shown_ctrl_c_copies_them_and_ctrl_a_chooses_them_all() {
+        let words = Held {
+            selected: true,
+            words: true,
+        };
+        for purpose in [Purpose::Screenshot, Purpose::Picture] {
+            let key = |modifiers, key| pressed(purpose, modifiers, key, words);
+            assert_eq!(
+                key(MOD_CONTROL, VK_C),
+                Some(Response::Act(Action::CopyWords))
+            );
+            assert_eq!(key(MOD_CONTROL, VK_A), Some(Response::ChooseAllWords));
+            assert_eq!(key(HOT_KEY_MODIFIERS(0), VK_ESCAPE), Some(Response::Escape));
+            assert_eq!(
+                key(HOT_KEY_MODIFIERS(0), VK_P),
+                Some(Response::Tool(Tool::Pen))
+            );
+            assert_eq!(
+                key(HOT_KEY_MODIFIERS(0), VK_O),
+                Some(Response::Act(Action::ReadText))
+            );
+            assert_eq!(
+                key(MOD_CONTROL, VK_S),
+                Some(Response::Act(Action::Deliver(Delivery::SAVE)))
+            );
+            assert_eq!(key(HOT_KEY_MODIFIERS(0), VK_C), Some(Response::CopyColour));
+        }
     }
 
     #[test]

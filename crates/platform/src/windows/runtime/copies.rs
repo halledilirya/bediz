@@ -1,5 +1,6 @@
-//! Puts images, colours, GIFs, typed text and text read from the screen on the clipboard in the
-//! order they were asked for, retrying while it is busy, and reports how each copy ended.
+//! Puts images, colours, GIFs, typed text and text read from the screen, all of it or the words
+//! chosen, on the clipboard in the order they were asked for, retrying while it is busy, and
+//! reports how each copy ended.
 
 use std::path::Path;
 
@@ -13,7 +14,7 @@ use super::reading::Asked;
 use super::{CLIPBOARD_TIMER, Runtime};
 use crate::event::{Event, GifEvent};
 use crate::windows::clipboard::{self, Contents, Placed};
-use crate::windows::session::Highlights;
+use crate::windows::session::Found;
 
 pub(super) const CLIPBOARD_RETRY_MILLISECONDS: u32 = 25;
 const CLIPBOARD_ATTEMPTS: u32 = 10;
@@ -44,7 +45,10 @@ pub(super) enum Copied {
     },
     ReadText {
         asked: Asked,
-        words: Highlights,
+        found: Found,
+    },
+    Words {
+        near: Rect,
     },
 }
 
@@ -209,10 +213,11 @@ impl Runtime {
                 self.notify(notices, near);
             }
             Copied::Gif { gif } => (self.sink)(Event::Gif(GifEvent::Copied { id: gif, result })),
-            Copied::ReadText { asked, words } => match result {
-                Ok(()) => self.text_copied(asked, words),
+            Copied::ReadText { asked, found } => match result {
+                Ok(()) => self.text_copied(asked, found),
                 Err(error) => self.text_not_copied(error, &asked),
             },
+            Copied::Words { near } => self.words_copied(near, result),
         }
     }
 
@@ -225,7 +230,10 @@ impl Runtime {
                 notices.push(Notice::GifSaved);
                 self.notify(notices, near);
             }
-            Copied::Colour { .. } | Copied::Gif { .. } | Copied::ReadText { .. } => {}
+            Copied::Colour { .. }
+            | Copied::Gif { .. }
+            | Copied::ReadText { .. }
+            | Copied::Words { .. } => {}
         }
     }
 

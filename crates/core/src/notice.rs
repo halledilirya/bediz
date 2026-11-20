@@ -35,6 +35,8 @@ pub enum Notice {
     RecordingStopped(RecordingStop),
     #[error("image not opened: {0}")]
     ImageNotOpened(OpenError),
+    #[error("copied text")]
+    TextCopied,
     #[error("no text found")]
     NoTextFound,
     #[error("no Windows language can read text")]
@@ -59,6 +61,7 @@ impl Notice {
             Self::GifNotDeleted(_) => "label-gif-not-deleted",
             Self::RecordingStopped(stop) => stop.locale_id(),
             Self::ImageNotOpened(error) => error.locale_id(),
+            Self::TextCopied => "overlay-text-copied",
             Self::NoTextFound => "overlay-text-not-found",
             Self::NoTextLanguage => "overlay-text-no-language",
             Self::TextNotRead(_) => "overlay-text-failed",
@@ -81,8 +84,9 @@ impl Notice {
         }
     }
 
+    // Words copied leave the selection open, so nothing else shows that the copy happened.
     pub fn is_announcement(&self) -> bool {
-        matches!(self, Self::RecordingStopped(_))
+        matches!(self, Self::RecordingStopped(_) | Self::TextCopied)
     }
 
     pub fn is_saved_gif(&self) -> bool {
@@ -138,6 +142,17 @@ mod tests {
         assert!(!worth_a_label(&[Notice::CopiedAndSaved], false));
         assert!(worth_a_label(&[Notice::CopiedAndSaved], true));
         assert!(!worth_a_label(&[], true));
+    }
+
+    #[test]
+    fn copied_text_is_always_said_and_text_not_read_is_a_failure() {
+        assert!(worth_a_label(&[Notice::TextCopied], false));
+        assert!(worth_a_label(&[Notice::TextCopied], true));
+        assert!(!Notice::TextCopied.is_failure());
+        assert!(worth_a_label(&[Notice::NoTextFound], false));
+        assert!(worth_a_label(&[Notice::NoTextLanguage], false));
+        assert!(Notice::TextNotRead("reason".to_owned()).is_failure());
+        assert_eq!(Notice::TextCopied.locale_id(), "overlay-text-copied");
     }
 
     #[test]

@@ -8,6 +8,8 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 
 - **Delayed screenshot** in the tray menu takes the screenshot 3, 5 or 10 seconds later, so a menu or a tooltip that closes when a key is pressed can be open when it is taken. The seconds left show in a corner and stay out of the screenshot; Print Screen takes it at once, and the tray menu can cancel it.
 - **Copy text** copies the text in a selection, read on your computer by Windows' own text recognition: press O, or pick it in the bar beside the selection or the right-click menu. The words it read are highlighted and the selection stays open; marks count, so text under a black box is not read. Small text is enlarged before it is read, and tilted text is highlighted at its angle. When nothing is found, or Windows has no language installed that reads text, a label says so and the clipboard is left as it was.
+- While the words are highlighted, drag across them or click one to choose it, and Ctrl+A chooses them all; Ctrl+C, or Copy in the bar, copies the words chosen, or all of them, and a label beside the selection says so. The selection stays open, so other words can be copied from the same screenshot, or the screenshot itself copied or saved. Esc, O or a tool's key goes back to marking up.
+- **Join lines** copies the text as one line, and **Keep indentation** starts each line with as many spaces as it is indented on the screen, as code needs. Both are in the right-click menu while the words are highlighted and in the settings, under **Copying text**, and are remembered.
 
 ### Changed
 

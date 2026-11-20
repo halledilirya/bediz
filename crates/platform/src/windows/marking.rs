@@ -41,6 +41,7 @@ pub struct Decor<'a> {
     pub composing: Option<&'a Composition>,
     pub words: &'a [Rect],
     pub words_turn: Option<Turn>,
+    pub words_chosen: Option<(usize, usize)>,
 }
 
 impl Decor<'_> {
@@ -142,6 +143,7 @@ impl Marking {
             composing: self.markup.composition(),
             words: &[],
             words_turn: None,
+            words_chosen: None,
         }
     }
 
@@ -164,6 +166,12 @@ impl Marking {
         } else {
             Some(tool)
         };
+    }
+
+    pub fn put_down(&mut self) {
+        self.markup.end_editing();
+        self.markup.deselect();
+        self.tool = None;
     }
 
     pub fn recolour(&mut self, swatch: Swatch) {
@@ -503,6 +511,21 @@ mod tests {
         assert_eq!(marking.tool(), Some(Tool::Pen));
         marking.choose(Tool::Pen);
         assert_eq!(marking.tool(), None);
+    }
+
+    #[test]
+    fn putting_the_tool_down_lets_go_of_the_mark_and_keeps_every_mark() {
+        let mut marking = Marking::new(1.0, HWND::default());
+        marking.choose(Tool::Rectangle);
+        marking.draw(Tool::Rectangle, Point::new(0, 0));
+        marking.markup_mut().finish(Point::new(40, 30), false);
+        let marks = marking.markup().marks().to_vec();
+        marking.put_down();
+        assert_eq!(marking.tool(), None);
+        assert!(marking.markup().selected().is_none());
+        assert_eq!(marking.markup().marks(), marks.as_slice());
+        marking.choose(Tool::Rectangle);
+        assert_eq!(marking.tool(), Some(Tool::Rectangle));
     }
 
     #[test]

@@ -1,10 +1,10 @@
 //! The bar of marking-up tools beside a screenshot's or an opened picture's selection: placing it,
-//! showing the chosen tool and colour, acting on its buttons, and copying, cutting and pasting the
-//! text being typed.
+//! showing the chosen tool, or the words read, and the colour, acting on its buttons, and copying,
+//! cutting and pasting the text being typed.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
-use bediz_core::markup::{Swatch, Tool};
+use bediz_core::markup::Swatch;
 use bediz_core::recording;
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
@@ -22,12 +22,16 @@ use crate::windows::session::Session;
 pub(super) struct MarkupBar {
     controls: Controls,
     placed: Option<Rect>,
-    shown: Option<(Option<Tool>, Swatch)>,
+    shown: Option<(Option<Button>, Swatch)>,
 }
 
 impl MarkupBar {
     pub(super) fn owns(&self, window: HWND) -> bool {
         self.controls.owns(window)
+    }
+
+    pub(super) fn bounds(&self) -> Option<Rect> {
+        self.placed.and_then(|_| self.controls.bounds())
     }
 
     pub(super) fn raise(&self) -> Result<()> {
@@ -112,7 +116,10 @@ impl Runtime {
 
     pub(super) fn on_markup_button(&mut self, button: Button) {
         if let Some(tool) = button.tool() {
-            self.change_marks(|marking| marking.choose(tool));
+            self.reselect(|session, _| {
+                session.leave_words();
+                session.marking_mut().choose(tool);
+            });
             return;
         }
         match button {
@@ -123,6 +130,9 @@ impl Runtime {
             Button::Redo => self.change_marks(|marking| {
                 marking.markup_mut().redo();
             }),
+            Button::Copy if self.session.as_ref().is_some_and(Session::shows_words) => {
+                self.copy_words();
+            }
             Button::Copy => self.deliver(Delivery::COPY),
             Button::Save => self.deliver(Delivery::SAVE),
             Button::ReadText => self.read_text(),
@@ -164,7 +174,12 @@ impl Runtime {
         let (Some(bar), Some(session)) = (self.markup_bar.as_mut(), self.session.as_ref()) else {
             return;
         };
-        let choice = (session.marking().tool(), session.marking().swatch());
+        let chosen = if session.shows_words() {
+            Some(Button::ReadText)
+        } else {
+            session.marking().tool().map(Button::for_tool)
+        };
+        let choice = (chosen, session.marking().swatch());
         if bar.shown != Some(choice) {
             bar.controls.show_choice(choice.0, choice.1.colour());
             bar.shown = Some(choice);

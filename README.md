@@ -36,20 +36,20 @@ Bediz starts with Windows unless you turn that off in the settings.
 | Alt while dragging | Grow a new selection from its centre |
 | Arrow keys | Move the selection by one pixel, ten with Shift |
 | Ctrl + arrow keys | Resize the selection from its right or bottom edge |
-| Ctrl+A | Select the whole monitor under the cursor |
+| Ctrl+A | Select the whole monitor under the cursor, or every word while text is highlighted |
 | R | Select the region copied or saved last |
 | C | Copy the colour under the cursor as #RRGGBB |
 | Enter or a double-click | Copy and save the selection, or what the settings say |
-| Ctrl+C | Only copy the selection |
+| Ctrl+C | Only copy the selection, or the words chosen while text is highlighted |
 | Ctrl+S | Only save the selection |
 | Ctrl+Shift+S | Save the selection where you choose |
-| O | Copy the text in the selection |
+| O | Copy the text in the selection and highlight its words, or stop highlighting them |
 | Right-click, the menu key or Shift+F10 | Open a menu with these actions |
 | Esc | Cancel |
 
 To mark up a screenshot, pick a tool in the bar beside the selection or press its key, then draw inside the selection. The mark just drawn stays selected: drag it or its corners, recolour it, change its width or delete it, until a click elsewhere begins the next one. With no tool chosen (pick the same tool or press its key again), the selection can be moved and resized, and a click on any mark selects it. Marks lie on each other in the order they are drawn, and are copied and saved with the screenshot.
 
-To copy the text in a selection, press **O** or pick **Copy text** in the bar or the right-click menu. Windows reads it on your computer, in the first of your Windows languages it can read, and the words it found are highlighted while the selection stays open. Text under a black box is not read. When no language that reads text is installed, add one in Settings › Time & language › Language & region.
+To copy the text in a selection, press **O** or pick **Copy text** in the bar or the right-click menu. Windows reads it on your computer, in the first of your Windows languages it can read, and the words it found are highlighted while the selection stays open. Drag across them or click one to choose it, then press Ctrl+C to copy only those; the selection stays open for more. **Join lines** and **Keep indentation** are in the right-click menu and the settings. Esc, O or a tool's key goes back to marking up. Text under a black box is not read. When no language that reads text is installed, add one in Settings › Time & language › Language & region.
 
 | Key | Tool or action |
 | --- | --- |
@@ -67,7 +67,7 @@ To copy the text in a selection, press **O** or pick **Copy text** in the bar or
 | Mouse wheel, + or − | A thicker or thinner line, larger text and steps, a stronger blur or pixelation |
 | Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z | Undo or redo |
 | Delete | Delete the selected mark |
-| Esc | Stop typing, then deselect the mark, then close |
+| Esc | Stop typing or highlighting text, then deselect the mark, then close |
 
 Blur and pixelation only soften what is under them, and pixelated text can sometimes be read back; to hide a password or a name, use X, which keeps nothing of it.
 

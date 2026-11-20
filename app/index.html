@@ -38,6 +38,11 @@
         ></button>
         <button
           type="button"
+          data-section="text"
+          data-l10n-id="settings-section-text"
+        ></button>
+        <button
+          type="button"
           data-section="recording"
           data-l10n-id="settings-section-recording"
         ></button>
@@ -506,6 +511,53 @@
                   role="switch"
                   id="keep-out-of-history"
                   name="keepOutOfHistory"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+          </div>
+        </section>
+        <section class="group" id="text">
+          <h2 data-l10n-id="settings-section-text"></h2>
+          <div class="card">
+            <div class="row" data-search="settings-join-lines">
+              <div class="row-text">
+                <label
+                  for="join-lines"
+                  data-l10n-id="settings-join-lines"
+                ></label>
+                <p data-l10n-id="settings-join-lines-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="join-lines"
+                  name="textJoinLines"
+                />
+                <span class="switch-text" aria-hidden="true">
+                  <span class="on" data-l10n-id="settings-on"></span>
+                  <span class="off" data-l10n-id="settings-off"></span>
+                </span>
+              </span>
+            </div>
+            <div class="row" data-search="settings-keep-indentation">
+              <div class="row-text">
+                <label
+                  for="keep-indentation"
+                  data-l10n-id="settings-keep-indentation"
+                ></label>
+                <p data-l10n-id="settings-keep-indentation-detail"></p>
+              </div>
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  id="keep-indentation"
+                  name="textKeepIndentation"
                 />
                 <span class="switch-text" aria-hidden="true">
                   <span class="on" data-l10n-id="settings-on"></span>

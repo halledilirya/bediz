@@ -35,6 +35,14 @@ pub struct Turn {
     pub y: f32,
 }
 
+impl Turn {
+    pub fn level(&self, x: f32, y: f32) -> (f32, f32) {
+        let (sin, cos) = self.degrees.to_radians().sin_cos();
+        let (dx, dy) = (x - self.x, y - self.y);
+        (self.x + dx * cos + dy * sin, self.y - dx * sin + dy * cos)
+    }
+}
+
 impl Placement {
     pub fn scale(&self) -> f32 {
         self.scale
@@ -51,19 +59,15 @@ impl Placement {
         }
     }
 
-    pub fn on_screen(&self, bounds: Bounds, shown: Rect) -> Rect {
+    pub fn on_screen(&self, bounds: Bounds, shown: Rect) -> Bounds {
         let (left, top) = self.point_on_screen(bounds.left, bounds.top, shown);
-        let (right, bottom) = self.point_on_screen(
-            bounds.left + bounds.width,
-            bounds.top + bounds.height,
-            shown,
-        );
-        Rect::new(
-            left.floor() as i32,
-            top.floor() as i32,
-            right.ceil() as i32,
-            bottom.ceil() as i32,
-        )
+        let (right, bottom) = self.point_on_screen(bounds.right(), bounds.bottom(), shown);
+        Bounds {
+            left,
+            top,
+            width: right - left,
+            height: bottom - top,
+        }
     }
 
     // The recognizer gives the words of tilted text as if the page were turned back level.
@@ -575,21 +579,24 @@ mod tests {
         };
         let shown = Rect::new(1_000, 500, 1_100, 550);
         assert_eq!(
-            placement.on_screen(read, shown),
+            placement.on_screen(read, shown).covering(),
             Rect::new(1_010, 520, 1_030, 530)
         );
         let halved = Rect::new(0, 0, 50, 25);
-        assert_eq!(placement.on_screen(read, halved), Rect::new(5, 10, 15, 15));
+        assert_eq!(
+            placement.on_screen(read, halved).covering(),
+            Rect::new(5, 10, 15, 15)
+        );
         let in_the_padding = Bounds {
             left: 0.0,
             top: 0.0,
             width: 2.0,
             height: 2.0,
         };
-        assert_eq!(
-            placement.on_screen(in_the_padding, shown),
-            Rect::new(997, 497, 998, 498)
-        );
+        let edge = placement.on_screen(in_the_padding, shown);
+        assert!((edge.left - (1_000.0 - 8.0 / 3.0)).abs() < 1e-3);
+        assert!((edge.width - 2.0 / 3.0).abs() < 1e-3);
+        assert_eq!(edge.covering(), Rect::new(997, 497, 998, 498));
     }
 
     #[test]
@@ -615,5 +622,27 @@ mod tests {
                 y: 12.5
             })
         );
+    }
+
+    #[test]
+    fn a_point_on_tilted_text_is_turned_back_to_where_the_recognizer_saw_it() {
+        let quarter = Turn {
+            degrees: 90.0,
+            x: 100.0,
+            y: 100.0,
+        };
+        let (x, y) = quarter.level(100.0, 110.0);
+        assert!((x - 110.0).abs() < 1e-3 && (y - 100.0).abs() < 1e-3);
+        let tilt = Turn {
+            degrees: 10.0,
+            x: 50.0,
+            y: 20.0,
+        };
+        let (sin, cos) = 10.0_f32.to_radians().sin_cos();
+        let (dx, dy) = (30.0, -5.0);
+        let shown = (50.0 + dx * cos - dy * sin, 20.0 + dx * sin + dy * cos);
+        let (x, y) = tilt.level(shown.0, shown.1);
+        assert!((x - 80.0).abs() < 1e-3 && (y - 15.0).abs() < 1e-3);
+        assert_eq!(tilt.level(50.0, 20.0), (50.0, 20.0));
     }
 }

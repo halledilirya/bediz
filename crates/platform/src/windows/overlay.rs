@@ -321,7 +321,7 @@ impl Overlay {
         }
         painter.dim(framed.and_then(|(area, _)| area.intersection(&bounds)));
         if let Some(within) = framed.and_then(|(area, _)| area.intersection(&bounds)) {
-            painter.words(decor.words, decor.words_turn, within);
+            painter.words(decor.words, decor.words_chosen, decor.words_turn, within);
         }
         if let Some((area, with_handles)) = framed {
             painter.frame(area, with_handles);

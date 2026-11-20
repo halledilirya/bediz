@@ -1,4 +1,4 @@
-//! Points and rectangles in virtual screen coordinates.
+//! Points and rectangles in virtual screen coordinates, and a box set beside an area.
 
 use serde::{Deserialize, Serialize};
 
@@ -96,9 +96,103 @@ impl Rect {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Above,
+    Below,
+}
+
+pub fn beside(
+    area: Rect,
+    clear_of: Option<Rect>,
+    within: Rect,
+    (width, height): (i32, i32),
+    gap: i32,
+    first: Side,
+) -> Point {
+    let middle = |rect: &Rect| rect.top.saturating_add(rect.bottom) / 2;
+    let area_width = i32::try_from(area.width()).unwrap_or(i32::MAX);
+    let x = area
+        .left
+        .saturating_add(area_width.saturating_sub(width) / 2)
+        .min(within.right.saturating_sub(width))
+        .max(within.left);
+    let fits = |y: i32| {
+        let bottom = y.saturating_add(height);
+        let placed = Rect::new(x, y, x.saturating_add(width), bottom);
+        y >= within.top
+            && bottom <= within.bottom
+            && clear_of.is_none_or(|other| placed.intersection(&other).is_none())
+    };
+    let above = area.top.saturating_sub(gap).saturating_sub(height);
+    let below = area.bottom.saturating_add(gap);
+    let inside_top = area.top.saturating_add(gap);
+    let inside_bottom = area.bottom.saturating_sub(gap).saturating_sub(height);
+    let (sides, inside) = match first {
+        Side::Above => ([above, below], inside_top),
+        Side::Below => ([below, above], inside_bottom),
+    };
+    let y = sides
+        .into_iter()
+        .find(|&y| fits(y))
+        .unwrap_or(match clear_of {
+            Some(other) if middle(&other) < middle(&area) => inside_bottom,
+            Some(_) => inside_top,
+            None => inside,
+        });
+    Point::new(
+        x,
+        y.min(within.bottom.saturating_sub(height)).max(within.top),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const WORK: Rect = Rect::new(0, 0, 1920, 1040);
+    const LABEL: (i32, i32) = (200, 40);
+
+    fn above(area: Rect, clear_of: Option<Rect>) -> Point {
+        beside(area, clear_of, WORK, LABEL, 8, Side::Above)
+    }
+
+    #[test]
+    fn a_box_beside_an_area_goes_above_it_clear_of_the_bar_below() {
+        let area = Rect::new(100, 100, 900, 600);
+        let bar = Rect::new(400, 610, 600, 650);
+        assert_eq!(above(area, Some(bar)), Point::new(400, 52));
+        assert_eq!(
+            above(Rect::new(100, 20, 900, 600), None),
+            Point::new(400, 608)
+        );
+        assert_eq!(
+            above(Rect::new(1800, 300, 1900, 400), None),
+            Point::new(1720, 252)
+        );
+    }
+
+    #[test]
+    fn a_box_with_no_room_beside_an_area_goes_inside_its_edge_away_from_the_bar() {
+        let low = Rect::new(100, 900, 900, 1030);
+        let bar_above = Rect::new(400, 850, 600, 892);
+        assert_eq!(above(low, Some(bar_above)), Point::new(400, 982));
+        let bar_inside = Rect::new(860, 990, 1060, 1032);
+        assert_eq!(above(WORK, Some(bar_inside)), Point::new(860, 8));
+        assert_eq!(above(WORK, None), Point::new(860, 8));
+        assert_eq!(
+            beside(WORK, None, WORK, LABEL, 8, Side::Below),
+            Point::new(860, 992)
+        );
+    }
+
+    #[test]
+    fn a_box_beside_an_area_at_the_edge_of_the_numbers_stays_in_its_bounds() {
+        let far = Rect::new(i32::MIN, i32::MIN, i32::MIN + 10, i32::MIN + 10);
+        assert_eq!(above(far, None), Point::new(0, 0));
+        let wide = Rect::new(i32::MIN, 0, i32::MAX, 1040);
+        assert_eq!(above(wide, None).y, 8);
+    }
 
     #[test]
     fn spanning_covers_both_corner_pixels_in_any_drag_direction() {

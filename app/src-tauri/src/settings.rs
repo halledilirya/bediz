@@ -9,6 +9,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use bediz_core::geometry::Rect;
+use bediz_core::ocr::Layout;
 use bediz_core::settings::{Parsed, Settings};
 use bediz_platform::{Command, Platform};
 use tauri::{AppHandle, Manager};
@@ -223,6 +224,21 @@ pub fn keep_last_region(app: &AppHandle, region: Rect) {
     }
 }
 
+// The platform already uses the layout it reports, so only the window is told.
+pub fn keep_text_layout(app: &AppHandle, layout: Layout) {
+    if let Some(store) = app.try_state::<Store>() {
+        store.change(
+            |current| Settings {
+                text_join_lines: layout.join_lines,
+                text_keep_indentation: layout.keep_indentation,
+                ..current.clone()
+            },
+            |_, _| {},
+        );
+        update::settings_changed(app);
+    }
+}
+
 fn needs_keeping(current: &Settings, region: Rect) -> bool {
     current.last_region != Some(region)
 }
@@ -271,6 +287,7 @@ pub fn send(platform: &Platform, settings: &Settings) {
         file_name: settings.file_name.clone(),
     });
     platform.send(Command::KeepOutOfHistory(settings.keep_out_of_history));
+    platform.send(Command::SetTextLayout(settings.text_layout()));
     platform.send(Command::SetRecordingOptions(settings.recording_options()));
 }
 

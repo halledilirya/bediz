@@ -11,6 +11,7 @@ use bediz_core::hotkey::Hotkey;
 use bediz_core::markup::{Swatch, Tool};
 use bediz_core::measurement::{Measurement, Memory};
 use bediz_core::notice::Notice;
+use bediz_core::ocr::Layout;
 use bediz_core::recording::RecordingOptions;
 use thiserror::Error;
 
@@ -41,6 +42,7 @@ pub enum Command {
         file_name: Pattern,
     },
     KeepOutOfHistory(bool),
+    SetTextLayout(Layout),
     SetRecordingOptions(RecordingOptions),
     ReserveGifCopy {
         id: u64,
@@ -133,6 +135,8 @@ pub struct MenuTexts {
     pub copy_colour: String,
     pub read_text: String,
     pub text_copied: String,
+    pub join_lines: String,
+    pub keep_indentation: String,
     pub whole_monitor: String,
     pub last_region: String,
     pub cancel: String,
@@ -262,6 +266,7 @@ pub enum Event {
     PrintScreenYields,
     HotkeyWhileRecording(Shortcut),
     LastRegion(Rect),
+    TextLayout(Layout),
     StartWithWindows {
         on: bool,
         request: u64,

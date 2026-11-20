@@ -162,6 +162,7 @@ impl Dispatcher {
                 print_screen_yields: true,
                 ..current.clone()
             }),
+            Event::TextLayout(layout) => settings::keep_text_layout(&self.app, *layout),
             Event::HotkeyWhileRecording(shortcut) => update::hotkey_pressed(&self.app, *shortcut),
             Event::StartWithWindows {
                 request, failure, ..
@@ -340,7 +341,11 @@ fn record(log: &Log, event: &Event) {
             "{} hotkey pressed while a new one was asked for",
             update::shortcut_name(*shortcut)
         )),
-        Event::LastRegion(_) | Event::Recording(_) | Event::Gif(_) | Event::Unsaved(_) => {}
+        Event::LastRegion(_)
+        | Event::TextLayout(_)
+        | Event::Recording(_)
+        | Event::Gif(_)
+        | Event::Unsaved(_) => {}
         Event::Delaying(true) => log.info("a delayed screenshot is counting down"),
         Event::Delaying(false) => log.info("the delayed screenshot's countdown ended"),
         Event::ReadyToQuit => log.info("quitting"),

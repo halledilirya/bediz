@@ -12,7 +12,7 @@ use windows::core::BOOL;
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
 use crate::windows::overlay_menu::{self, Choice, Offer};
-use crate::windows::session::Purpose;
+use crate::windows::session::{Purpose, Session};
 
 const MENU_FADE_MILLISECONDS: u32 = 500;
 
@@ -53,11 +53,20 @@ impl Runtime {
             enter: self.enter,
             recording: session.purpose() == Purpose::Recording,
             picture: session.purpose() == Purpose::Picture,
+            words: session.shows_words().then_some(self.text_layout),
         };
         match overlay_menu::choose(owner, at, texts, &offer) {
             Ok(Some(Choice::Deliver(delivery))) => self.deliver(delivery),
             Ok(Some(Choice::SaveAs)) => self.save_as(),
+            // The words can come up while the menu is open; the item it showed still copies them.
+            Ok(Some(Choice::ReadText))
+                if self.session.as_ref().is_some_and(Session::shows_words) =>
+            {
+                self.copy_words();
+            }
             Ok(Some(Choice::ReadText)) => self.read_text(),
+            Ok(Some(Choice::CopyWords)) => self.copy_words(),
+            Ok(Some(Choice::Layout(layout))) => self.lay_out_text(layout),
             Ok(Some(Choice::Record)) => self.record(menu_fade()),
             Ok(Some(Choice::CopyColour)) => self.copy_colour(at),
             Ok(Some(Choice::WholeMonitor)) => {

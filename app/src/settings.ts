@@ -25,6 +25,8 @@ export interface Settings {
   saveFolder: string | null;
   fileName: string;
   keepOutOfHistory: boolean;
+  textJoinLines: boolean;
+  textKeepIndentation: boolean;
   gifFrameRate: number;
   gifLongestSide: number | null;
   gifTimeLimit: number;
@@ -43,6 +45,8 @@ const SWITCHES = [
   "detectWindows",
   "successLabels",
   "keepOutOfHistory",
+  "textJoinLines",
+  "textKeepIndentation",
   "gifCursor",
   "gifCountdown",
   "gifCopy",
@@ -125,6 +129,12 @@ export async function showSettings(
       showStartOff();
     }
   };
+  const showIndentation = (): void => {
+    const indentation = control("textKeepIndentation");
+    if (indentation instanceof HTMLInputElement) {
+      indentation.disabled = checked("textJoinLines");
+    }
+  };
   onLanguage(() => {
     if (warning.said) {
       error.textContent = warning.said();
@@ -161,6 +171,8 @@ export async function showSettings(
       saveFolder: value("saveFolder") || null,
       fileName: fileName.valid(),
       keepOutOfHistory: checked("keepOutOfHistory"),
+      textJoinLines: checked("textJoinLines"),
+      textKeepIndentation: checked("textKeepIndentation"),
       ...recording.read(),
       gifCursor: checked("gifCursor"),
       gifCountdown: checked("gifCountdown"),
@@ -184,6 +196,7 @@ export async function showSettings(
           found.checked = settings[name];
         }
       }
+      showIndentation();
       setValue("language", settings.language ?? "");
       setValue("theme", settings.theme);
       setValue("accent", settings.accent);
@@ -245,6 +258,9 @@ export async function showSettings(
       }
       if (target.name === "startWithWindows") {
         showStartOff();
+      }
+      if (target.name === "textJoinLines") {
+        showIndentation();
       }
     }
   });

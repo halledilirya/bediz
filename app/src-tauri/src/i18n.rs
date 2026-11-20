@@ -65,6 +65,8 @@ impl Texts {
             copy_colour: self.get("overlay-menu-copy-colour"),
             read_text: self.get("overlay-menu-read-text"),
             text_copied: self.get("overlay-text-copied"),
+            join_lines: self.get("overlay-menu-join-lines"),
+            keep_indentation: self.get("overlay-menu-keep-indentation"),
             whole_monitor: self.get("overlay-menu-whole-monitor"),
             last_region: self.get("overlay-menu-last-region"),
             cancel: self.get("overlay-menu-cancel"),
@@ -212,7 +214,7 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 89] = [
+    const USED: [&str; 91] = [
         "settings-title",
         "gif-title",
         "tray-record",
@@ -248,6 +250,8 @@ mod tests {
         "overlay-menu-copy-colour",
         "overlay-menu-read-text",
         "overlay-text-copied",
+        "overlay-menu-join-lines",
+        "overlay-menu-keep-indentation",
         "overlay-menu-whole-monitor",
         "overlay-menu-last-region",
         "overlay-menu-cancel",
@@ -564,6 +568,7 @@ price = Costs $5
             Notice::RecordingStopped(RecordingStop::TimeLimit(TimeLimit::default().duration())),
             Notice::RecordingStopped(RecordingStop::Memory),
             Notice::RecordingStopped(RecordingStop::Display),
+            Notice::TextCopied,
             Notice::NoTextFound,
             Notice::NoTextLanguage,
             Notice::TextNotRead(reason()),

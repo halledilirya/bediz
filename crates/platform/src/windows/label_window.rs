@@ -1,8 +1,9 @@
-//! The label window: a short notice drawn near where it happened, kept out of captures and
-//! announced to screen readers.
+//! The label window: a short notice drawn near where it happened, or beside a selection still
+//! open, kept out of captures and announced to screen readers.
 
 use std::ffi::c_void;
 
+use bediz_core::geometry::{self, Rect, Side};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
@@ -37,6 +38,12 @@ use super::automation::{Announcer, Role};
 use super::contrast::Colours;
 use super::window_class::{LABEL_CLASS, OwnedWindow};
 use crate::event::Label;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Place {
+    Over,
+    Beside(Option<Rect>),
+}
 
 const FONT_SIZE: f32 = 14.0;
 const LARGE: f32 = 5.0;
@@ -172,14 +179,29 @@ impl LabelWindow {
     }
 
     pub fn show(&self, label: &Label, colours: Option<&Colours>) -> Result<Shown> {
-        self.draw(label, colours, 1.0)
+        self.draw(label, colours, 1.0, Place::Over)
     }
 
     pub fn show_large(&self, label: &Label, colours: Option<&Colours>) -> Result<Shown> {
-        self.draw(label, colours, LARGE)
+        self.draw(label, colours, LARGE, Place::Over)
     }
 
-    fn draw(&self, label: &Label, colours: Option<&Colours>, magnify: f32) -> Result<Shown> {
+    pub fn show_beside(
+        &self,
+        label: &Label,
+        colours: Option<&Colours>,
+        clear_of: Option<Rect>,
+    ) -> Result<Shown> {
+        self.draw(label, colours, 1.0, Place::Beside(clear_of))
+    }
+
+    fn draw(
+        &self,
+        label: &Label,
+        colours: Option<&Colours>,
+        magnify: f32,
+        place: Place,
+    ) -> Result<Shown> {
         let center = POINT {
             x: label.near.left + i32::try_from(label.near.width() / 2).unwrap_or(0),
             y: label.near.top + i32::try_from(label.near.height() / 2).unwrap_or(0),
@@ -234,12 +256,27 @@ impl LabelWindow {
         let width = (text_width + 2.0 * padding_x).ceil() as i32;
         let height = (metrics.height + 2.0 * padding_y).ceil() as i32;
         let margin = (MARGIN * scale).round() as i32;
-        let x = (center.x - width / 2)
-            .min(work.right - margin - width)
-            .max(work.left + margin);
-        let y = (center.y - height / 2)
-            .min(work.bottom - margin - height)
-            .max(work.top + margin);
+        let (x, y) = match place {
+            Place::Over => (
+                (center.x - width / 2)
+                    .min(work.right - margin - width)
+                    .max(work.left + margin),
+                (center.y - height / 2)
+                    .min(work.bottom - margin - height)
+                    .max(work.top + margin),
+            ),
+            Place::Beside(clear_of) => {
+                let within = Rect::new(
+                    work.left + margin,
+                    work.top + margin,
+                    work.right - margin,
+                    work.bottom - margin,
+                );
+                let size = (width, height);
+                let at = geometry::beside(label.near, clear_of, within, size, margin, Side::Above);
+                (at.x, at.y)
+            }
+        };
 
         let canvas = MemoryBitmap::new(width, height)?;
         let target = unsafe {
@@ -352,6 +389,23 @@ impl LabelWindow {
         match shown {
             Shown::Opened => self.announcer.opened(&text, label.warning),
             Shown::Replaced => self.announcer.replaced(&text, label.warning),
+        }
+    }
+
+    pub fn raise(&self) -> Result<()> {
+        if !unsafe { IsWindowVisible(self.window.0) }.as_bool() {
+            return Ok(());
+        }
+        unsafe {
+            SetWindowPos(
+                self.window.0,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
         }
     }
 

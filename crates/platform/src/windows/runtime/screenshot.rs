@@ -19,6 +19,7 @@ use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure, Shortcut};
 use crate::windows::foreground::{self, Foreground};
 use crate::windows::hotkey;
+use crate::windows::label_window::LabelWindow;
 use crate::windows::recording::Timer;
 use crate::windows::scene::Scene;
 use crate::windows::session::{Action, Purpose, Session};
@@ -197,7 +198,7 @@ impl Runtime {
         };
         let windows = self.detect_windows.then_some(&self.windows);
         let action = session.handle(scene, windows, self.last_region, message);
-        // A press lifts the overlay above the bars, which are topmost windows too.
+        // A press lifts the overlay above the bars and the label, which are topmost windows too.
         if matches!(
             message.message,
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_RBUTTONUP
@@ -218,12 +219,15 @@ impl Runtime {
         let raised = [
             self.ready.as_ref().map(|bar| bar.raise()),
             self.markup_bar.as_ref().map(|bar| bar.raise()),
+            self.label.as_ref().map(LabelWindow::raise),
         ];
         let notes = raised
             .into_iter()
             .flatten()
             .filter_map(Result::err)
-            .map(|error| format!("the buttons beside the selection may be under it: {error}"))
+            .map(|error| {
+                format!("the bars or the label beside the selection may be under it: {error}")
+            })
             .collect();
         self.emit_notes(notes);
     }
@@ -240,6 +244,7 @@ impl Runtime {
             Ok(Action::CopyText { cut }) => self.copy_text(cut),
             Ok(Action::PasteText) => self.paste_text(),
             Ok(Action::ReadText) => self.read_text(),
+            Ok(Action::CopyWords) => self.copy_words(),
             Err(error) => self.draw_failed(&error),
         }
     }

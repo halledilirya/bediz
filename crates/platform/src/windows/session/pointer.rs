@@ -6,8 +6,8 @@ use bediz_core::geometry::{Point, Rect};
 use bediz_core::selection::{Grip, Handle, Selection};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, IDC_ARROW, IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
-    IDC_SIZEWE, SM_CXDRAG, SM_CYDRAG,
+    GetSystemMetrics, IDC_ARROW, IDC_CROSS, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
+    IDC_SIZENWSE, IDC_SIZEWE, SM_CXDRAG, SM_CYDRAG,
 };
 use windows::core::PCWSTR;
 
@@ -58,6 +58,9 @@ impl Session {
     }
 
     pub(super) fn hover(&mut self, scene: &Scene, point: Point) -> bool {
+        if self.choosing_words() {
+            return self.drag_words(point);
+        }
         if self.marks_busy() {
             self.drag_mark(point);
             return true;
@@ -85,13 +88,17 @@ impl Session {
                 let selection = *selection;
                 let reach = scene.reach_at(point);
                 let grip = self.grip(&selection, point, reach);
-                let shape = self.mark_cursor(point, grip, reach).unwrap_or_else(|| {
-                    if self.purpose.reshapes() {
-                        cursor_for(grip)
-                    } else {
-                        IDC_ARROW
-                    }
-                });
+                let over_words = self.shows_words() && grip == Some(Grip::Inside);
+                let shape = over_words
+                    .then_some(IDC_IBEAM)
+                    .or_else(|| self.mark_cursor(point, grip, reach))
+                    .unwrap_or_else(|| {
+                        if self.purpose.reshapes() {
+                            cursor_for(grip)
+                        } else {
+                            IDC_ARROW
+                        }
+                    });
                 show_cursor(shape);
                 false
             }
@@ -100,6 +107,9 @@ impl Session {
     }
 
     pub(super) fn release(&mut self, scene: &Scene, window: HWND, point: Point) -> bool {
+        if self.choosing_words() {
+            return self.release_words(scene);
+        }
         if self.marks_busy() {
             self.release_mark(scene, window, point);
             return true;
@@ -133,7 +143,7 @@ fn press_on(selection: Option<&Selection>, at: Point, reach: i32) -> Press {
     }
 }
 
-fn beyond_drag_threshold(from: Point, to: Point) -> bool {
+pub(super) fn beyond_drag_threshold(from: Point, to: Point) -> bool {
     let (width, height) = unsafe { (GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG)) };
     (to.x - from.x).abs() > width.max(1) || (to.y - from.y).abs() > height.max(1)
 }

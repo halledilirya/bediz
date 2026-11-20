@@ -12,6 +12,7 @@ use crate::delivery::Delivery;
 use crate::file_name::Pattern;
 use crate::geometry::Rect;
 use crate::hotkey::Hotkey;
+use crate::ocr::Layout;
 use crate::recording::{FrameRate, LongestSide, RecordingOptions, TimeLimit};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +32,8 @@ pub struct Settings {
     pub save_folder: Option<PathBuf>,
     pub file_name: Pattern,
     pub keep_out_of_history: bool,
+    pub text_join_lines: bool,
+    pub text_keep_indentation: bool,
     pub gif_frame_rate: FrameRate,
     pub gif_longest_side: LongestSide,
     pub gif_time_limit: TimeLimit,
@@ -98,6 +101,8 @@ impl Default for Settings {
             save_folder: None,
             file_name: Pattern::default(),
             keep_out_of_history: false,
+            text_join_lines: false,
+            text_keep_indentation: false,
             gif_frame_rate: FrameRate::default(),
             gif_longest_side: LongestSide::default(),
             gif_time_limit: TimeLimit::default(),
@@ -152,6 +157,13 @@ impl Settings {
         }
     }
 
+    pub const fn text_layout(&self) -> Layout {
+        Layout {
+            join_lines: self.text_join_lines,
+            keep_indentation: self.text_keep_indentation,
+        }
+    }
+
     pub const fn allocation(&self) -> Allocation {
         if self.release_gpu_while_idle {
             Allocation::OnHotkey
@@ -203,6 +215,16 @@ impl Settings {
                 &self.keep_out_of_history,
                 &shown.keep_out_of_history,
                 &wanted.keep_out_of_history,
+            ),
+            text_join_lines: pick(
+                &self.text_join_lines,
+                &shown.text_join_lines,
+                &wanted.text_join_lines,
+            ),
+            text_keep_indentation: pick(
+                &self.text_keep_indentation,
+                &shown.text_keep_indentation,
+                &wanted.text_keep_indentation,
             ),
             gif_frame_rate: pick(
                 &self.gif_frame_rate,
@@ -282,6 +304,7 @@ mod tests {
         assert_eq!(settings.save_folder, None);
         assert_eq!(settings.file_name, Pattern::default());
         assert!(!settings.keep_out_of_history);
+        assert_eq!(settings.text_layout(), Layout::default());
         assert_eq!(settings.recording_options(), RecordingOptions::default());
         assert!(settings.gif_window);
         assert_eq!(settings.allocation(), Allocation::Ahead);
@@ -381,6 +404,8 @@ mod tests {
             save_folder: Some(PathBuf::from(r"D:\Captures")),
             file_name: Pattern::parse("Shot {width}x{height}").unwrap(),
             keep_out_of_history: true,
+            text_join_lines: true,
+            text_keep_indentation: true,
             gif_frame_rate: FrameRate::try_from(25).unwrap(),
             gif_longest_side: LongestSide::KEPT,
             gif_time_limit: TimeLimit::try_from(300).unwrap(),
@@ -404,6 +429,8 @@ mod tests {
         assert!(json.contains(r#""enter": "copy""#), "{json}");
         assert!(json.contains(r#""releaseGpuWhileIdle": true"#), "{json}");
         assert!(json.contains(r#""checkForUpdates": true"#), "{json}");
+        assert!(json.contains(r#""textJoinLines": true"#), "{json}");
+        assert!(json.contains(r#""textKeepIndentation": true"#), "{json}");
         assert_eq!(parse(&json), settings);
     }
 
@@ -475,6 +502,8 @@ mod tests {
             save_folder: Some(PathBuf::from(r"E:\Shots")),
             file_name: Pattern::parse("Shot {date}").unwrap(),
             keep_out_of_history: true,
+            text_join_lines: true,
+            text_keep_indentation: true,
             gif_frame_rate: FrameRate::try_from(10).unwrap(),
             gif_longest_side: LongestSide::try_from(Some(640)).unwrap(),
             gif_time_limit: TimeLimit::try_from(15).unwrap(),
@@ -537,6 +566,21 @@ mod tests {
             parse(r#"{ "gifLongestSide": null }"#).gif_longest_side,
             LongestSide::KEPT
         );
+    }
+
+    #[test]
+    fn the_text_settings_become_the_layout_of_copied_text() {
+        let settings = parse(r#"{ "textJoinLines": true, "textKeepIndentation": false }"#);
+        assert_eq!(
+            settings.text_layout(),
+            Layout {
+                join_lines: true,
+                keep_indentation: false,
+            }
+        );
+        let parsed = Settings::parse(r#"{ "textKeepIndentation": "yes" }"#).unwrap();
+        assert_eq!(parsed.rejected, ["textKeepIndentation"]);
+        assert_eq!(parsed.settings.text_layout(), Layout::default());
     }
 
     #[test]

@@ -448,10 +448,19 @@ impl Controls {
     }
 
     pub fn moved(&self) -> Option<Rect> {
+        self.bounds()
+            .filter(|bounds| bounds.left != self.at.x || bounds.top != self.at.y)
+    }
+
+    pub fn bounds(&self) -> Option<Rect> {
         let mut bounds = RECT::default();
         unsafe { GetWindowRect(self.window.0, &mut bounds) }.ok()?;
-        (bounds.left != self.at.x || bounds.top != self.at.y)
-            .then(|| Rect::new(bounds.left, bounds.top, bounds.right, bounds.bottom))
+        Some(Rect::new(
+            bounds.left,
+            bounds.top,
+            bounds.right,
+            bounds.bottom,
+        ))
     }
 
     pub fn owns(&self, window: HWND) -> bool {
@@ -502,8 +511,8 @@ impl Controls {
         }
     }
 
-    pub fn show_choice(&self, tool: Option<Tool>, colour: Colour) {
-        paint::choose(tool.map(|tool| Button::for_tool(tool).id()), colour);
+    pub fn show_choice(&self, chosen: Option<Button>, colour: Colour) {
+        paint::choose(chosen.map(Button::id), colour);
         let _ = unsafe {
             RedrawWindow(
                 Some(self.window.0),

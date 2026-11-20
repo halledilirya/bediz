@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::geometry::{Point, Rect};
+use crate::geometry::{self, Point, Rect, Side};
 
 pub use options::{FrameRate, LongestSide, NotOffered, RecordingOptions, TimeLimit};
 
@@ -173,24 +173,11 @@ pub fn dashes(length: i32, dash: i32) -> impl Iterator<Item = (i32, i32)> {
 }
 
 pub fn controls_at(area: Rect, work: Rect, width: u32, height: u32, gap: i32) -> Point {
-    let width = i32::try_from(width).unwrap_or(i32::MAX);
-    let height = i32::try_from(height).unwrap_or(i32::MAX);
-    let area_width = i32::try_from(area.width()).unwrap_or(i32::MAX);
-    let x = (area.left + (area_width - width) / 2)
-        .min(work.right - width)
-        .max(work.left);
-    let below = area.bottom + gap;
-    let above = area.top - gap - height;
-    let y = if below + height <= work.bottom {
-        below
-    } else if above >= work.top {
-        above
-    } else {
-        (area.bottom - gap - height)
-            .min(work.bottom - height)
-            .max(work.top)
-    };
-    Point::new(x, y)
+    let size = (
+        i32::try_from(width).unwrap_or(i32::MAX),
+        i32::try_from(height).unwrap_or(i32::MAX),
+    );
+    geometry::beside(area, None, work, size, gap, Side::Below)
 }
 
 pub fn controls_replacing(previous: Rect, width: u32, height: u32, work: Rect) -> Point {

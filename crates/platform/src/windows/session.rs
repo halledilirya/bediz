@@ -1,6 +1,6 @@
 //! One selection on the overlays, for a screenshot, a recording or an opened picture: turns the
-//! mouse and keys into the selection, its marks, the window under the pointer and the action
-//! chosen, and redraws.
+//! mouse and keys into the selection, its marks, the words chosen in it, the window under the
+//! pointer and the action chosen, and redraws.
 
 mod keys;
 mod live;
@@ -10,7 +10,7 @@ mod pointer;
 mod words;
 
 pub use picture::Picture;
-pub use words::{Content, Highlights};
+pub use words::{Content, Found};
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
@@ -52,6 +52,7 @@ pub enum Action {
     CopyText { cut: bool },
     PasteText,
     ReadText,
+    CopyWords,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +98,7 @@ pub struct Session {
     marking: Marking,
     picture: Option<Picture>,
     words: Option<Words>,
-    words_read: u64,
+    words_shown: u64,
 }
 
 impl Session {
@@ -127,7 +128,7 @@ impl Session {
             marking: Marking::new(scale, reply_to),
             picture: None,
             words: None,
-            words_read: 0,
+            words_shown: 0,
         }
     }
 
@@ -191,12 +192,14 @@ impl Session {
         }
         let changed = match message.message {
             WM_LBUTTONDBLCLK
-                if self.marking.tool().is_none() && self.inside_selection(scene, point) =>
+                if self.marking.tool().is_none()
+                    && !self.shows_words()
+                    && self.inside_selection(scene, point) =>
             {
                 return Ok(confirm(self.purpose, self.enter));
             }
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
-                if !self.press_mark(scene, message.hwnd, point) {
+                if !self.press_words(scene, point) && !self.press_mark(scene, message.hwnd, point) {
                     self.press(scene, windows, point);
                 }
                 if self.selection.is_some() {
@@ -210,7 +213,8 @@ impl Session {
                     && (self.click.is_some()
                         || self.beside.is_some()
                         || self.is_dragging()
-                        || self.marks_busy()) =>
+                        || self.marks_busy()
+                        || self.choosing_words()) =>
             {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, message.hwnd, point)
@@ -220,7 +224,7 @@ impl Session {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, message.hwnd, point)
             }
-            WM_RBUTTONUP if !self.is_dragging() && !self.marks_busy() => {
+            WM_RBUTTONUP if !self.is_dragging() && !self.marks_busy() && !self.choosing_words() => {
                 return Ok(Action::Menu(point));
             }
             WM_CHAR => self.type_unit(scene, message.hwnd, message.wParam.0 as u16),
@@ -286,7 +290,7 @@ impl Session {
         let monitors = scene.monitor_rects();
         self.views.resize(monitors.len(), View::default());
         let decor = decor(&self.marking, self.words.as_ref());
-        let words = words::id(self.words.as_ref());
+        let words = words::stamp(self.words.as_ref());
         let marks = self.marking.version();
         let selection = self.selected();
         let highlight = match (&self.click, selection) {
@@ -343,6 +347,7 @@ fn decor<'a>(marking: &'a Marking, words: Option<&'a Words>) -> Decor<'a> {
     Decor {
         words: words::rects(words),
         words_turn: words::turn(words),
+        words_chosen: words::chosen(words),
         ..marking.decor()
     }
 }

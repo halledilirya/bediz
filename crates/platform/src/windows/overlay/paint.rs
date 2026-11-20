@@ -75,7 +75,13 @@ impl Painter<'_> {
         }
     }
 
-    pub fn words(&self, words: &[Rect], turn: Option<Turn>, within: Rect) {
+    pub fn words(
+        &self,
+        words: &[Rect],
+        chosen: Option<(usize, usize)>,
+        turn: Option<Turn>,
+        within: Rect,
+    ) {
         if words.is_empty() {
             return;
         }
@@ -88,7 +94,8 @@ impl Painter<'_> {
             };
             unsafe { canvas.SetTransform(&Matrix3x2::rotation_around(turn.degrees, around)) };
         }
-        for word in words {
+        let chosen = chosen.and_then(|(first, last)| words.get(first..=last));
+        for word in words.iter().chain(chosen.into_iter().flatten()) {
             let local = word.translated(-self.origin.x, -self.origin.y);
             unsafe { canvas.FillRectangle(&rect_f(local), &self.gpu.words) };
         }

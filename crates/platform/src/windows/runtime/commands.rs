@@ -1,6 +1,6 @@
-//! Acts on the commands the app sends, and shows the confirmation labels, held back while a
-//! selection is open, with errors kept up as long as Windows keeps its notifications, and also
-//! as a Windows notification while a screen reader runs.
+//! Acts on the commands the app sends and shows the labels: held back while a selection is open
+//! unless they are about it, then beside it; errors kept up as long as Windows keeps its
+//! notifications, and also given as a Windows notification while a screen reader runs.
 
 use std::sync::PoisonError;
 use std::time::Duration;
@@ -11,6 +11,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SystemParametersInfoW,
 };
 
+use super::markup_bar::MarkupBar;
 use super::{LABEL_MILLISECONDS, LABEL_TIMER, Runtime};
 use crate::event::{Command, Event, Label};
 use crate::windows::session::Purpose;
@@ -65,6 +66,7 @@ impl Runtime {
                     self.file_name = file_name;
                 }
                 Command::KeepOutOfHistory(keep_out) => self.keep_out_of_history = keep_out,
+                Command::SetTextLayout(layout) => self.text_layout = layout,
                 Command::SetRecordingOptions(options) => self.recording_options = options,
                 Command::Quit(step) => self.on_quit(step),
                 Command::ReserveGifCopy { id } => self.reserve_gif_copy(id),
@@ -102,7 +104,14 @@ impl Runtime {
         let Some(window) = &self.label else {
             return;
         };
-        let shown = match window.show(&label, self.colours.as_ref()) {
+        let colours = self.colours.as_ref();
+        let shown = if self.session.is_some() {
+            let bar = self.markup_bar.as_ref().and_then(MarkupBar::bounds);
+            window.show_beside(&label, colours, bar)
+        } else {
+            window.show(&label, colours)
+        };
+        let shown = match shown {
             Ok(shown) => shown,
             Err(error) => {
                 self.emit_notes(vec![format!(

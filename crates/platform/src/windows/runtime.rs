@@ -41,6 +41,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Result, w};
 
 use bediz_core::geometry::Rect;
+use bediz_core::ocr::Layout;
 use bediz_core::recording::RecordingOptions;
 
 use super::clock::Clock;
@@ -130,6 +131,7 @@ struct Runtime {
     save_folder: Option<PathBuf>,
     file_name: Pattern,
     keep_out_of_history: bool,
+    text_layout: Layout,
     colours: Option<Colours>,
     last_region: Option<Rect>,
     recording: Option<Recording>,
@@ -232,6 +234,7 @@ impl Runtime {
             save_folder: None,
             file_name: Pattern::default(),
             keep_out_of_history: false,
+            text_layout: Layout::default(),
             colours: contrast_colours(),
             last_region: None,
             recording: None,

@@ -1,9 +1,13 @@
 //! Text read from a selection: the image made ready for a recognizer, the words it found placed
-//! back on the screen, and the text they make in reading order.
+//! back on the screen and joined into the rows they share, and the passage they make.
 
 mod page;
+mod passage;
 
 pub use page::{Page, Placement, Turn, better_scale, first_scale, prepare};
+pub use passage::{Layout, Passage};
+
+use crate::geometry::Rect;
 
 const SAME_ROW: f32 = 0.5;
 const TOUCHING: f32 = 0.2;
@@ -17,6 +21,15 @@ pub struct Bounds {
 }
 
 impl Bounds {
+    pub fn covering(&self) -> Rect {
+        Rect::new(
+            self.left.floor() as i32,
+            self.top.floor() as i32,
+            self.right().ceil() as i32,
+            self.bottom().ceil() as i32,
+        )
+    }
+
     fn right(&self) -> f32 {
         self.left + self.width
     }
@@ -133,85 +146,6 @@ fn join(row: &mut Vec<Word>, line: Vec<Word>, script: Script) {
     *row = left;
 }
 
-pub fn text(lines: &[Vec<Word>], script: Script) -> String {
-    lines
-        .iter()
-        .map(|line| line_text(line, script))
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn line_text(words: &[Word], script: Script) -> String {
-    let words: Vec<&str> = words
-        .iter()
-        .map(|word| word.text.trim())
-        .filter(|word| !word.is_empty())
-        .collect();
-    match script {
-        Script::Spaced => words.join(" "),
-        Script::RightToLeft => right_to_left(&words),
-        Script::Unspaced => {
-            let mut line = String::new();
-            for word in words {
-                if let (Some(before), Some(after)) = (line.chars().last(), word.chars().next())
-                    && spaced(before)
-                    && spaced(after)
-                {
-                    line.push(' ');
-                }
-                line.push_str(word);
-            }
-            line
-        }
-    }
-}
-
-// Words come in screen order; a left-to-right run, with the numbers after it, keeps its order.
-fn right_to_left<'a>(words: &[&'a str]) -> String {
-    let mut runs: Vec<Vec<&'a str>> = Vec::new();
-    let mut in_run = false;
-    for word in words {
-        let left_to_right = reads_left_to_right(word);
-        match runs.last_mut() {
-            Some(run) if in_run && left_to_right != Some(false) => run.push(word),
-            _ => {
-                runs.push(vec![word]);
-                in_run = left_to_right == Some(true);
-            }
-        }
-    }
-    runs.into_iter()
-        .rev()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn reads_left_to_right(word: &str) -> Option<bool> {
-    word.chars()
-        .find(|letter| letter.is_alphabetic())
-        .map(|letter| !written_right_to_left(letter))
-}
-
-fn written_right_to_left(letter: char) -> bool {
-    matches!(
-        u32::from(letter),
-        0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF
-    )
-}
-
-fn spaced(letter: char) -> bool {
-    letter.is_alphanumeric() && !written_without_spaces(letter)
-}
-
-fn written_without_spaces(letter: char) -> bool {
-    matches!(
-        u32::from(letter),
-        0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFFEF | 0x20000..=0x3FFFF
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +169,10 @@ mod tests {
             .collect()
     }
 
+    fn written(lines: Vec<Vec<Word>>, script: Script) -> String {
+        Passage::new(lines, script).text(Layout::default())
+    }
+
     #[test]
     fn a_language_tag_tells_how_its_words_are_joined() {
         assert_eq!(Script::of("tr-TR"), Script::Spaced);
@@ -248,44 +186,13 @@ mod tests {
     }
 
     #[test]
-    fn words_are_spaced_and_lines_kept_as_on_the_screen() {
-        let lines = [
-            line(&["Kaydet", "ve", "kapat"]),
-            line(&[" ", ""]),
-            line(&["Şubat", "ğ", "ı"]),
-        ];
-        assert_eq!(text(&lines, Script::Spaced), "Kaydet ve kapat\nŞubat ğ ı");
-    }
-
-    #[test]
-    fn chinese_and_japanese_lose_the_spaces_between_their_characters_but_not_between_latin_words() {
-        let lines = [
-            line(&["快", "捷", "键", "指", "南"]),
-            line(&["Windows", "の", "設定", "Version", "2", "。"]),
-        ];
+    fn a_box_on_the_screen_covers_every_pixel_its_word_touches() {
+        let word = placed("", 10.25, 20.0, 5.5, 3.75);
+        assert_eq!(word.bounds.covering(), Rect::new(10, 20, 16, 24));
         assert_eq!(
-            text(&lines, Script::Unspaced),
-            "快捷键指南\nWindowsの設定Version 2。"
+            placed("", -3.5, -1.0, 1.0, 1.0).bounds.covering(),
+            Rect::new(-4, -1, -2, 0)
         );
-    }
-
-    #[test]
-    fn a_right_to_left_line_is_put_back_in_reading_order() {
-        let lines = [line(&["عالم", "مرحبا"])];
-        assert_eq!(text(&lines, Script::RightToLeft), "مرحبا عالم");
-        let between = [line(&["עולם", "2024", "שלום"])];
-        assert_eq!(text(&between, Script::RightToLeft), "שלום 2024 עולם");
-    }
-
-    #[test]
-    fn latin_words_and_their_numbers_in_a_right_to_left_line_keep_their_own_order() {
-        let mixed = [line(&["Windows", "11", "Pro", "مرحبا", "عالم"])];
-        assert_eq!(
-            text(&mixed, Script::RightToLeft),
-            "عالم مرحبا Windows 11 Pro"
-        );
-        let apart = [line(&["Bediz", "في", "PNG", "5"])];
-        assert_eq!(text(&apart, Script::RightToLeft), "PNG 5 في Bediz");
     }
 
     #[test]
@@ -316,15 +223,15 @@ mod tests {
         ];
         let rows = rows(lines, Script::Spaced);
         assert_eq!(rows.len(), 3);
-        assert_eq!(
-            text(&rows, Script::Spaced),
-            "Kaydet düzelttim. Cargo\nsimgesine Ayarlar\naltında"
-        );
         let glued = rows
             .first()
             .and_then(|row| row.get(1))
             .map(|word| word.bounds);
         assert_eq!(glued, Some(placed("", 70.0, 100.0, 95.0, 20.0).bounds));
+        assert_eq!(
+            written(rows, Script::Spaced),
+            "Kaydet düzelttim. Cargo\nsimgesine Ayarlar\naltında"
+        );
     }
 
     #[test]
@@ -334,7 +241,7 @@ mod tests {
             vec![placed("simgesine", 0.0, 0.0, 90.0, 20.0)],
         ];
         assert_eq!(
-            text(&rows(lines, Script::Spaced), Script::Spaced),
+            written(rows(lines, Script::Spaced), Script::Spaced),
             "simgesine Ayarlar"
         );
         let arabic = vec![
@@ -342,7 +249,7 @@ mod tests {
             vec![placed(".", 96.0, 14.0, 4.0, 4.0)],
         ];
         assert_eq!(
-            text(&rows(arabic, Script::RightToLeft), Script::RightToLeft),
+            written(rows(arabic, Script::RightToLeft), Script::RightToLeft),
             "مرحبا."
         );
     }
