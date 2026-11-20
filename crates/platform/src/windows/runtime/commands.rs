@@ -67,6 +67,7 @@ impl Runtime {
                 }
                 Command::KeepOutOfHistory(keep_out) => self.keep_out_of_history = keep_out,
                 Command::SetTextLayout(layout) => self.text_layout = layout,
+                Command::SetTextLanguage(language) => self.text_language = language,
                 Command::SetRecordingOptions(options) => self.recording_options = options,
                 Command::Quit(step) => self.on_quit(step),
                 Command::ReserveGifCopy { id } => self.reserve_gif_copy(id),

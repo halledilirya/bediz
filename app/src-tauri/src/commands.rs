@@ -135,6 +135,12 @@ pub async fn start_turned_off_by_user(app: AppHandle) -> Result<bool, Failure> {
 }
 
 #[tauri::command]
+pub async fn text_languages(app: AppHandle) -> Result<Vec<String>, Failure> {
+    in_background(move || bediz_platform::text_languages().map_err(|error| unexpected(&app, error)))
+        .await
+}
+
+#[tauri::command]
 pub fn record_hotkey(recording: bool, app: AppHandle) {
     setup::send(&app, Command::RecordHotkey(recording));
 }

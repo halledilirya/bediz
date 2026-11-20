@@ -38,6 +38,7 @@ fn main() {
             commands::open_source,
             commands::start_with_windows_problem,
             commands::start_turned_off_by_user,
+            commands::text_languages,
             commands::hotkey_state,
             commands::gif_hotkey_state,
             commands::record_hotkey,

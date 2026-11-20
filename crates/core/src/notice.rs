@@ -41,8 +41,12 @@ pub enum Notice {
     NoTextFound,
     #[error("no Windows language can read text")]
     NoTextLanguage,
+    #[error("the language chosen to read text is not installed")]
+    TextLanguageMissing,
     #[error("text not read: {0}")]
     TextNotRead(String),
+    #[error("text not read in a language installed while Bediz was running: {0}")]
+    TextNeedsRestart(String),
 }
 
 impl Notice {
@@ -64,7 +68,9 @@ impl Notice {
             Self::TextCopied => "overlay-text-copied",
             Self::NoTextFound => "overlay-text-not-found",
             Self::NoTextLanguage => "overlay-text-no-language",
+            Self::TextLanguageMissing => "overlay-text-language-missing",
             Self::TextNotRead(_) => "overlay-text-failed",
+            Self::TextNeedsRestart(_) => "overlay-text-restart",
         }
     }
 
@@ -104,7 +110,9 @@ impl Notice {
                 | Self::ImageNotOpened(_)
                 | Self::NoTextFound
                 | Self::NoTextLanguage
+                | Self::TextLanguageMissing
                 | Self::TextNotRead(_)
+                | Self::TextNeedsRestart(_)
         )
     }
 }
@@ -151,7 +159,12 @@ mod tests {
         assert!(!Notice::TextCopied.is_failure());
         assert!(worth_a_label(&[Notice::NoTextFound], false));
         assert!(worth_a_label(&[Notice::NoTextLanguage], false));
+        assert!(worth_a_label(&[Notice::TextLanguageMissing], false));
         assert!(Notice::TextNotRead("reason".to_owned()).is_failure());
+        assert!(worth_a_label(
+            &[Notice::TextNeedsRestart("reason".to_owned())],
+            false
+        ));
         assert_eq!(Notice::TextCopied.locale_id(), "overlay-text-copied");
     }
 

@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
@@ -34,6 +34,8 @@ pub struct Settings {
     pub keep_out_of_history: bool,
     pub text_join_lines: bool,
     pub text_keep_indentation: bool,
+    #[serde(deserialize_with = "language_tag")]
+    pub text_language: Option<String>,
     pub gif_frame_rate: FrameRate,
     pub gif_longest_side: LongestSide,
     pub gif_time_limit: TimeLimit,
@@ -103,6 +105,7 @@ impl Default for Settings {
             keep_out_of_history: false,
             text_join_lines: false,
             text_keep_indentation: false,
+            text_language: None,
             gif_frame_rate: FrameRate::default(),
             gif_longest_side: LongestSide::default(),
             gif_time_limit: TimeLimit::default(),
@@ -226,6 +229,11 @@ impl Settings {
                 &shown.text_keep_indentation,
                 &wanted.text_keep_indentation,
             ),
+            text_language: pick(
+                &self.text_language,
+                &shown.text_language,
+                &wanted.text_language,
+            ),
             gif_frame_rate: pick(
                 &self.gif_frame_rate,
                 &shown.gif_frame_rate,
@@ -274,6 +282,10 @@ impl Enter {
     }
 }
 
+fn language_tag<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.filter(|tag| !tag.is_empty()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,6 +317,7 @@ mod tests {
         assert_eq!(settings.file_name, Pattern::default());
         assert!(!settings.keep_out_of_history);
         assert_eq!(settings.text_layout(), Layout::default());
+        assert_eq!(settings.text_language, None);
         assert_eq!(settings.recording_options(), RecordingOptions::default());
         assert!(settings.gif_window);
         assert_eq!(settings.allocation(), Allocation::Ahead);
@@ -406,6 +419,7 @@ mod tests {
             keep_out_of_history: true,
             text_join_lines: true,
             text_keep_indentation: true,
+            text_language: Some("ja-JP".to_owned()),
             gif_frame_rate: FrameRate::try_from(25).unwrap(),
             gif_longest_side: LongestSide::KEPT,
             gif_time_limit: TimeLimit::try_from(300).unwrap(),
@@ -431,6 +445,7 @@ mod tests {
         assert!(json.contains(r#""checkForUpdates": true"#), "{json}");
         assert!(json.contains(r#""textJoinLines": true"#), "{json}");
         assert!(json.contains(r#""textKeepIndentation": true"#), "{json}");
+        assert!(json.contains(r#""textLanguage": "ja-JP""#), "{json}");
         assert_eq!(parse(&json), settings);
     }
 
@@ -504,6 +519,7 @@ mod tests {
             keep_out_of_history: true,
             text_join_lines: true,
             text_keep_indentation: true,
+            text_language: Some("ar-SA".to_owned()),
             gif_frame_rate: FrameRate::try_from(10).unwrap(),
             gif_longest_side: LongestSide::try_from(Some(640)).unwrap(),
             gif_time_limit: TimeLimit::try_from(15).unwrap(),
@@ -581,6 +597,19 @@ mod tests {
         let parsed = Settings::parse(r#"{ "textKeepIndentation": "yes" }"#).unwrap();
         assert_eq!(parsed.rejected, ["textKeepIndentation"]);
         assert_eq!(parsed.settings.text_layout(), Layout::default());
+    }
+
+    #[test]
+    fn the_reading_language_is_automatic_until_one_is_chosen() {
+        assert_eq!(parse(r#"{ "textLanguage": null }"#).text_language, None);
+        assert_eq!(parse(r#"{ "textLanguage": "" }"#).text_language, None);
+        assert_eq!(
+            parse(r#"{ "textLanguage": "tr-TR" }"#).text_language,
+            Some("tr-TR".to_owned())
+        );
+        let parsed = Settings::parse(r#"{ "textLanguage": 7 }"#).unwrap();
+        assert_eq!(parsed.rejected, ["textLanguage"]);
+        assert_eq!(parsed.settings.text_language, None);
     }
 
     #[test]

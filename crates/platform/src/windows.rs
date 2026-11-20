@@ -47,6 +47,7 @@ mod worker;
 pub use contrast::apps_use_dark_mode;
 pub use folder::{pick_folder, synced_by_onedrive};
 pub use language::preferred_languages;
+pub use ocr::text_languages;
 pub use package::{packaged, seen_outside};
 pub use platform::{Platform, StartError};
 pub use question::{

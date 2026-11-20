@@ -288,6 +288,7 @@ pub fn send(platform: &Platform, settings: &Settings) {
     });
     platform.send(Command::KeepOutOfHistory(settings.keep_out_of_history));
     platform.send(Command::SetTextLayout(settings.text_layout()));
+    platform.send(Command::SetTextLanguage(settings.text_language.clone()));
     platform.send(Command::SetRecordingOptions(settings.recording_options()));
 }
 

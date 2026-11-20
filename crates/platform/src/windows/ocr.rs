@@ -1,28 +1,34 @@
-//! Reads the text in an image with Windows' own recognizer, on a thread of its own, in the first
-//! of the user's Windows languages it can read.
+//! Reads the text in an image with Windows' own recognizer, on a thread of its own, in the language
+//! chosen or the first of the user's Windows languages it can read, and lists those it can read.
 
 use std::ffi::c_void;
+use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use bediz_core::image::Image;
 use bediz_core::ocr::{self, Bounds, Page, Placement, Script, Word};
+use windows::Globalization::Language;
 use windows::Graphics::Imaging::{BitmapBufferAccessMode, BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Win32::Foundation::{E_POINTER, E_UNEXPECTED, HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::System::WinRT::IMemoryBufferByteAccess;
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-use windows::core::{Error, Interface};
+use windows::core::{Error, HSTRING, Interface};
 
 use super::runtime::WM_TEXT;
 
 const LARGEST_WHEN_UNKNOWN: u32 = 4_096;
 
+static FIRST_LISTED: OnceLock<Vec<String>> = OnceLock::new();
+
 pub enum ReadError {
     NoLanguage,
+    LanguageMissing,
     Failed(String),
+    NeedsRestart(String),
 }
 
 pub struct Reading {
@@ -40,14 +46,21 @@ pub struct Read {
 
 pub type Readings = Arc<Mutex<Option<Read>>>;
 
-pub fn read(window: HWND, readings: &Readings, request: u64, image: Image) -> std::io::Result<()> {
+pub fn read(
+    window: HWND,
+    readings: &Readings,
+    request: u64,
+    image: Image,
+    language: Option<String>,
+) -> io::Result<()> {
     let readings = Arc::clone(readings);
     let window = window.0 as isize;
     std::thread::Builder::new()
         .name("bediz-ocr".to_owned())
         .spawn(move || {
             let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-            let result = catch_unwind(AssertUnwindSafe(|| recognize(image))).unwrap_or_else(|_| {
+            let reading = || recognize(image, language.as_deref(), first_listed());
+            let result = catch_unwind(AssertUnwindSafe(reading)).unwrap_or_else(|_| {
                 Err(ReadError::Failed(
                     "an internal error was caught while reading the text".to_owned(),
                 ))
@@ -63,33 +76,95 @@ pub fn read(window: HWND, readings: &Readings, request: u64, image: Image) -> st
     Ok(())
 }
 
-fn recognize(image: Image) -> Result<Reading, ReadError> {
+pub fn text_languages() -> io::Result<Vec<String>> {
+    std::thread::Builder::new()
+        .name("bediz-ocr-languages".to_owned())
+        .spawn(|| {
+            let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
+            let listed =
+                recognizer_languages().map_err(|error| io::Error::other(described(&error)));
+            if com {
+                unsafe { CoUninitialize() };
+            }
+            listed
+        })?
+        .join()
+        .unwrap_or_else(|_| Err(io::Error::other("the text languages could not be listed")))
+}
+
+fn recognizer_languages() -> windows::core::Result<Vec<String>> {
+    let languages = OcrEngine::AvailableRecognizerLanguages()?;
+    let listed = (0..languages.Size()?)
+        .map(|at| Ok(languages.GetAt(at)?.LanguageTag()?.to_string_lossy()))
+        .collect::<windows::core::Result<Vec<_>>>()?;
+    FIRST_LISTED.get_or_init(|| listed.clone());
+    Ok(listed)
+}
+
+fn first_listed() -> Option<&'static [String]> {
+    if FIRST_LISTED.get().is_none() {
+        recognizer_languages().ok()?;
+    }
+    FIRST_LISTED.get().map(Vec::as_slice)
+}
+
+fn after_install(error: ReadError, first: Option<&[String]>, asked: Option<&str>) -> ReadError {
+    let installed = first
+        .zip(recognizer_languages().ok())
+        .is_some_and(|(first, now)| ocr::installed_since(first, &now, asked));
+    match error {
+        ReadError::Failed(reason) if installed => ReadError::NeedsRestart(reason),
+        ReadError::NoLanguage | ReadError::LanguageMissing if installed => {
+            ReadError::NeedsRestart("Windows made no recognizer".to_owned())
+        }
+        other => other,
+    }
+}
+
+fn recognize(
+    image: Image,
+    chosen: Option<&str>,
+    first: Option<&[String]>,
+) -> Result<Reading, ReadError> {
     let started = Instant::now();
-    let engine = engine()?;
+    let engine = match chosen {
+        Some(tag) => chosen_engine(tag),
+        None => engine(),
+    }
+    .map_err(|error| after_install(error, first, chosen))?;
     let language = engine
         .RecognizerLanguage()
         .and_then(|language| language.LanguageTag())
         .map(|tag| tag.to_string_lossy())
         .unwrap_or_default();
-    let largest = OcrEngine::MaxImageDimension().unwrap_or(LARGEST_WHEN_UNKNOWN);
-    let (first, placed_first) = pass(&engine, &image, ocr::first_scale(&image, largest))?;
-    let (lines, placement, passes) = match ocr::better_scale(&first, &placed_first, largest) {
-        None => (first, placed_first, 1),
-        Some(scale) => {
-            let (again, placed_again) = pass(&engine, &image, scale)?;
-            if ocr::prefers_second(&first, &again) {
-                (again, placed_again, 2)
-            } else {
-                (first, placed_first, 2)
-            }
-        }
-    };
+    let tried = chosen.unwrap_or(&language);
+    let (lines, placement, passes) =
+        passes(&engine, &image).map_err(|error| after_install(error, first, Some(tried)))?;
     Ok(Reading {
         placement,
         lines: ocr::rows(lines, Script::of(&language)),
         language,
         passes,
         took: started.elapsed(),
+    })
+}
+
+fn passes(
+    engine: &OcrEngine,
+    image: &Image,
+) -> Result<(Vec<Vec<Word>>, Placement, u32), ReadError> {
+    let largest = OcrEngine::MaxImageDimension().unwrap_or(LARGEST_WHEN_UNKNOWN);
+    let (first, placed_first) = pass(engine, image, ocr::first_scale(image, largest))?;
+    Ok(match ocr::better_scale(&first, &placed_first, largest) {
+        None => (first, placed_first, 1),
+        Some(scale) => {
+            let (again, placed_again) = pass(engine, image, scale)?;
+            if ocr::prefers_second(&first, &again) {
+                (again, placed_again, 2)
+            } else {
+                (first, placed_first, 2)
+            }
+        }
     })
 }
 
@@ -111,13 +186,29 @@ fn engine() -> Result<OcrEngine, ReadError> {
         Err(error) => return Err(failed(error)),
     }
     let languages = OcrEngine::AvailableRecognizerLanguages().map_err(failed)?;
-    if languages.Size().map_err(failed)? == 0 {
-        return Err(ReadError::NoLanguage);
+    let mut failure = None;
+    for at in 0..languages.Size().map_err(failed)? {
+        let language = languages.GetAt(at).map_err(failed)?;
+        match OcrEngine::TryCreateFromLanguage(&language) {
+            Ok(engine) => return Ok(engine),
+            Err(error) if error.code().is_ok() => {}
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
     }
-    let first = languages.GetAt(0).map_err(failed)?;
-    match OcrEngine::TryCreateFromLanguage(&first) {
+    Err(failure.map_or(ReadError::NoLanguage, failed))
+}
+
+fn chosen_engine(tag: &str) -> Result<OcrEngine, ReadError> {
+    let tag = HSTRING::from(tag);
+    if !Language::IsWellFormed(&tag).map_err(failed)? {
+        return Err(ReadError::LanguageMissing);
+    }
+    let language = Language::CreateLanguage(&tag).map_err(failed)?;
+    match OcrEngine::TryCreateFromLanguage(&language) {
         Ok(engine) => Ok(engine),
-        Err(error) if error.code().is_ok() => Err(ReadError::NoLanguage),
+        Err(error) if error.code().is_ok() => Err(ReadError::LanguageMissing),
         Err(error) => Err(failed(error)),
     }
 }
@@ -178,5 +269,9 @@ fn bitmap(page: &Page) -> windows::core::Result<SoftwareBitmap> {
 }
 
 fn failed(error: Error) -> ReadError {
-    ReadError::Failed(error.message())
+    ReadError::Failed(described(&error))
+}
+
+fn described(error: &Error) -> String {
+    format!("{} ({:#010x})", error.message(), error.code().0)
 }

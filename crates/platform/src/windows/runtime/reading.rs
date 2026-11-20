@@ -67,7 +67,8 @@ impl Runtime {
             }
         };
         let request = self.turns.request();
-        match recognizer::read(self.window.0, &self.readings, request, image) {
+        let language = self.text_language.clone();
+        match recognizer::read(self.window.0, &self.readings, request, image, language) {
             Ok(()) => self.turns.run(request, Asked { content, shown }, ticket),
             Err(error) => {
                 let reason = format!("the thread that reads text could not start: {error}");
@@ -104,8 +105,14 @@ impl Runtime {
             Some(Next::Use { asked, ticket }) => match read.result {
                 Ok(reading) => self.copy_read_text(asked, ticket, reading),
                 Err(ReadError::NoLanguage) => self.unread(Notice::NoTextLanguage, asked.shown),
+                Err(ReadError::LanguageMissing) => {
+                    self.unread(Notice::TextLanguageMissing, asked.shown);
+                }
                 Err(ReadError::Failed(reason)) => {
                     self.unread(Notice::TextNotRead(reason), asked.shown);
+                }
+                Err(ReadError::NeedsRestart(reason)) => {
+                    self.unread(Notice::TextNeedsRestart(reason), asked.shown);
                 }
             },
         }

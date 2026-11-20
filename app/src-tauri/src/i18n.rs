@@ -571,7 +571,9 @@ price = Costs $5
             Notice::TextCopied,
             Notice::NoTextFound,
             Notice::NoTextLanguage,
+            Notice::TextLanguageMissing,
             Notice::TextNotRead(reason()),
+            Notice::TextNeedsRestart(reason()),
         ]
         .into_iter()
         .chain(copy_errors.map(Notice::CopyFailed))

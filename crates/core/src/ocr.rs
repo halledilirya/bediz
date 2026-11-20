@@ -1,5 +1,6 @@
 //! Text read from a selection: the image made ready for a recognizer, the words it found placed
-//! back on the screen and joined into the rows they share, and the passage they make.
+//! back on the screen and joined into the rows they share, the passage they make, and the languages
+//! installed since the recognizer was first used.
 
 mod page;
 mod passage;
@@ -75,6 +76,13 @@ impl Script {
             _ => Self::Spaced,
         }
     }
+}
+
+// Windows' recognizer can fail on a language installed after the app first used it, until a restart.
+pub fn installed_since(first: &[String], now: &[String], asked: Option<&str>) -> bool {
+    now.iter()
+        .filter(|tag| !first.contains(tag))
+        .any(|tag| asked.is_none_or(|asked| tag.eq_ignore_ascii_case(asked)))
 }
 
 pub fn prefers_second(first: &[Vec<Word>], second: &[Vec<Word>]) -> bool {
@@ -193,6 +201,23 @@ mod tests {
             placed("", -3.5, -1.0, 1.0, 1.0).bounds.covering(),
             Rect::new(-4, -1, -2, 0)
         );
+    }
+
+    #[test]
+    fn a_language_installed_after_the_first_reading_is_told_apart() {
+        let tags = |tags: &[&str]| tags.iter().map(|tag| (*tag).to_owned()).collect::<Vec<_>>();
+        let first = tags(&["ja", "tr"]);
+        let now = tags(&["en-US", "tr"]);
+        assert!(installed_since(&first, &now, Some("en-US")));
+        assert!(installed_since(&first, &now, Some("EN-us")));
+        assert!(!installed_since(&first, &now, Some("tr")));
+        assert!(!installed_since(&first, &now, Some("ja")));
+        assert!(!installed_since(&first, &now, Some("de-DE")));
+        assert!(installed_since(&first, &now, None));
+        assert!(!installed_since(&first, &first, None));
+        assert!(!installed_since(&first, &tags(&["tr"]), None));
+        assert!(installed_since(&[], &tags(&["tr"]), None));
+        assert!(!installed_since(&[], &[], None));
     }
 
     #[test]

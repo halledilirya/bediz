@@ -7,6 +7,7 @@ import { applyLook } from "./look";
 import { enableRecordingOptions } from "./recording-options";
 import { saveChanges } from "./saving";
 import { enableShortcuts } from "./shortcuts";
+import { languageChoices } from "./text-language";
 import "./styles/button.css";
 import "./styles/settings.css";
 
@@ -27,6 +28,7 @@ export interface Settings {
   keepOutOfHistory: boolean;
   textJoinLines: boolean;
   textKeepIndentation: boolean;
+  textLanguage: string | null;
   gifFrameRate: number;
   gifLongestSide: number | null;
   gifTimeLimit: number;
@@ -135,11 +137,54 @@ export async function showSettings(
       indentation.disabled = checked("textJoinLines");
     }
   };
+  const reading: { installed: string[] | null; chosen: string | null } = {
+    installed: null,
+    chosen: null,
+  };
+  const showReadingLanguages = (): void => {
+    const select = control("textLanguage");
+    if (!(select instanceof HTMLSelectElement)) {
+      return;
+    }
+    const choices = languageChoices(reading.installed, reading.chosen).map(
+      ({ tag, name, missing }) => {
+        if (missing) {
+          const label = text("settings-text-language-missing", {
+            language: name,
+          });
+          return new Option(label, tag);
+        }
+        const option = new Option(isolated(name), tag);
+        option.lang = tag;
+        return option;
+      },
+    );
+    const automatic = new Option(text("settings-text-language-automatic"), "");
+    select.replaceChildren(automatic, ...choices);
+    select.value = reading.chosen ?? "";
+  };
+  const listed = { asked: 0 };
+  const readReadingLanguages = async (): Promise<void> => {
+    const asked = ++listed.asked;
+    const installed = await invoke<string[]>("text_languages").catch(
+      () => null,
+    );
+    if (
+      asked === listed.asked &&
+      installed !== null &&
+      installed.join() !== reading.installed?.join()
+    ) {
+      reading.installed = installed;
+      showReadingLanguages();
+    }
+  };
+  void readReadingLanguages();
   onLanguage(() => {
     if (warning.said) {
       error.textContent = warning.said();
     }
     showStartProblem(startProblem.shown);
+    showReadingLanguages();
   });
   const facts: Pick<
     Settings,
@@ -173,6 +218,7 @@ export async function showSettings(
       keepOutOfHistory: checked("keepOutOfHistory"),
       textJoinLines: checked("textJoinLines"),
       textKeepIndentation: checked("textKeepIndentation"),
+      textLanguage: value("textLanguage") || null,
       ...recording.read(),
       gifCursor: checked("gifCursor"),
       gifCountdown: checked("gifCountdown"),
@@ -197,6 +243,8 @@ export async function showSettings(
         }
       }
       showIndentation();
+      reading.chosen = settings.textLanguage;
+      showReadingLanguages();
       setValue("language", settings.language ?? "");
       setValue("theme", settings.theme);
       setValue("accent", settings.accent);
@@ -243,6 +291,7 @@ export async function showSettings(
   void readStartOff();
   window.addEventListener("focus", () => {
     void readStartOff();
+    void readReadingLanguages();
   });
   form.addEventListener("change", (event) => {
     const target = event.target;
@@ -261,6 +310,9 @@ export async function showSettings(
       }
       if (target.name === "textJoinLines") {
         showIndentation();
+      }
+      if (target.name === "textLanguage") {
+        reading.chosen = value("textLanguage") || null;
       }
     }
   });

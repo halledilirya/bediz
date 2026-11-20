@@ -43,6 +43,7 @@ pub enum Command {
     },
     KeepOutOfHistory(bool),
     SetTextLayout(Layout),
+    SetTextLanguage(Option<String>),
     SetRecordingOptions(RecordingOptions),
     ReserveGifCopy {
         id: u64,
