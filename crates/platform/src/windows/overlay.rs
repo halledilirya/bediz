@@ -13,7 +13,7 @@ use std::cell::RefCell;
 
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::image::Image;
-use windows::Win32::Foundation::{E_FAIL, HINSTANCE, HWND, RECT};
+use windows::Win32::Foundation::{E_FAIL, HINSTANCE, HWND};
 use windows::Win32::Graphics::Direct2D::{ID2D1Bitmap1, ID2D1Image};
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Graphics::DirectWrite::{
@@ -33,18 +33,17 @@ use windows::Win32::Graphics::Dxgi::{
     DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_EFFECT_FLIP_DISCARD,
     DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGISwapChain1,
 };
-use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromRect};
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, HWND_TOPMOST, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE,
-    SetWindowDisplayAffinity, SetWindowPos, ShowWindow, USER_DEFAULT_SCREEN_DPI,
-    WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    SetWindowDisplayAffinity, SetWindowPos, ShowWindow, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{BOOL, Error, Result, w};
 
 use super::automation::{Announcer, Role};
 use super::gpu::Gpu;
 use super::marking::Decor;
+use super::monitor::{Monitor, scale_of};
 use super::readback;
 use super::window_class::{OVERLAY_CLASS, OwnedWindow};
 use frames::Frames;
@@ -135,7 +134,7 @@ impl Overlay {
             gpu.factory
                 .MakeWindowAssociation(window.0, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES)
         }?;
-        let dpi = monitor_dpi(rect);
+        let dpi = Monitor::near(rect).dpi();
         let announcer = Announcer::attach(window.0, Role::Overlay);
         let mut overlay = Self {
             surfaces: None,
@@ -173,7 +172,7 @@ impl Overlay {
     }
 
     pub fn refresh_scale(&mut self, gpu: &Gpu) -> Result<()> {
-        let dpi = monitor_dpi(self.rect);
+        let dpi = Monitor::near(self.rect).dpi();
         if dpi != self.dpi {
             self.text = text_format(gpu, scale_of(dpi))?;
             self.dpi = dpi;
@@ -399,25 +398,6 @@ fn framed(view: &View) -> Option<(Rect, bool)> {
     view.selection
         .map(|area| (area, view.handles))
         .or(view.highlight.map(|area| (area, false)))
-}
-
-fn monitor_dpi(rect: Rect) -> u32 {
-    let bounds = RECT {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-    };
-    let monitor = unsafe { MonitorFromRect(&bounds, MONITOR_DEFAULTTONEAREST) };
-    let (mut dpi_x, mut dpi_y) = (0, 0);
-    match unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) } {
-        Ok(()) if dpi_x > 0 => dpi_x,
-        _ => USER_DEFAULT_SCREEN_DPI,
-    }
-}
-
-fn scale_of(dpi: u32) -> f32 {
-    dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32
 }
 
 fn text_format(gpu: &Gpu, scale: f32) -> Result<IDWriteTextFormat> {

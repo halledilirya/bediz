@@ -44,6 +44,7 @@ Bediz starts with Windows unless you turn that off in the settings.
 | Ctrl+S | Only save the selection |
 | Ctrl+Shift+S | Save the selection where you choose |
 | O | Copy the text or QR code in the selection and highlight it, or stop highlighting |
+| F3, Ctrl+T or a middle-click | Pin the selection on top of every window |
 | Right-click, the menu key or Shift+F10 | Open a menu with these actions |
 | Esc | Cancel |
 
@@ -72,6 +73,8 @@ To copy the text in a selection, press **O** or pick **Copy text or QR code** in
 Blur and pixelation only soften what is under them, and pixelated text can sometimes be read back; to hide a password or a name, use X, which keeps nothing of it.
 
 To mark up an image you already have, choose **Open an image ▸ From the clipboard** or **From a file…** in the tray menu. The image opens on the monitor under the pointer, at its own size or made smaller to fit, and the same tools and keys work on it. It is copied and saved at its own size, to a new file beside your screenshots; the file you opened is left as it was.
+
+To keep a screenshot in view while you work, press **F3** or pick **Pin to screen** in the bar or the right-click menu: the selection, with its marks, stays on top of every window where it was. Drag it to move it; the mouse wheel zooms it, Shift+wheel in finer steps, Ctrl+wheel fades it, and a middle-click brings both back. Click it to use its keys: Ctrl+C, Ctrl+S, the arrow keys, + and −, and Esc to close it. Right-click it for its menu, where **Fit to monitor** fills the monitor it is on. The tray menu's **Pins** shows or hides them all and brings back the last one closed. Pins stay out of screenshots and screen sharing unless the settings say otherwise.
 
 To record a GIF, choose **Record ▸ GIF** in the tray menu or press the GIF shortcut, which you set in the settings; the selection then opens on the live screen. **Record a GIF** in the right-click menu records a selection made on a screenshot. Select a region on one monitor and press **Start**, or **Lock** it first to keep using the screen until you start. A frame marks the area and a bar shows the time with **Pause**, **Finish**, **Restart** and **Discard**; neither appears in the GIF. Pressed again, the GIF shortcut starts the recording, and once more, it finishes it. The GIF is saved with your screenshots and copied as a file, so it stays animated when you paste it into a chat, and a small window plays it and can copy, show, open or delete it.
 

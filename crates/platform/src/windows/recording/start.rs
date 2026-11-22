@@ -8,15 +8,10 @@ use std::time::Duration;
 use bediz_core::capture::Pixels;
 use bediz_core::cursor::Placement;
 use bediz_core::delivery::SaveError;
-use bediz_core::geometry::Rect;
+use bediz_core::geometry::{Point, Rect};
 use bediz_core::notice::Notice;
 use bediz_core::recording::{self, Pauses, RecordingOptions};
-use windows::Win32::Foundation::{HINSTANCE, HWND, POINT};
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
-};
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-use windows::Win32::UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI;
+use windows::Win32::Foundation::{HINSTANCE, HWND};
 
 use super::border::{Border, Line};
 use super::controls::{Controls, Stage};
@@ -30,6 +25,7 @@ use crate::windows::clock::Clock;
 use crate::windows::contrast::Colours;
 use crate::windows::countdown::Countdown;
 use crate::windows::memory;
+use crate::windows::monitor::{Monitor, scale_of};
 use crate::windows::save;
 use crate::windows::scene::Scene;
 
@@ -99,7 +95,7 @@ impl Recording {
             (scaler, ring)
         };
         let (dpi, work) = monitor_metrics(area);
-        let scale = dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32;
+        let scale = scale_of(dpi);
         let border = Border::create(
             request.instance,
             area,
@@ -210,25 +206,10 @@ pub(super) fn open_pipeline(
 
 pub fn monitor_metrics(area: Rect) -> (u32, Rect) {
     let half = |side: u32| i32::try_from(side / 2).unwrap_or(0);
-    let centre = POINT {
-        x: area.left + half(area.width()),
-        y: area.top + half(area.height()),
-    };
-    let monitor = unsafe { MonitorFromPoint(centre, MONITOR_DEFAULTTONEAREST) };
-    let mut info = MONITORINFO {
-        cbSize: size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    let work = if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
-        let work = info.rcWork;
-        Rect::new(work.left, work.top, work.right, work.bottom)
-    } else {
-        area
-    };
-    let (mut dpi, mut unused) = (0, 0);
-    let dpi = match unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused) } {
-        Ok(()) if dpi > 0 => dpi,
-        _ => USER_DEFAULT_SCREEN_DPI,
-    };
-    (dpi, work)
+    let centre = Point::new(
+        area.left + half(area.width()),
+        area.top + half(area.height()),
+    );
+    let monitor = Monitor::at(centre);
+    (monitor.dpi(), monitor.work().unwrap_or(area))
 }

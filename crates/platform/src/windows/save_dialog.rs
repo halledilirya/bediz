@@ -1,5 +1,5 @@
-//! The Save as dialog, shown on a thread of its own, which reports the chosen path and the file the
-//! user confirmed replacing.
+//! The Save as dialog, shown on a thread of its own and over the pin it saves, which reports the
+//! chosen path and the file the user confirmed replacing.
 
 use std::cell::Cell;
 use std::ffi::{OsString, c_void};
@@ -7,6 +7,7 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use bediz_core::geometry::{Rect, length};
 use windows::Win32::Foundation::{ERROR_CANCELLED, HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
@@ -19,13 +20,15 @@ use windows::Win32::UI::Shell::{
     IFileDialogEvents_Impl, IFileSaveDialog, IShellItem, SHCreateItemFromParsingName,
     SIGDN_FILESYSPATH,
 };
-use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-use windows::core::{HSTRING, Result, w};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, PostMessageW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+};
+use windows::core::{HSTRING, PCWSTR, Result, w};
 use windows_core::{ComObject, Ref, implement};
 
 use super::runtime::WM_SAVE_AS;
 use super::save::{self, FileId};
-use super::window_class::guarded;
+use super::window_class::{OwnedWindow, guarded};
 
 pub struct Answer {
     pub job: u64,
@@ -43,6 +46,7 @@ pub struct Suggestion {
     pub name: String,
     pub folder: Option<PathBuf>,
     pub usual_folder: Option<PathBuf>,
+    pub over: Option<Rect>,
 }
 
 // The common dialogs need a single-threaded apartment; the platform thread is multithreaded.
@@ -102,7 +106,8 @@ fn show(suggestion: &Suggestion) -> Result<Option<Chosen>> {
     });
     let events: IFileDialogEvents = watch.to_interface();
     let cookie = unsafe { dialog.Advise(&events) }?;
-    let shown = unsafe { dialog.Show(None) };
+    let owner = suggestion.over.and_then(stand_in);
+    let shown = unsafe { dialog.Show(owner.as_ref().map(|owner| owner.0)) };
     let _ = unsafe { dialog.Unadvise(cookie) };
     match shown {
         Ok(()) => {}
@@ -182,6 +187,27 @@ pub(super) fn file_path(item: &IShellItem) -> Result<PathBuf> {
     let chosen = PathBuf::from(OsString::from_wide(unsafe { path.as_wide() }));
     unsafe { CoTaskMemFree(Some(path.0.cast())) };
     Ok(chosen)
+}
+
+// A pin that owned the dialog would lose its topmost place with the dialog's and share its input.
+fn stand_in(over: Rect) -> Option<OwnedWindow> {
+    let window = unsafe {
+        CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            w!("STATIC"),
+            PCWSTR::null(),
+            WS_POPUP,
+            over.left,
+            over.top,
+            length(over.width()),
+            length(over.height()),
+            None,
+            None,
+            None,
+            None,
+        )
+    };
+    window.ok().map(OwnedWindow)
 }
 
 pub(super) fn shell_item(folder: &Path) -> Option<IShellItem> {

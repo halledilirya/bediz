@@ -1,5 +1,6 @@
-//! Builds the overlay and rebuilds it when the displays change, follows high contrast colours,
-//! and switches between keeping the overlay's GPU memory and releasing it while idle.
+//! Builds the overlay and rebuilds it when the displays change, moving pins left on no monitor,
+//! follows high contrast colours, and switches between keeping the overlay's GPU memory and
+//! releasing it while idle.
 
 use bediz_core::capture::Allocation;
 use bediz_core::recording::RecordingStop;
@@ -32,6 +33,7 @@ impl Runtime {
         let _ = unsafe { KillTimer(Some(self.window.0), DISPLAY_TIMER) };
         self.displays_changed = false;
         self.build_scene();
+        self.place_pins();
         self.report_idle();
     }
 
@@ -50,6 +52,7 @@ impl Runtime {
 
     pub(super) fn on_colours_change(&mut self) {
         self.colours = contrast_colours();
+        self.repaint_pins();
         let Some(scene) = &self.scene else {
             return;
         };

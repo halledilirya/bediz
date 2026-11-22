@@ -3,7 +3,7 @@
 use std::sync::{Mutex, PoisonError};
 
 use bediz_core::notice::Notice;
-use bediz_platform::{MarkupTexts, MenuTexts};
+use bediz_platform::{MarkupTexts, MenuTexts, PinTexts};
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 use unic_langid::LanguageIdentifier;
 
@@ -81,18 +81,45 @@ impl Texts {
             discard_recording: self.get("recording-discard"),
             lock_area: self.get("recording-lock"),
             unlock_area: self.get("recording-unlock"),
-            selection_size: self.selection_size(),
+            selection_size: self.sized("overlay-selection-size"),
             images: self.get("open-images"),
+            pin: self.get("overlay-menu-pin"),
+            pins: self.pin_texts(),
             markup: self.markup_texts(),
             right_to_left: self.right_to_left(),
         }
     }
 
-    fn selection_size(&self) -> String {
+    fn pin_texts(&self) -> PinTexts {
+        PinTexts {
+            title: self.sized("pin-title"),
+            zoom: self.get("pin-zoom"),
+            zoom_in: self.get("pin-zoom-in"),
+            zoom_out: self.get("pin-zoom-out"),
+            actual_size: self.get("pin-actual-size"),
+            fit_monitor: self.get("pin-fit-monitor"),
+            opacity: self.get("pin-opacity"),
+            percent: self.template("pin-percent", &[("percent", PinTexts::PERCENT)]),
+            close: self.get("pin-close"),
+            hide_all: self.get("pin-hide-all"),
+            close_all: self.get("pin-close-all"),
+        }
+    }
+
+    fn sized(&self, id: &str) -> String {
+        self.template(
+            id,
+            &[("width", MenuTexts::WIDTH), ("height", MenuTexts::HEIGHT)],
+        )
+    }
+
+    // The platform fills the placeholders in later, so Fluent's isolation marks are taken out.
+    fn template(&self, id: &str, placeholders: &[(&'static str, &'static str)]) -> String {
         let mut args = FluentArgs::new();
-        args.set("width", MenuTexts::WIDTH);
-        args.set("height", MenuTexts::HEIGHT);
-        self.format("overlay-selection-size", Some(&args))
+        for (name, placeholder) in placeholders {
+            args.set(*name, *placeholder);
+        }
+        self.format(id, Some(&args))
             .replace([FIRST_STRONG_ISOLATE, POP_DIRECTIONAL_ISOLATE], "")
     }
 
@@ -214,7 +241,7 @@ mod tests {
         include_str!("../../src/gif.ts"),
     ];
 
-    const USED: [&str; 91] = [
+    const USED: [&str; 108] = [
         "settings-title",
         "gif-title",
         "tray-record",
@@ -306,6 +333,23 @@ mod tests {
         "quit-when-saved",
         "quit-discard",
         "quit-stay",
+        "tray-pins",
+        "tray-pins-hide",
+        "tray-pins-show",
+        "tray-pins-restore",
+        "tray-pins-close-all",
+        "overlay-menu-pin",
+        "pin-title",
+        "pin-zoom",
+        "pin-zoom-in",
+        "pin-zoom-out",
+        "pin-actual-size",
+        "pin-fit-monitor",
+        "pin-opacity",
+        "pin-percent",
+        "pin-close",
+        "pin-hide-all",
+        "pin-close-all",
     ];
 
     fn messages(source: &str) -> BTreeMap<String, BTreeSet<String>> {
@@ -429,6 +473,24 @@ price = Costs $5
             assert!(width.is_some() && height.is_some(), "{code}: {said}");
             assert!(!said.contains(['{', '}']), "{code}: {said}");
             assert!(said.chars().any(char::is_alphabetic), "{code}: {said}");
+        }
+    }
+
+    #[test]
+    fn a_pins_title_and_opacities_take_their_numbers_in_every_locale() {
+        for (code, _) in LOCALES {
+            let pins = Texts::for_languages(&[code.to_owned()]).menu_texts().pins;
+            let title = pins.title_of(640, 480);
+            assert!(
+                title.contains("640") && title.contains("480"),
+                "{code}: {title}"
+            );
+            let percent = pins.percent_of(70);
+            assert!(percent.contains("70"), "{code}: {percent}");
+            for said in [title, percent] {
+                assert!(!said.contains(['{', '}']), "{code}: {said}");
+                assert!(!said.contains([FIRST_STRONG_ISOLATE, POP_DIRECTIONAL_ISOLATE]));
+            }
         }
     }
 
@@ -576,6 +638,10 @@ price = Costs $5
             Notice::TextLanguageMissing,
             Notice::TextNotRead(reason()),
             Notice::TextNeedsRestart(reason()),
+            Notice::Pinned,
+            Notice::PinNoRoom,
+            Notice::PinFailed(reason()),
+            Notice::PinNotShown(reason()),
         ]
         .into_iter()
         .chain(copy_errors.map(Notice::CopyFailed))
@@ -654,6 +720,10 @@ price = Costs $5
                 update.contains("1.2.3") && !update.contains(marks),
                 "{update:?}"
             );
+            for id in ["tray-pins-hide", "tray-pins-show"] {
+                let pins = texts.get_with(id, "count", "3");
+                assert!(pins.contains('3') && !pins.contains(marks), "{pins:?}");
+            }
         }
     }
 

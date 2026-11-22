@@ -3,7 +3,7 @@
 
 use std::ffi::c_void;
 
-use bediz_core::geometry::{self, Rect, Side};
+use bediz_core::geometry::{self, Point, Rect, Side};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
@@ -22,10 +22,9 @@ use windows::Win32::Graphics::DirectWrite::{
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
     AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
-    CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetMonitorInfoW,
-    HBITMAP, HDC, HGDIOBJ, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, SelectObject,
+    CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, HBITMAP, HDC,
+    HGDIOBJ, SelectObject,
 };
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, HWND_TOPMOST, IsWindowVisible, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowDisplayAffinity, SetWindowPos, SetWindowTextW, ShowWindow,
@@ -36,6 +35,7 @@ use windows::core::{Error, HSTRING, Result, w};
 
 use super::automation::{Announcer, Role};
 use super::contrast::Colours;
+use super::monitor::Monitor;
 use super::window_class::{LABEL_CLASS, OwnedWindow};
 use crate::event::Label;
 
@@ -202,31 +202,15 @@ impl LabelWindow {
         magnify: f32,
         place: Place,
     ) -> Result<Shown> {
-        let center = POINT {
-            x: label.near.left + i32::try_from(label.near.width() / 2).unwrap_or(0),
-            y: label.near.top + i32::try_from(label.near.height() / 2).unwrap_or(0),
-        };
-        let monitor = unsafe { MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST) };
-        let mut info = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let work = if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
-            info.rcWork
-        } else {
-            RECT {
-                left: center.x,
-                top: center.y,
-                right: center.x,
-                bottom: center.y,
-            }
-        };
-        let (mut dpi, mut unused) = (0, 0);
-        let scale =
-            match unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused) } {
-                Ok(()) if dpi > 0 => dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32,
-                _ => 1.0,
-            } * magnify;
+        let center = Point::new(
+            label.near.left + i32::try_from(label.near.width() / 2).unwrap_or(0),
+            label.near.top + i32::try_from(label.near.height() / 2).unwrap_or(0),
+        );
+        let monitor = Monitor::at(center);
+        let work = monitor
+            .work()
+            .unwrap_or(Rect::new(center.x, center.y, center.x, center.y));
+        let scale = monitor.scale() * magnify;
 
         let format = unsafe {
             self.text.CreateTextFormat(

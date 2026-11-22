@@ -23,8 +23,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::fonts::is_icon_face;
 use super::layout::{MARK, MARK_GAP, grip_at};
-use super::{Button, Face, pixels, scale};
+use super::{Button, Face, pixels};
 use crate::windows::contrast::high_contrast;
+use crate::windows::monitor::scale_of;
 
 pub const GROUND: COLORREF = COLORREF(0x0020_2020);
 
@@ -66,7 +67,7 @@ pub fn erase(window: HWND, dc: HDC) {
         return;
     }
     unsafe { FillRect(dc, &client, ground_brush(window)) };
-    let scale = scale(unsafe { GetDpiForWindow(window) });
+    let scale = scale_of(unsafe { GetDpiForWindow(window) });
     draw_grip(
         dc,
         grip_at(scale, client.bottom - client.top),
@@ -104,7 +105,7 @@ pub fn draw_button(item: &DRAWITEMSTRUCT) {
     } else {
         (palette.face, palette.ink)
     };
-    let scale = scale(unsafe { GetDpiForWindow(item.hwndItem) });
+    let scale = scale_of(unsafe { GetDpiForWindow(item.hwndItem) });
     let dc = item.hDC;
     let whole = item.rcItem;
     fill(dc, &whole, palette.ground);

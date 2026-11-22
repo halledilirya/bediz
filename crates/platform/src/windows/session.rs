@@ -23,8 +23,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, IDC_CROSS, LoadCursorW, MSG, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONUP, WM_SYSKEYDOWN,
-    WM_SYSKEYUP,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONUP,
+    WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -38,7 +38,7 @@ use pointer::Click;
 use words::Words;
 
 const HANDLES_REACH: i32 = 32;
-const WAS_DOWN: isize = 1 << 30;
+pub const WAS_DOWN: isize = 1 << 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -46,6 +46,7 @@ pub enum Action {
     Cancel,
     Deliver(Delivery),
     SaveAs,
+    Pin,
     Record,
     CopyColour(Point),
     Menu(Point),
@@ -226,6 +227,14 @@ impl Session {
             }
             WM_RBUTTONUP if !self.is_dragging() && !self.marks_busy() && !self.choosing_words() => {
                 return Ok(Action::Menu(point));
+            }
+            WM_MBUTTONUP
+                if self.purpose.is_still()
+                    && self.settled().is_some()
+                    && !self.marks_busy()
+                    && !self.choosing_words() =>
+            {
+                return Ok(Action::Pin);
             }
             WM_CHAR => self.type_unit(scene, message.hwnd, message.wParam.0 as u16),
             WM_MOUSEWHEEL => self.turn_wheel((message.wParam.0 >> 16) as u16 as i16),

@@ -1,4 +1,4 @@
-//! The thread that owns the overlay, hotkeys, recordings, copies and saves: it handles their
+//! The thread that owns the overlay, pins, hotkeys, recordings, copies and saves: it handles their
 //! messages, acts on the app's commands and reports what happens back to the app.
 
 mod announce;
@@ -13,6 +13,7 @@ mod markup_bar;
 mod menu;
 mod messages;
 mod picture;
+mod pins;
 mod quit;
 mod reading;
 mod ready;
@@ -66,6 +67,7 @@ use delay::Delay;
 use delivery::Tracked;
 use discard::Deletions;
 use markup_bar::MarkupBar;
+use pins::Pins;
 use quit::Quitting;
 use reading::{Asked, Turns};
 use ready::ReadyBar;
@@ -83,6 +85,7 @@ pub const WM_RECORDING: u32 = WM_APP + 8;
 pub const WM_EFFECT_MADE: u32 = WM_APP + 9;
 pub const WM_PICTURE: u32 = WM_APP + 10;
 pub const WM_TEXT: u32 = WM_APP + 11;
+pub const WM_PIN_KEPT: u32 = WM_APP + 12;
 
 const MENU_FADE_TIMER: usize = 1;
 const DISPLAY_TIMER: usize = 2;
@@ -152,6 +155,7 @@ struct Runtime {
     opening_picture: Option<u64>,
     readings: Readings,
     turns: Turns<Asked>,
+    pins: Pins,
 }
 
 pub fn run(
@@ -256,6 +260,7 @@ impl Runtime {
             opening_picture: None,
             readings: Readings::default(),
             turns: Turns::default(),
+            pins: Pins::default(),
         })
     }
 
@@ -293,6 +298,7 @@ impl Runtime {
     }
 
     fn stop(&mut self) {
+        self.pins.close_every_window();
         self.hide();
         self.hotkey.unregister();
         self.gif_hotkey.unregister();

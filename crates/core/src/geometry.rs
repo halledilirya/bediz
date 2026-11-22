@@ -1,4 +1,4 @@
-//! Points and rectangles in virtual screen coordinates, and a box set beside an area.
+//! Points, rectangles and lengths in virtual screen coordinates, and a box set beside an area.
 
 use serde::{Deserialize, Serialize};
 
@@ -94,6 +94,10 @@ impl Rect {
             self.bottom.saturating_add(dy),
         )
     }
+}
+
+pub fn length(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -285,5 +289,11 @@ mod tests {
             selection.translated(-monitor.left, -monitor.top),
             Rect::new(920, 200, 1420, 500)
         );
+    }
+
+    #[test]
+    fn a_length_past_the_coordinate_space_stops_at_its_edge() {
+        assert_eq!(length(1920), 1920);
+        assert_eq!(length(u32::MAX), i32::MAX);
     }
 }

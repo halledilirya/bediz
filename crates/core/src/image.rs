@@ -15,6 +15,10 @@ pub enum ImageError {
     },
     #[error(transparent)]
     Png(#[from] png::EncodingError),
+    #[error(transparent)]
+    Unreadable(#[from] png::DecodingError),
+    #[error("the PNG's pixels cannot be laid out in memory")]
+    Unlaid,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,6 +176,35 @@ impl Image {
         writer.finish()?;
         Ok(png)
     }
+
+    pub fn decode_png(png: &[u8]) -> Result<Self, ImageError> {
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(png));
+        decoder.set_transformations(
+            png::Transformations::EXPAND
+                | png::Transformations::ALPHA
+                | png::Transformations::STRIP_16,
+        );
+        let mut reader = decoder.read_info()?;
+        let mut samples = vec![0; reader.output_buffer_size().ok_or(ImageError::Unlaid)?];
+        let info = reader.next_frame(&mut samples)?;
+        samples.truncate(info.buffer_size());
+        let bgra = match info.color_type {
+            png::ColorType::Rgba => {
+                for pixel in samples.as_chunks_mut::<4>().0 {
+                    pixel.swap(0, 2);
+                }
+                samples
+            }
+            png::ColorType::GrayscaleAlpha => samples
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .flat_map(|&[grey, alpha]| [grey, grey, grey, alpha])
+                .collect(),
+            _ => return Err(ImageError::Unlaid),
+        };
+        crate::picture::premultiplied(info.width, info.height, bgra)
+    }
 }
 
 fn unpremultiplied(level: u8, alpha: u8) -> u8 {
@@ -201,6 +234,29 @@ mod tests {
         let top_row = [1, 2, 3, 0, 4, 5, 6, 10];
         let bottom_row = [7, 8, 9, 20, 10, 11, 12, 30];
         Image::from_bgra(2, 2, [top_row, bottom_row].concat()).unwrap()
+    }
+
+    #[test]
+    fn a_png_reads_back_as_the_pixels_it_was_made_from() {
+        let pixels = (0..6_u8).flat_map(|at| [at * 10, at * 20, at * 30, u8::MAX]);
+        let opaque = Image::from_bgra(3, 2, pixels.collect()).unwrap();
+        let read = Image::decode_png(&opaque.encode_png().unwrap()).unwrap();
+        assert_eq!(read, opaque);
+        let clear = Image::from_bgra(2, 1, vec![0, 0, 0, 0, 40, 80, 120, 255]).unwrap();
+        assert_eq!(
+            Image::decode_png(&clear.encode_png().unwrap()).unwrap(),
+            clear
+        );
+        assert!(Image::decode_png(b"not a png").is_err());
+        let mut grey = Vec::new();
+        let mut encoder = png::Encoder::new(&mut grey, 2, 1);
+        encoder.set_color(png::ColorType::Grayscale);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[0, 200]).unwrap();
+        writer.finish().unwrap();
+        let read = Image::decode_png(&grey).unwrap();
+        assert_eq!(read.bgra(), [0, 0, 0, 255, 200, 200, 200, 255]);
     }
 
     #[test]

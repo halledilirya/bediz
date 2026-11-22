@@ -1,9 +1,9 @@
-//! Reads the system's highlight colour, whether high contrast is on and its colours, and whether
-//! apps follow the dark theme.
+//! Reads the system's highlight and text colours, whether high contrast is on and its colours, and
+//! whether apps follow the dark theme.
 
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
-use windows::Win32::Graphics::Gdi::{COLOR_HIGHLIGHT, COLOR_WINDOW, GetSysColor};
+use windows::Win32::Graphics::Gdi::{COLOR_HIGHLIGHT, COLOR_WINDOW, COLOR_WINDOWTEXT, GetSysColor};
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -26,6 +26,14 @@ pub fn contrast_colours() -> Option<Colours> {
 
 pub fn highlight() -> D2D1_COLOR_F {
     colour(unsafe { GetSysColor(COLOR_HIGHLIGHT) })
+}
+
+pub fn highlight_bgra() -> [u8; 4] {
+    bgra(unsafe { GetSysColor(COLOR_HIGHLIGHT) })
+}
+
+pub fn text_bgra() -> [u8; 4] {
+    bgra(unsafe { GetSysColor(COLOR_WINDOWTEXT) })
 }
 
 // The value tao reads for a window that follows Windows, so this matches its title bar.
@@ -72,6 +80,11 @@ fn colour(rgb: u32) -> D2D1_COLOR_F {
     }
 }
 
+fn bgra(rgb: u32) -> [u8; 4] {
+    let [red, green, blue, _] = rgb.to_le_bytes();
+    [blue, green, red, u8::MAX]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +96,6 @@ mod tests {
         assert!((teal.g - 0xE3 as f32 / 255.0).abs() < f32::EPSILON);
         assert!((teal.b - 0xF0 as f32 / 255.0).abs() < f32::EPSILON);
         assert!((teal.a - 1.0).abs() < f32::EPSILON);
+        assert_eq!(bgra(0x00F0_E38E), [0xF0, 0xE3, 0x8E, 0xFF]);
     }
 }

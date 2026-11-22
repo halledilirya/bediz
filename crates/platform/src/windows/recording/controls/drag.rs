@@ -5,13 +5,12 @@ use std::cell::Cell;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::recording;
 use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
-};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowRect, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
 };
+
+use crate::windows::monitor::Monitor;
 
 #[derive(Clone, Copy)]
 struct Drag {
@@ -34,22 +33,16 @@ pub fn begin(window: HWND) {
     let Some(cursor) = cursor() else {
         return;
     };
-    let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) };
-    let mut info = MONITORINFO {
-        cbSize: size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    if !unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+    let Some(work) = Monitor::of(window).work() else {
         return;
-    }
-    let work = info.rcWork;
+    };
     DRAG.with(|drag| {
         drag.set(Some(Drag {
             window,
             offset: Point::new(cursor.x - bounds.left, cursor.y - bounds.top),
             width: bounds.right - bounds.left,
             height: bounds.bottom - bounds.top,
-            work: Rect::new(work.left, work.top, work.right, work.bottom),
+            work,
         }));
     });
     unsafe { SetCapture(window) };

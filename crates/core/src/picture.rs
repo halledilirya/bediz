@@ -2,6 +2,8 @@
 //! size its header gives, its pixels made upright and premultiplied, a clipboard bitmap made
 //! whole, and where it is shown.
 
+use std::borrow::Cow;
+
 use thiserror::Error;
 
 use crate::geometry::Rect;
@@ -188,6 +190,15 @@ pub fn halved(image: &Image) -> Option<Image> {
         out,
     )
     .ok()
+}
+
+pub fn within(image: &Image, most: u32) -> Option<Cow<'_, Image>> {
+    let most = most.max(1);
+    let mut fitted = Cow::Borrowed(image);
+    while fitted.width() > most || fitted.height() > most {
+        fitted = Cow::Owned(halved(&fitted)?);
+    }
+    Some(fitted)
 }
 
 pub fn checker(square: u32) -> Option<Image> {
@@ -377,6 +388,16 @@ mod tests {
         assert_eq!(half.bgra().get(3), Some(&255));
         let single = halved(&numbered(1, 1)).unwrap();
         assert_eq!(single, numbered(1, 1));
+    }
+
+    #[test]
+    fn a_picture_is_halved_until_both_sides_fit_and_kept_when_they_do() {
+        let image = numbered(9, 2);
+        let fitted = within(&image, 3).unwrap();
+        assert_eq!((fitted.width(), fitted.height()), (3, 1));
+        assert!(matches!(within(&image, 9), Some(Cow::Borrowed(kept)) if *kept == image));
+        let single = within(&image, 0).unwrap();
+        assert_eq!((single.width(), single.height()), (1, 1));
     }
 
     #[test]

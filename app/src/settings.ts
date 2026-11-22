@@ -29,6 +29,7 @@ export interface Settings {
   textJoinLines: boolean;
   textKeepIndentation: boolean;
   textLanguage: string | null;
+  pinsInCaptures: boolean;
   gifFrameRate: number;
   gifLongestSide: number | null;
   gifTimeLimit: number;
@@ -46,6 +47,7 @@ const SWITCHES = [
   "askAboutHotkey",
   "detectWindows",
   "successLabels",
+  "pinsInCaptures",
   "keepOutOfHistory",
   "textJoinLines",
   "textKeepIndentation",
@@ -213,6 +215,7 @@ export async function showSettings(
       detectWindows: checked("detectWindows"),
       successLabels: checked("successLabels"),
       enter: value("enter"),
+      pinsInCaptures: checked("pinsInCaptures"),
       saveFolder: value("saveFolder") || null,
       fileName: fileName.valid(),
       keepOutOfHistory: checked("keepOutOfHistory"),

@@ -189,6 +189,7 @@ impl Dispatcher {
             Event::SecondStart => self.open_settings(None),
             Event::Recording(state) => self.tray.show_recording(*state),
             Event::Delaying(waiting) => self.tray.show_delay(*waiting),
+            Event::Pins(count) => self.tray.show_pins(*count, &self.texts),
             Event::Gif(event) => {
                 gif_window::on_event(&self.app, event, &self.texts.get("gif-title"), &self.sender);
             }
@@ -278,6 +279,7 @@ impl Dispatcher {
         self.tray.retext(&self.texts);
         self.tray
             .show_update(&self.texts, self.available.as_deref());
+        self.tray.show_pins(self.tray.pins(), &self.texts);
         if let Some(state) = self
             .app
             .try_state::<HotkeyStatus>()
@@ -348,6 +350,16 @@ fn record(log: &Log, event: &Event) {
         | Event::Unsaved(_) => {}
         Event::Delaying(true) => log.info("a delayed screenshot is counting down"),
         Event::Delaying(false) => log.info("the delayed screenshot's countdown ended"),
+        Event::Pins(count) => log.info(&format!(
+            "pins {} open, {} shown, {}",
+            count.open,
+            count.shown,
+            if count.restorable {
+                "one closed to restore"
+            } else {
+                "none closed to restore"
+            }
+        )),
         Event::ReadyToQuit => log.info("quitting"),
         Event::QuitCancelled => log.warn("quitting was given up: a GIF could not be saved"),
         Event::StartWithWindows { on, failure, .. } => {

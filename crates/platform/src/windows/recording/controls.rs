@@ -22,13 +22,14 @@ use windows::Win32::System::SystemServices::{SS_CENTER, SS_CENTERIMAGE};
 use windows::Win32::UI::WindowsAndMessaging::{
     BS_OWNERDRAW, CreateWindowExW, GetWindowRect, HMENU, HWND_TOPMOST, IsChild, SW_HIDE, SW_SHOWNA,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SendMessageW, SetWindowDisplayAffinity,
-    SetWindowPos, SetWindowTextW, ShowWindow, USER_DEFAULT_SCREEN_DPI, WDA_EXCLUDEFROMCAPTURE,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYOUTRTL,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+    SetWindowPos, SetWindowTextW, ShowWindow, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_SETFONT, WS_CHILD, WS_CLIPCHILDREN, WS_EX_LAYOUTRTL, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::{HSTRING, PCWSTR, Result, w};
 
 use crate::event::MenuTexts;
+use crate::windows::monitor::scale_of;
 use crate::windows::window_class::{CONTROLS_CLASS, OwnedWindow};
 use fonts::{Font, icon_font, measure, message_font};
 use layout::{Content, layout};
@@ -71,6 +72,7 @@ pub enum Button {
     Copy = 24,
     Save = 25,
     ReadText = 26,
+    Pin = 27,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,6 +120,7 @@ impl Stage {
                 &[Button::Undo],
                 &[Button::Redo],
                 &[Button::Copy],
+                &[Button::Pin],
                 &[Button::ReadText],
                 &[Button::Save],
                 &[Button::Cancel],
@@ -127,7 +130,7 @@ impl Stage {
 }
 
 impl Button {
-    const ALL: [Self; 26] = [
+    const ALL: [Self; 27] = [
         Self::Start,
         Self::Pause,
         Self::Resume,
@@ -154,6 +157,7 @@ impl Button {
         Self::Copy,
         Self::Save,
         Self::ReadText,
+        Self::Pin,
     ];
 
     pub fn from_id(id: u16) -> Option<Self> {
@@ -214,6 +218,7 @@ impl Button {
             Self::Copy => Face::Glyph(0xE8C8),
             Self::Save => Face::Glyph(0xE74E),
             Self::ReadText => Face::Glyph(0xE8FE),
+            Self::Pin => Face::Glyph(0xE718),
         }
     }
 
@@ -245,6 +250,7 @@ impl Button {
             Self::Copy => &texts.copy,
             Self::Save => &texts.save,
             Self::ReadText => &texts.read_text,
+            Self::Pin => &texts.pin,
         }
     }
 
@@ -261,6 +267,7 @@ impl Button {
             Self::Copy => "Ctrl+C",
             Self::Save => "Ctrl+S",
             Self::ReadText => "O",
+            Self::Pin => "F3",
             Self::Cancel => "Esc",
             _ => return None,
         };
@@ -299,7 +306,7 @@ impl Controls {
         texts: &MenuTexts,
         replacing: Option<Rect>,
     ) -> Result<Self> {
-        let scale = scale(dpi);
+        let scale = scale_of(dpi);
         let font = message_font(dpi)?;
         let icons = icon_font(dpi);
         let slots = stage.slots();
@@ -482,7 +489,7 @@ impl Controls {
     }
 
     pub fn place(&mut self, area: Rect, work: Rect) -> Result<()> {
-        let distance = pixels(DISTANCE, scale(self.dpi));
+        let distance = pixels(DISTANCE, scale_of(self.dpi));
         let at = recording::controls_at(area, work, self.width, self.height, distance);
         unsafe {
             SetWindowPos(
@@ -584,10 +591,6 @@ fn child(
     }
 }
 
-fn scale(dpi: u32) -> f32 {
-    dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32
-}
-
 fn pixels(value: f32, scale: f32) -> i32 {
     (value * scale).round() as i32
 }
@@ -602,7 +605,7 @@ mod tests {
             assert_eq!(Button::from_id(button.id()), Some(button));
         }
         assert_eq!(Button::from_id(0), None);
-        assert_eq!(Button::from_id(27), None);
+        assert_eq!(Button::from_id(28), None);
     }
 
     #[test]
@@ -619,6 +622,7 @@ mod tests {
         }
         assert_eq!(Button::Colour.tool(), None);
         assert!(markup.contains(&Button::Cancel));
+        assert!(markup.contains(&Button::Pin));
         assert!(Stage::Markup.slots().iter().all(|slot| slot.len() == 1));
     }
 
@@ -627,6 +631,7 @@ mod tests {
         assert_eq!(Button::Arrow.key(Stage::Markup), Some("A".to_owned()));
         assert_eq!(Button::Undo.key(Stage::Markup), Some("Ctrl+Z".to_owned()));
         assert_eq!(Button::Cancel.key(Stage::Markup), Some("Esc".to_owned()));
+        assert_eq!(Button::Pin.key(Stage::Markup), Some("F3".to_owned()));
         assert_eq!(Button::Colour.key(Stage::Markup), None);
         assert_eq!(Button::Cancel.key(Stage::Ready), None);
     }

@@ -4,11 +4,12 @@
 use bediz_core::geometry::Rect;
 use bediz_core::recording;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, USER_DEFAULT_SCREEN_DPI};
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::Result;
 
 use super::Runtime;
 use crate::windows::foreground::{self, Foreground};
+use crate::windows::monitor::scale_of;
 use crate::windows::recording::border::{Border, Line};
 use crate::windows::recording::controls::{Controls, Stage};
 use crate::windows::recording::{Timer, monitor_metrics};
@@ -34,10 +35,12 @@ impl ReadyBar {
     }
 
     pub(super) fn raise(&self) -> Result<()> {
-        match self.placed {
+        let lock = self.lock.as_ref().map_or(Ok(()), Border::reveal);
+        let controls = match self.placed {
             Some(_) => self.controls.reveal(),
             None => Ok(()),
-        }
+        };
+        lock.and(controls)
     }
 }
 
@@ -133,7 +136,7 @@ impl Runtime {
             return;
         };
         let (dpi, _) = monitor_metrics(area);
-        let scale = dpi as f32 / USER_DEFAULT_SCREEN_DPI as f32;
+        let scale = scale_of(dpi);
         let border = Border::create(self.instance, area, monitor, scale, Line::Dashed)
             .and_then(|border| border.reveal().map(|()| border));
         let border = match border {
@@ -154,6 +157,7 @@ impl Runtime {
         bar.controls.show_toggled(true);
         foreground::give_back(session.previous());
         self.live = None;
+        self.release_held_pins();
     }
 
     pub(super) fn remember_users_window(&mut self) {

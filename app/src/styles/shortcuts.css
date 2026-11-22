@@ -2,6 +2,10 @@
   align-items: flex-start;
 }
 
+.row.status.pending > * {
+  visibility: hidden;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

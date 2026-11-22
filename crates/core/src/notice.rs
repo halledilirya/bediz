@@ -1,6 +1,6 @@
-//! What the user is told after a capture, copy, save, recording, an image opened to mark up or a
-//! reading of text and QR codes, with each notice's locale id and argument and whether it is worth
-//! a label.
+//! What the user is told after a capture, copy, save, recording, pin, an image opened to mark up
+//! or a reading of text and QR codes, with each notice's locale id and argument and whether it is
+//! worth a label.
 
 use thiserror::Error;
 
@@ -52,6 +52,14 @@ pub enum Notice {
     TextNotRead(String),
     #[error("text not read in a language installed while Bediz was running: {0}")]
     TextNeedsRestart(String),
+    #[error("pinned")]
+    Pinned,
+    #[error("not pinned: the graphics card has no room left for it")]
+    PinNoRoom,
+    #[error("not pinned: {0}")]
+    PinFailed(String),
+    #[error("pin not shown, kept hidden: {0}")]
+    PinNotShown(String),
 }
 
 impl Notice {
@@ -78,6 +86,10 @@ impl Notice {
             Self::TextLanguageMissing => "overlay-text-language-missing",
             Self::TextNotRead(_) => "overlay-text-failed",
             Self::TextNeedsRestart(_) => "overlay-text-restart",
+            Self::Pinned => "label-pinned",
+            Self::PinNoRoom => "pin-error-no-room",
+            Self::PinFailed(_) => "pin-error-unexpected",
+            Self::PinNotShown(_) => "pin-error-not-shown",
         }
     }
 
@@ -130,6 +142,9 @@ impl Notice {
                 | Self::TextLanguageMissing
                 | Self::TextNotRead(_)
                 | Self::TextNeedsRestart(_)
+                | Self::PinNoRoom
+                | Self::PinFailed(_)
+                | Self::PinNotShown(_)
         )
     }
 }
@@ -233,6 +248,21 @@ mod tests {
             Notice::GifCopiedAndSaved.locale_id(),
             "label-gif-copied-and-saved"
         );
+    }
+
+    #[test]
+    fn a_pin_is_confirmed_like_a_copy_and_one_not_made_is_always_said() {
+        assert!(!worth_a_label(&[Notice::Pinned], false));
+        assert!(worth_a_label(&[Notice::Pinned], true));
+        assert!(worth_a_label(&[Notice::PinNoRoom], false));
+        let failed = Notice::PinFailed("the device was removed".to_owned());
+        assert!(worth_a_label(std::slice::from_ref(&failed), false));
+        assert_eq!(failed.argument(), None);
+        assert!(failed.to_string().contains("device was removed"));
+        let hidden = Notice::PinNotShown("out of memory".to_owned());
+        assert!(worth_a_label(std::slice::from_ref(&hidden), false));
+        assert_eq!(hidden.argument(), None);
+        assert!(hidden.to_string().contains("out of memory"));
     }
 
     #[test]

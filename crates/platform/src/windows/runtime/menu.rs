@@ -11,6 +11,7 @@ use windows::core::BOOL;
 
 use super::{MENU_FADE_TIMER, Runtime};
 use crate::event::{Event, Failure};
+use crate::windows::menu_capture;
 use crate::windows::overlay_menu::{self, Choice, Offer};
 use crate::windows::session::{Purpose, Session};
 
@@ -55,9 +56,15 @@ impl Runtime {
             picture: session.purpose() == Purpose::Picture,
             words: session.shows_words().then_some(self.text_layout),
         };
-        match overlay_menu::choose(owner, at, texts, &offer) {
+        let kept_out = session.purpose().shows_live_screen();
+        let (chosen, note) = menu_capture::kept_out_while(kept_out, || {
+            overlay_menu::choose(owner, at, texts, &offer)
+        });
+        self.emit_notes(note.into_iter().collect());
+        match chosen {
             Ok(Some(Choice::Deliver(delivery))) => self.deliver(delivery),
             Ok(Some(Choice::SaveAs)) => self.save_as(),
+            Ok(Some(Choice::Pin)) => self.pin_selection(),
             // The words can come up while the menu is open; the item it showed still copies them.
             Ok(Some(Choice::ReadText))
                 if self.session.as_ref().is_some_and(Session::shows_words) =>

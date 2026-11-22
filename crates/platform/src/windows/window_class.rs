@@ -1,6 +1,10 @@
 //! The app's window classes and their window procedures, which leave what they hear for the runtime
 //! to pick up, and the guard that stops a panic from leaving an OS callback.
 
+mod pin;
+
+pub use pin::take_pin_events;
+
 use std::cell::Cell;
 use std::panic::AssertUnwindSafe;
 
@@ -26,7 +30,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result, w};
 
 use super::automation;
-use super::hotkey::HOTKEY;
+use super::hotkey::{GIF_HOTKEY, HOTKEY};
 use super::ime;
 use super::recording::border::{self, Line};
 use super::recording::controls::{self, drag, paint};
@@ -38,6 +42,7 @@ pub const LABEL_CLASS: PCWSTR = w!("BedizLabel");
 pub const BORDER_CLASS: PCWSTR = w!("BedizRecordingBorder");
 pub const DASHED_BORDER_CLASS: PCWSTR = w!("BedizLockedAreaBorder");
 pub const CONTROLS_CLASS: PCWSTR = w!("BedizRecordingControls");
+pub const PIN_CLASS: PCWSTR = w!("BedizPin");
 
 thread_local! {
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
@@ -48,6 +53,7 @@ thread_local! {
     static CURSOR: Cell<Option<HCURSOR>> = const { Cell::new(None) };
     static MISSED: Cell<Vec<u32>> = const { Cell::new(Vec::new()) };
     static MISSED_HOTKEY: Cell<Option<LPARAM>> = const { Cell::new(None) };
+    static MISSED_GIF_HOTKEY: Cell<Option<LPARAM>> = const { Cell::new(None) };
 }
 
 pub struct OwnedWindow(pub HWND);
@@ -64,6 +70,14 @@ pub fn take_missed() -> Vec<u32> {
 
 pub fn take_missed_hotkey() -> Option<LPARAM> {
     MISSED_HOTKEY.with(Cell::take)
+}
+
+pub fn take_missed_gif_hotkey() -> Option<LPARAM> {
+    MISSED_GIF_HOTKEY.with(Cell::take)
+}
+
+pub fn hotkey_missed() -> bool {
+    MISSED_HOTKEY.with(Cell::get).is_some() || MISSED_GIF_HOTKEY.with(Cell::get).is_some()
 }
 
 pub fn use_cursor(cursor: HCURSOR) {
@@ -143,7 +157,16 @@ pub fn register(instance: HINSTANCE) -> Result<()> {
         lpszClassName: CONTROLS_CLASS,
         ..Default::default()
     };
-    register_class(&controls)
+    register_class(&controls)?;
+    let pin = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(pin::procedure),
+        hInstance: instance,
+        hCursor: unsafe { LoadCursorW(None, IDC_SIZEALL) }?,
+        lpszClassName: PIN_CLASS,
+        ..Default::default()
+    };
+    register_class(&pin)
 }
 
 fn register_class(class: &WNDCLASSEXW) -> Result<()> {
@@ -188,6 +211,10 @@ fn on_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRE
     }
     if message == WM_HOTKEY && wparam.0 == HOTKEY as usize {
         MISSED_HOTKEY.with(|missed| missed.set(Some(lparam)));
+        return LRESULT(0);
+    }
+    if message == WM_HOTKEY && wparam.0 == GIF_HOTKEY as usize {
+        MISSED_GIF_HOTKEY.with(|missed| missed.set(Some(lparam)));
         return LRESULT(0);
     }
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
@@ -381,5 +408,28 @@ fn on_overlay_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM
         | WM_IME_COMPOSITION
         | WM_IME_ENDCOMPOSITION => ime::answer(window, message, wparam, lparam),
         _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn either_hotkey_pressed_in_a_menu_is_kept_for_the_runtime_and_taken_once() {
+        let press = |id: i32, keys: isize| {
+            let id = WPARAM(usize::try_from(id).unwrap());
+            on_message(HWND::default(), WM_HOTKEY, id, LPARAM(keys))
+        };
+        assert!(!hotkey_missed());
+        assert_eq!(press(GIF_HOTKEY, 5), LRESULT(0));
+        assert!(hotkey_missed());
+        assert_eq!(take_missed_gif_hotkey(), Some(LPARAM(5)));
+        assert_eq!(take_missed_gif_hotkey(), None);
+        assert!(!hotkey_missed());
+        assert_eq!(press(HOTKEY, 7), LRESULT(0));
+        assert!(hotkey_missed());
+        assert_eq!(take_missed_hotkey(), Some(LPARAM(7)));
+        assert!(!hotkey_missed());
     }
 }

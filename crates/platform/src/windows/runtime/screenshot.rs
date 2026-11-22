@@ -238,6 +238,7 @@ impl Runtime {
             Ok(Action::Cancel) => self.hide(),
             Ok(Action::Deliver(delivery)) => self.deliver(delivery),
             Ok(Action::SaveAs) => self.save_as(),
+            Ok(Action::Pin) => self.pin_selection(),
             Ok(Action::Record) => self.record(Duration::ZERO),
             Ok(Action::CopyColour(at)) => self.copy_colour(at),
             Ok(Action::Menu(at)) => self.open_menu(at),
@@ -258,7 +259,9 @@ impl Runtime {
             if !self.locked() {
                 self.press_in_overlay(keys);
             }
-        } else if let Some(queued) = opens_after {
+        } else if !self.press_in_pin(keys)
+            && let Some(queued) = opens_after
+        {
             self.open(queued, Purpose::Screenshot);
         }
         let (change, proves_yielding) = self.hotkey.arrived();
@@ -268,7 +271,7 @@ impl Runtime {
         }
     }
 
-    pub(super) fn on_gif_hotkey(&mut self, queued: Duration) {
+    pub(super) fn on_gif_hotkey(&mut self, keys: LPARAM, opens_after: Option<Duration>) {
         if self.recording_hotkey {
             (self.sink)(Event::HotkeyWhileRecording(Shortcut::Gif));
         } else if self.recording.is_some() {
@@ -277,7 +280,10 @@ impl Runtime {
             if session.settled().is_some() {
                 self.record(Duration::ZERO);
             }
-        } else if !self.closing() {
+        } else if !self.press_in_pin(keys)
+            && let Some(queued) = opens_after
+            && !self.closing()
+        {
             self.open(queued, Purpose::Recording);
         }
         let (change, proves_yielding) = self.gif_hotkey.arrived();
@@ -370,6 +376,7 @@ impl Runtime {
                 "the graphics memory could not be trimmed: {error}"
             )]);
         }
+        self.release_held_pins();
         self.report_idle();
         if let Some(label) = self.label_after_overlay.take() {
             self.show_label(label);

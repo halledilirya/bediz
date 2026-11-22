@@ -14,6 +14,7 @@ use super::Runtime;
 use crate::event::{Event, Failure};
 use crate::windows::clipboard::{self, Placed};
 use crate::windows::marking::Marking;
+use crate::windows::menu_capture;
 use crate::windows::overlay_menu;
 use crate::windows::recording::controls::{Button, Controls, Stage};
 use crate::windows::recording::monitor_metrics;
@@ -135,6 +136,7 @@ impl Runtime {
             }
             Button::Copy => self.deliver(Delivery::COPY),
             Button::Save => self.deliver(Delivery::SAVE),
+            Button::Pin => self.pin_selection(),
             Button::ReadText => self.read_text(),
             _ => {}
         }
@@ -206,7 +208,12 @@ impl Runtime {
         let Some(owner) = scene.window_at(at) else {
             return;
         };
-        match overlay_menu::choose_colour(owner, at, texts, session.marking().swatch()) {
+        let kept_out = session.purpose().shows_live_screen();
+        let (chosen, note) = menu_capture::kept_out_while(kept_out, || {
+            overlay_menu::choose_colour(owner, at, texts, session.marking().swatch())
+        });
+        self.emit_notes(note.into_iter().collect());
+        match chosen {
             Ok(Some(swatch)) => self.change_marks(|marking| marking.recolour(swatch)),
             Ok(None) => {}
             Err(error) => (self.sink)(Event::Failed(Failure::Overlay(error.to_string()))),

@@ -1,11 +1,15 @@
 //! The tray icon and its menu: capturing now or in a few seconds, recording controls, opening an
-//! image to mark up, hotkey problems, an update found, the settings, help and quit.
+//! image to mark up, the pins, hotkey problems, an update found, the settings, help and quit.
 
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use bediz_platform::{Command, HotkeyState, ImageSource, RecordingAction, RecordingState};
+use bediz_core::pin::Count;
+use bediz_platform::{
+    Command, HotkeyState, ImageSource, PinAction, RecordingAction, RecordingState,
+};
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Wry};
@@ -35,6 +39,10 @@ const DISCARD: &str = "recording-discard";
 const OPEN_IMAGE: &str = "tray-open-image";
 const OPEN_IMAGE_CLIPBOARD: &str = "tray-open-image-clipboard";
 const OPEN_IMAGE_FILE: &str = "tray-open-image-file";
+const PINS: &str = "tray-pins";
+const PINS_SHOW_OR_HIDE: &str = "tray-pins-show-or-hide";
+const PINS_RESTORE: &str = "tray-pins-restore";
+const PINS_CLOSE_ALL: &str = "tray-pins-close-all";
 const RETRY: &str = "tray-retry";
 const TAKE_PRINT_SCREEN: &str = "tray-take-print-screen";
 const UPDATE_TO: &str = "tray-update-to";
@@ -45,6 +53,7 @@ const OPEN_LOGS: &str = "tray-open-logs";
 const ABOUT: &str = "tray-about";
 const QUIT: &str = "tray-quit";
 const DELAY_POSITION: usize = 1;
+const PINS_POSITION: usize = 4;
 const STATUS_POSITION: usize = 5;
 
 pub struct Tray {
@@ -65,6 +74,11 @@ pub struct Tray {
     open_image: Submenu<Wry>,
     open_image_clipboard: MenuItem<Wry>,
     open_image_file: MenuItem<Wry>,
+    pins: Submenu<Wry>,
+    pins_show_or_hide: MenuItem<Wry>,
+    pins_restore: MenuItem<Wry>,
+    pins_close_all: MenuItem<Wry>,
+    pin_count: Cell<Count>,
     retry: MenuItem<Wry>,
     take_print_screen: MenuItem<Wry>,
     update_to: MenuItem<Wry>,
@@ -113,6 +127,16 @@ impl Tray {
             texts.get(OPEN_IMAGE),
             true,
             &[&open_image_clipboard, &open_image_file],
+        )?;
+        let pins_show_or_hide = MenuItem::with_id(app, PINS_SHOW_OR_HIDE, "", true, None::<&str>)?;
+        let pins_restore = item(PINS_RESTORE)?;
+        let pins_close_all = item(PINS_CLOSE_ALL)?;
+        let pins = Submenu::with_id_and_items(
+            app,
+            PINS,
+            texts.get(PINS),
+            true,
+            &[&pins_show_or_hide, &pins_restore, &pins_close_all],
         )?;
         let retry = item(RETRY)?;
         let take_print_screen = item(TAKE_PRINT_SCREEN)?;
@@ -163,6 +187,9 @@ impl Tray {
                 DISCARD => setup::send(app, Command::Recording(RecordingAction::Discard)),
                 OPEN_IMAGE_CLIPBOARD => setup::send(app, Command::MarkUp(ImageSource::Clipboard)),
                 OPEN_IMAGE_FILE => setup::send(app, Command::MarkUp(ImageSource::File)),
+                PINS_SHOW_OR_HIDE => setup::send(app, Command::Pins(PinAction::ShowOrHide)),
+                PINS_RESTORE => setup::send(app, Command::Pins(PinAction::Restore)),
+                PINS_CLOSE_ALL => setup::send(app, Command::Pins(PinAction::CloseAll)),
                 RETRY => setup::send(app, Command::RetryHotkey),
                 TAKE_PRINT_SCREEN => setup::send(app, Command::TakePrintScreen),
                 SETTINGS => {
@@ -215,6 +242,11 @@ impl Tray {
             open_image,
             open_image_clipboard,
             open_image_file,
+            pins,
+            pins_show_or_hide,
+            pins_restore,
+            pins_close_all,
+            pin_count: Cell::new(Count::default()),
             retry,
             take_print_screen,
             update_to,
@@ -240,6 +272,8 @@ impl Tray {
             (&self.discard, DISCARD),
             (&self.open_image_clipboard, OPEN_IMAGE_CLIPBOARD),
             (&self.open_image_file, OPEN_IMAGE_FILE),
+            (&self.pins_restore, PINS_RESTORE),
+            (&self.pins_close_all, PINS_CLOSE_ALL),
             (&self.retry, RETRY),
             (&self.take_print_screen, TAKE_PRINT_SCREEN),
             (&self.settings, SETTINGS),
@@ -258,6 +292,7 @@ impl Tray {
             (&self.delayed, DELAYED),
             (&self.record, RECORD),
             (&self.open_image, OPEN_IMAGE),
+            (&self.pins, PINS),
             (&self.help, HELP),
         ];
         for (submenu, id) in submenus {
@@ -320,6 +355,29 @@ impl Tray {
         let _ = self.menu.insert(shown, DELAY_POSITION);
     }
 
+    pub fn pins(&self) -> Count {
+        self.pin_count.get()
+    }
+
+    pub fn show_pins(&self, count: Count, texts: &Texts) {
+        self.pin_count.set(count);
+        let _ = self.menu.remove(&self.pins);
+        if !listed(count) {
+            return;
+        }
+        let (toggle, pins) = if count.shown > 0 {
+            ("tray-pins-hide", count.shown)
+        } else {
+            ("tray-pins-show", count.open)
+        };
+        let _ = self
+            .pins_show_or_hide
+            .set_text(texts.get_with(toggle, "count", &pins.to_string()));
+        let _ = self.pins_show_or_hide.set_enabled(count.open > 0);
+        let _ = self.pins_restore.set_enabled(count.restorable);
+        let _ = self.menu.insert(&self.pins, PINS_POSITION);
+    }
+
     pub fn show(&self, state: HotkeyState, texts: &Texts, key: &str) {
         let optional: [&dyn IsMenuItem<Wry>; 4] = [
             &self.status,
@@ -347,11 +405,16 @@ impl Tray {
         let _ = self.icon.set_tooltip(Some(tooltip));
         if let Some((status, action)) = problem {
             let _ = self.status.set_text(status);
+            let position = STATUS_POSITION + usize::from(listed(self.pin_count.get()));
             let _ = self
                 .menu
-                .insert_items(&[&self.status, action, &self.separator], STATUS_POSITION);
+                .insert_items(&[&self.status, action, &self.separator], position);
         }
     }
+}
+
+fn listed(count: Count) -> bool {
+    count.open > 0 || count.restorable
 }
 
 pub fn show_icon(app: &AppHandle, visible: bool) {

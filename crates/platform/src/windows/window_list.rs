@@ -1,4 +1,5 @@
-//! The windows shown on screen and their bounds, so a click on the overlay can pick a whole window.
+//! The windows shown on screen, their bounds and their classes, so a click on the overlay can pick
+//! a whole window.
 
 use bediz_core::geometry::{Point, Rect};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};
@@ -6,8 +7,8 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GWL_EXSTYLE, GetClassNameW, GetWindowLongW, IsIconic, IsWindowVisible,
-    WS_EX_TRANSPARENT,
+    EnumWindows, GWL_EXSTYLE, GetClassNameW, GetWindowDisplayAffinity, GetWindowLongW, IsIconic,
+    IsWindowVisible, WDA_EXCLUDEFROMCAPTURE, WS_EX_TRANSPARENT,
 };
 use windows::core::BOOL;
 
@@ -86,7 +87,11 @@ fn is_shown(window: HWND) -> bool {
 
 fn selectable_bounds(window: HWND) -> Option<Rect> {
     let extended = unsafe { GetWindowLongW(window, GWL_EXSTYLE) } as u32;
-    if extended & WS_EX_TRANSPARENT.0 != 0 || !is_shown(window) || is_desktop(window) {
+    if extended & WS_EX_TRANSPARENT.0 != 0
+        || !is_shown(window)
+        || is_desktop(window)
+        || is_left_out_of_captures(window)
+    {
         return None;
     }
     let mut bounds = RECT::default();
@@ -103,13 +108,23 @@ fn selectable_bounds(window: HWND) -> Option<Rect> {
     (!rect.is_empty()).then_some(rect)
 }
 
+// A window kept out of captures is missing from the screenshot, so it has nothing to select.
+fn is_left_out_of_captures(window: HWND) -> bool {
+    let mut affinity = 0u32;
+    unsafe { GetWindowDisplayAffinity(window, &mut affinity) }.is_ok()
+        && affinity == WDA_EXCLUDEFROMCAPTURE.0
+}
+
 fn is_desktop(window: HWND) -> bool {
+    DESKTOP_CLASSES.contains(&class_name(window).as_str())
+}
+
+pub fn class_name(window: HWND) -> String {
     let mut class = [0u16; 16];
     let length = unsafe { GetClassNameW(window, &mut class) };
-    let name = usize::try_from(length)
+    usize::try_from(length)
         .ok()
         .and_then(|length| class.get(..length))
         .map(String::from_utf16_lossy)
-        .unwrap_or_default();
-    DESKTOP_CLASSES.contains(&name.as_str())
+        .unwrap_or_default()
 }

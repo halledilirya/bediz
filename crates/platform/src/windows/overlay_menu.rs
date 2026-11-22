@@ -1,6 +1,6 @@
-//! The overlay's menus: the context menu that copies, saves or records the selection, copies its
-//! text and sets how the lines are copied, copies a colour, picks the whole monitor or the last
-//! region, or cancels, and the colour of marks.
+//! The overlay's menus: the context menu that copies, saves, pins or records the selection, copies
+//! its text and sets how the lines are copied, copies a colour, picks the whole monitor or the last
+//! region, or cancels, and the colour of marks; a pin's menu is built from the same parts.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::Point;
@@ -8,9 +8,9 @@ use bediz_core::markup::Swatch;
 use bediz_core::ocr::Layout;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, HMENU, MF_CHECKED, MF_GRAYED, MF_SEPARATOR,
-    MF_STRING, SetMenuDefaultItem, TPM_LAYOUTRTL, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTALIGN,
-    TPM_RIGHTBUTTON, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP,
+    MF_SEPARATOR, MF_STRING, SetMenuDefaultItem, TPM_LAYOUTRTL, TPM_NONOTIFY, TPM_RETURNCMD,
+    TPM_RIGHTALIGN, TPM_RIGHTBUTTON, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx,
 };
 use windows::core::{PCWSTR, Result};
 
@@ -29,11 +29,13 @@ const READ_TEXT: usize = 10;
 const COPY_WORDS: usize = 11;
 const JOIN_LINES: usize = 12;
 const KEEP_INDENTATION: usize = 13;
+const PIN: usize = 14;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Deliver(Delivery),
     SaveAs,
+    Pin,
     ReadText,
     CopyWords,
     Layout(Layout),
@@ -53,7 +55,7 @@ pub struct Offer {
     pub words: Option<Layout>,
 }
 
-struct OwnedMenu(HMENU);
+pub(super) struct OwnedMenu(HMENU);
 
 impl Drop for OwnedMenu {
     fn drop(&mut self) {
@@ -62,11 +64,38 @@ impl Drop for OwnedMenu {
 }
 
 impl OwnedMenu {
-    fn item(&self, id: usize, text: &str, key: &str, enabled: bool) -> Result<()> {
+    pub(super) fn popup() -> Result<Self> {
+        Ok(Self(unsafe { CreatePopupMenu() }?))
+    }
+
+    // A submenu is destroyed with the menu it is put in, so it is no longer owned on its own.
+    pub(super) fn put_in(self, menu: &OwnedMenu, text: &str) -> Result<()> {
+        let label: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let submenu = std::mem::ManuallyDrop::new(self);
+        let put = unsafe {
+            AppendMenuW(
+                menu.0,
+                MF_STRING | MF_POPUP,
+                submenu.0.0 as usize,
+                PCWSTR(label.as_ptr()),
+            )
+        };
+        if put.is_err() {
+            let _ = unsafe { DestroyMenu(submenu.0) };
+        }
+        put
+    }
+
+    pub(super) fn track(&self, owner: HWND, at: Point, right_to_left: bool) -> i32 {
+        let flags = flags(right_to_left);
+        unsafe { TrackPopupMenuEx(self.0, flags.0, at.x, at.y, owner, None) }.0
+    }
+
+    pub(super) fn item(&self, id: usize, text: &str, key: &str, enabled: bool) -> Result<()> {
         self.add(id, &label(text, key), enabled, false)
     }
 
-    fn add(&self, id: usize, label: &str, enabled: bool, checked: bool) -> Result<()> {
+    pub(super) fn add(&self, id: usize, label: &str, enabled: bool, checked: bool) -> Result<()> {
         let label: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
         let mut flags = MF_STRING;
         if !enabled {
@@ -78,13 +107,13 @@ impl OwnedMenu {
         unsafe { AppendMenuW(self.0, flags, id, PCWSTR(label.as_ptr())) }
     }
 
-    fn separator(&self) -> Result<()> {
+    pub(super) fn separator(&self) -> Result<()> {
         unsafe { AppendMenuW(self.0, MF_SEPARATOR, 0, PCWSTR::null()) }
     }
 }
 
 pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Result<Option<Choice>> {
-    let menu = OwnedMenu(unsafe { CreatePopupMenu() }?);
+    let menu = OwnedMenu::popup()?;
     if offer.recording {
         menu.item(RECORD, &texts.record, "Enter", offer.selected)?;
         if offer.selected {
@@ -109,6 +138,7 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
         menu.item(COPY, &texts.copy, key(Delivery::COPY, copy_key), true)?;
         menu.item(SAVE, &texts.save, key(Delivery::SAVE, "Ctrl+S"), true)?;
         menu.item(SAVE_AS, &texts.save_as, "Ctrl+Shift+S", true)?;
+        menu.item(PIN, &texts.pin, "F3", true)?;
         match offer.words {
             Some(layout) => {
                 menu.separator()?;
@@ -140,9 +170,8 @@ pub fn choose(owner: HWND, at: Point, texts: &MenuTexts, offer: &Offer) -> Resul
     }
     menu.separator()?;
     menu.item(CANCEL, &texts.cancel, "Esc", true)?;
-    let flags = flags(texts.right_to_left);
-    let chosen = unsafe { TrackPopupMenuEx(menu.0, flags.0, at.x, at.y, owner, None) };
-    Ok(choice(chosen.0, offer.words.unwrap_or_default()))
+    let chosen = menu.track(owner, at, texts.right_to_left);
+    Ok(choice(chosen, offer.words.unwrap_or_default()))
 }
 
 pub fn choose_colour(
@@ -151,7 +180,7 @@ pub fn choose_colour(
     texts: &MenuTexts,
     current: Swatch,
 ) -> Result<Option<Swatch>> {
-    let menu = OwnedMenu(unsafe { CreatePopupMenu() }?);
+    let menu = OwnedMenu::popup()?;
     for (index, swatch) in Swatch::ALL.into_iter().enumerate() {
         let label: Vec<u16> = texts
             .markup
@@ -166,9 +195,7 @@ pub fn choose_colour(
         };
         unsafe { AppendMenuW(menu.0, flags, index + 1, PCWSTR(label.as_ptr())) }?;
     }
-    let flags = flags(texts.right_to_left);
-    let chosen = unsafe { TrackPopupMenuEx(menu.0, flags.0, at.x, at.y, owner, None) };
-    Ok(swatch_for(chosen.0))
+    Ok(swatch_for(menu.track(owner, at, texts.right_to_left)))
 }
 
 fn swatch_for(id: i32) -> Option<Swatch> {
@@ -207,6 +234,7 @@ fn choice(id: i32, layout: Layout) -> Option<Choice> {
         COPY => Some(Choice::Deliver(Delivery::COPY)),
         SAVE => Some(Choice::Deliver(Delivery::SAVE)),
         SAVE_AS => Some(Choice::SaveAs),
+        PIN => Some(Choice::Pin),
         READ_TEXT => Some(Choice::ReadText),
         COPY_WORDS => Some(Choice::CopyWords),
         JOIN_LINES => Some(Choice::Layout(Layout {
@@ -274,6 +302,7 @@ mod tests {
         assert_eq!(chosen(LAST_REGION), Some(Choice::LastRegion));
         assert_eq!(chosen(CANCEL), Some(Choice::Cancel));
         assert_eq!(chosen(RECORD), Some(Choice::Record));
+        assert_eq!(chosen(PIN), Some(Choice::Pin));
         assert_eq!(chosen(READ_TEXT), Some(Choice::ReadText));
         assert_eq!(chosen(COPY_WORDS), Some(Choice::CopyWords));
     }

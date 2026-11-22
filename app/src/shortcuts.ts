@@ -142,6 +142,12 @@ export async function enableShortcuts(
     if (row.remove) {
       row.remove.hidden = key === "" || listening === row;
     }
+    // A changed shortcut's status keeps its place, empty, until Windows answers, so the page does not jump.
+    const pending = state === null && key !== "";
+    row.status.classList.toggle("pending", pending);
+    if (pending) {
+      return;
+    }
     row.status.hidden =
       state === null || (row === gif && state === "registered");
     const [look, said, explained] =

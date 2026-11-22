@@ -12,6 +12,7 @@ use bediz_core::markup::{Swatch, Tool};
 use bediz_core::measurement::{Measurement, Memory};
 use bediz_core::notice::Notice;
 use bediz_core::ocr::Layout;
+use bediz_core::pin::Count;
 use bediz_core::recording::RecordingOptions;
 use thiserror::Error;
 
@@ -44,6 +45,8 @@ pub enum Command {
     KeepOutOfHistory(bool),
     SetTextLayout(Layout),
     SetTextLanguage(Option<String>),
+    ShowPinsInCaptures(bool),
+    Pins(PinAction),
     SetRecordingOptions(RecordingOptions),
     ReserveGifCopy {
         id: u64,
@@ -68,6 +71,13 @@ pub enum Command {
 pub enum ImageSource {
     Clipboard,
     File,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinAction {
+    ShowOrHide,
+    Restore,
+    CloseAll,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,8 +164,39 @@ pub struct MenuTexts {
     pub unlock_area: String,
     pub selection_size: String,
     pub images: String,
+    pub pin: String,
+    pub pins: PinTexts,
     pub markup: MarkupTexts,
     pub right_to_left: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PinTexts {
+    pub title: String,
+    pub zoom: String,
+    pub zoom_in: String,
+    pub zoom_out: String,
+    pub actual_size: String,
+    pub fit_monitor: String,
+    pub opacity: String,
+    pub percent: String,
+    pub close: String,
+    pub hide_all: String,
+    pub close_all: String,
+}
+
+impl PinTexts {
+    pub const PERCENT: &str = "{percent}";
+
+    pub fn title_of(&self, width: u32, height: u32) -> String {
+        self.title
+            .replace(MenuTexts::WIDTH, &width.to_string())
+            .replace(MenuTexts::HEIGHT, &height.to_string())
+    }
+
+    pub fn percent_of(&self, percent: u16) -> String {
+        self.percent.replace(Self::PERCENT, &percent.to_string())
+    }
 }
 
 impl MenuTexts {
@@ -285,6 +326,7 @@ pub enum Event {
     SecondStart,
     Recording(RecordingState),
     Delaying(bool),
+    Pins(Count),
     Gif(GifEvent),
     Unsaved(Option<u8>),
     ReadyToQuit,

@@ -1,6 +1,6 @@
 //! The runtime's loop: waits on messages, the Print Screen setting, the timer of a recording or of
-//! the live screen and the overlay's last frame, hands each message to what handles it, and keeps
-//! a panic from ending the thread.
+//! the live screen and the overlay's last frame, hands each message to what handles it, the
+//! overlay's input or a pin's, and keeps a panic from ending the thread.
 
 use std::panic::AssertUnwindSafe;
 use std::time::Duration;
@@ -8,17 +8,18 @@ use std::time::Duration;
 use bediz_core::recording::RecordingStop;
 use windows::Win32::Foundation::{HANDLE, HWND, WAIT_FAILED, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{INFINITE, WaitForSingleObject};
+use windows::Win32::UI::Input::KeyboardAndMouse::VK_F10;
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE,
     PeekMessageW, QS_ALLINPUT, TranslateMessage, WM_CHAR, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP,
-    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
-    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WaitMessage,
+    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+    WM_QUIT, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WaitMessage,
 };
 
 use super::{
     CLIPBOARD_TIMER, DELAY_TIMER, DISPLAY_TIMER, LABEL_TIMER, MENU_FADE_TIMER, Runtime,
-    WM_COMMANDS, WM_EFFECT_MADE, WM_FINISH_SAVES, WM_HOLD, WM_OUTCOMES, WM_PICTURE, WM_RECORDING,
-    WM_SAVE_AS, WM_SECOND_START, WM_STOP, WM_TEXT,
+    WM_COMMANDS, WM_EFFECT_MADE, WM_FINISH_SAVES, WM_HOLD, WM_OUTCOMES, WM_PICTURE, WM_PIN_KEPT,
+    WM_RECORDING, WM_SAVE_AS, WM_SECOND_START, WM_STOP, WM_TEXT,
 };
 use crate::event::{Event, Failure};
 use crate::windows::clock;
@@ -162,7 +163,7 @@ impl Runtime {
                 self.on_hotkey(message.lParam, Some(clock::message_age(message.time)));
             }
             WM_HOTKEY if own && message.wParam.0 == hotkey::GIF_HOTKEY as usize => {
-                self.on_gif_hotkey(clock::message_age(message.time));
+                self.on_gif_hotkey(message.lParam, Some(clock::message_age(message.time)));
             }
             WM_TIMER if own && message.wParam.0 == MENU_FADE_TIMER => {
                 if self.menu_capture {
@@ -187,8 +188,19 @@ impl Runtime {
             WM_EFFECT_MADE if own => self.reselect(|_, _| {}),
             WM_PICTURE if own => self.on_picture(),
             WM_TEXT if own => self.on_text(),
-            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MOUSEMOVE
-            | WM_MOUSEWHEEL | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+            WM_PIN_KEPT if own => self.on_pin_kept(),
+            // Alt+F4 and the other system keys still reach the window, which closes a pin softly.
+            WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_MOUSEMOVE
+            | WM_MOUSEWHEEL | WM_KEYDOWN | WM_SYSKEYDOWN
+                if self.pins.owns(message.hwnd)
+                    && (message.message != WM_SYSKEYDOWN
+                        || message.wParam.0 == usize::from(VK_F10.0)) =>
+            {
+                self.on_pin_input(message);
+            }
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP
+            | WM_MOUSEMOVE | WM_MOUSEWHEEL | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN
+            | WM_SYSKEYUP
                 if self.takes_input(message) =>
             {
                 // Only a translated key brings its character and gives an input method its keys.
@@ -239,6 +251,7 @@ impl Runtime {
         if let Some(request) = window_class::take_controls_request() {
             self.on_controls(request);
         }
+        self.on_pin_events();
         self.follow_input_method();
         if desktop_switch::take_switched() {
             self.stop_recording(Some(RecordingStop::Display));
@@ -252,9 +265,12 @@ impl Runtime {
             let change = self.gif_hotkey.refresh();
             self.report_gif_hotkey(change);
         }
-        // A press the overlay's menu took acts in the overlay still open, but never opens a new one.
+        // A press a menu took acts on a recording, overlay or pin still open, but never opens one.
         if let Some(keys) = window_class::take_missed_hotkey() {
             self.on_hotkey(keys, None);
+        }
+        if let Some(keys) = window_class::take_missed_gif_hotkey() {
+            self.on_gif_hotkey(keys, None);
         }
         self.tell_quit();
         let own = self.window.0;

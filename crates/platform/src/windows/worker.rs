@@ -1,5 +1,5 @@
-//! The threads that encode screenshots to PNG and save them away from the platform thread, and
-//! report each outcome back to it.
+//! The threads that encode screenshots to PNG, or read a pin's PNG back for the clipboard, and
+//! save them away from the platform thread, and report each outcome back to it.
 
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 
 use bediz_core::delivery::{DeliveryError, SaveError};
 use bediz_core::file_name::LocalTime;
-use bediz_core::image::Image;
+use bediz_core::image::{Image, ImageError};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
@@ -21,14 +21,19 @@ use super::save::{self, FileId, SavedAs};
 
 const WAITING_TO_ENCODE: usize = 2;
 const WAITING_TO_SAVE: usize = 4;
-const INTERNAL_ERROR: &str = "an internal error was caught";
+pub const INTERNAL_ERROR: &str = "an internal error was caught";
 
 pub struct Job {
     pub id: u64,
-    pub image: Image,
+    pub pixels: Pixels,
     pub copy: Option<u64>,
     pub save: Option<Target>,
     pub time: LocalTime,
+}
+
+pub enum Pixels {
+    Image(Arc<Image>),
+    Png(Png),
 }
 
 pub enum Target {
@@ -202,20 +207,31 @@ pub fn save_stopped() -> SaveError {
 fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
     let Job {
         id,
-        image,
+        pixels,
         copy,
         save,
         time,
     } = job;
-    let png = match image.encode_png() {
-        Ok(png) => Arc::new(png),
-        Err(error) => {
-            reply.send(Outcome::Failed {
-                job: id,
-                error: DeliveryError::Unexpected(error.to_string()),
-            });
-            return;
-        }
+    let failed = |error: ImageError| {
+        reply.send(Outcome::Failed {
+            job: id,
+            error: DeliveryError::Unexpected(error.to_string()),
+        });
+    };
+    let (image, png) = match pixels {
+        Pixels::Image(image) => match image.encode_png() {
+            Ok(png) => (Some(image), Arc::new(png)),
+            Err(error) => return failed(error),
+        },
+        Pixels::Png(png) => (None, png),
+    };
+    // The clipboard takes a bitmap beside the PNG, so a PNG kept alone is read back for it.
+    let image = match (image, copy) {
+        (None, Some(_)) => match Image::decode_png(&png) {
+            Ok(image) => Some(Arc::new(image)),
+            Err(error) => return failed(error),
+        },
+        (image, _) => image,
     };
     let (to_copy, to_save) = match (copy, save) {
         (Some(ticket), Some(target)) => (Some((ticket, Arc::clone(&png))), Some((target, png))),
@@ -223,11 +239,11 @@ fn encode(job: Job, reply: &Reply, saves: &SyncSender<Save>) {
         (None, Some(target)) => (None, Some((target, png))),
         (None, None) => (None, None),
     };
-    if let Some((ticket, png)) = to_copy {
+    if let (Some((ticket, png)), Some(image)) = (to_copy, &image) {
         reply.send(Outcome::Encoded {
             job: id,
             ticket,
-            contents: Contents::image(&image, png),
+            contents: Contents::image(image, png),
         });
     }
     drop(image);
@@ -287,18 +303,19 @@ fn save_one(save: Save, reply: &Reply) {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use bediz_core::delivery::SaveError;
     use bediz_core::file_name::LocalTime;
     use bediz_core::image::Image;
     use windows::Win32::Foundation::HWND;
 
-    use super::{Job, Outcome, Target, Worker};
+    use super::{Job, Outcome, Pixels, Target, Worker};
 
     fn copy(id: u64) -> Job {
         Job {
             id,
-            image: Image::blank(64, 48).unwrap(),
+            pixels: Pixels::Image(Arc::new(Image::blank(64, 48).unwrap())),
             copy: Some(id),
             save: None,
             time: LocalTime {
@@ -329,6 +346,26 @@ mod tests {
             })
             .collect();
         assert_eq!(encoded, [1, 2]);
+    }
+
+    #[test]
+    fn a_png_kept_alone_is_read_back_for_the_clipboard_bitmap() {
+        let worker = Worker::start(HWND::default()).unwrap();
+        let png = Arc::new(Image::blank(8, 6).unwrap().encode_png().unwrap());
+        let job = Job {
+            pixels: Pixels::Png(png),
+            ..copy(1)
+        };
+        worker.send(job).unwrap();
+        let outcomes = worker.finish();
+        assert!(matches!(
+            outcomes.as_slice(),
+            [Outcome::Encoded {
+                job: 1,
+                ticket: 1,
+                ..
+            }]
+        ));
     }
 
     #[test]

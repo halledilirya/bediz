@@ -1,5 +1,7 @@
-//! Copies and saves a selection through the worker thread, keeps a report for each until both
-//! have ended, and saves what was accepted before a quit.
+//! Copies and saves a selection or a pin through the worker thread, keeps a report for each until
+//! both have ended, and saves what was accepted before a quit.
+
+use std::sync::Arc;
 
 use bediz_core::delivery::{Delivery, DeliveryError, Report, SaveError};
 use bediz_core::file_name::LocalTime;
@@ -13,13 +15,20 @@ use crate::event::Event;
 use crate::windows::clock;
 use crate::windows::save;
 use crate::windows::session::Purpose;
-use crate::windows::worker::{self, Job, Outcome, Target, Worker};
+use crate::windows::worker::{self, Job, Outcome, Pixels, Target, Worker};
 
 pub(super) struct Tracked {
     job: u64,
     near: Rect,
-    region: bool,
+    origin: Origin,
     report: Report,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Origin {
+    Region,
+    Picture,
+    Pin,
 }
 
 impl Runtime {
@@ -27,33 +36,55 @@ impl Runtime {
         let Some((rect, read)) = self.read_selection() else {
             return;
         };
-        let region = self.selects_region();
+        let origin = self.origin();
         let time = clock::local_time();
         let (width, height) = size_of(&read, rect);
         let target = delivery.save.then(|| Target::Folder {
             folder: self.save_folder.clone(),
             stem: self.file_name.stem(&time, width, height),
         });
-        self.send_job(rect, region, read, delivery, target, time);
+        let read = read.map(|image| Pixels::Image(Arc::new(image)));
+        self.send_job(rect, origin, read, delivery, target, time);
         self.hide();
     }
 
+    pub(super) fn deliver_pixels(
+        &mut self,
+        near: Rect,
+        pixels: Pixels,
+        (width, height): (u32, u32),
+        delivery: Delivery,
+    ) {
+        let time = clock::local_time();
+        let target = delivery.save.then(|| Target::Folder {
+            folder: self.save_folder.clone(),
+            stem: self.file_name.stem(&time, width, height),
+        });
+        self.send_job(near, Origin::Pin, Ok(pixels), delivery, target, time);
+    }
+
     // An opened picture is shown wherever it fits, so where it lay is no region to select again.
-    pub(super) fn selects_region(&self) -> bool {
-        self.session
+    pub(super) fn origin(&self) -> Origin {
+        let region = self
+            .session
             .as_ref()
-            .is_some_and(|session| session.purpose() != Purpose::Picture)
+            .is_some_and(|session| session.purpose() != Purpose::Picture);
+        if region {
+            Origin::Region
+        } else {
+            Origin::Picture
+        }
     }
 
     pub(super) fn forget(&mut self, job: u64) {
         self.reports.retain(|tracked| tracked.job != job);
     }
 
-    pub(super) fn near_of(&self, job: u64) -> Option<Rect> {
+    pub(super) fn origin_of(&self, job: u64) -> Option<(Rect, Origin)> {
         self.reports
             .iter()
             .find(|tracked| tracked.job == job)
-            .map(|tracked| tracked.near)
+            .map(|tracked| (tracked.near, tracked.origin))
     }
 
     pub(super) fn read_selection(&self) -> Option<(Rect, Result<Image, DeliveryError>)> {
@@ -80,8 +111,8 @@ impl Runtime {
     pub(super) fn send_job(
         &mut self,
         rect: Rect,
-        region: bool,
-        read: Result<Image, DeliveryError>,
+        origin: Origin,
+        read: Result<Pixels, DeliveryError>,
         delivery: Delivery,
         save: Option<Target>,
         time: LocalTime,
@@ -91,11 +122,11 @@ impl Runtime {
         self.reports.push(Tracked {
             job,
             near: rect,
-            region,
+            origin,
             report: Report::new(delivery),
         });
-        let image = match read {
-            Ok(image) => image,
+        let pixels = match read {
+            Ok(pixels) => pixels,
             Err(error) => {
                 self.update(job, |report| report.failed(error));
                 return;
@@ -105,7 +136,7 @@ impl Runtime {
         let sent = match &self.worker {
             Some(worker) => worker.send(Job {
                 id: job,
-                image,
+                pixels,
                 copy: ticket,
                 save,
                 time,
@@ -192,7 +223,7 @@ impl Runtime {
         let Some(region) = self
             .reports
             .iter()
-            .find(|tracked| tracked.job == job && tracked.region)
+            .find(|tracked| tracked.job == job && tracked.origin == Origin::Region)
             .map(|tracked| tracked.near)
         else {
             return;

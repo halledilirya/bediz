@@ -6,9 +6,9 @@ use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::markup::{Markup, Tool};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VIRTUAL_KEY, VK_A, VK_ADD, VK_APPS, VK_BACK, VK_C, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F4,
+    VIRTUAL_KEY, VK_A, VK_ADD, VK_APPS, VK_BACK, VK_C, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F3, VK_F4,
     VK_F10, VK_LEFT, VK_MENU, VK_O, VK_OEM_MINUS, VK_OEM_PLUS, VK_R, VK_RETURN, VK_RIGHT, VK_S,
-    VK_SHIFT, VK_SUBTRACT, VK_UP, VK_Y, VK_Z,
+    VK_SHIFT, VK_SUBTRACT, VK_T, VK_UP, VK_Y, VK_Z,
 };
 
 use super::{Action, KeyPress, Purpose, Session, confirm, modifiers};
@@ -166,6 +166,12 @@ fn respond(press: KeyPress, held: Held, enter: Delivery, purpose: Purpose) -> Op
             Response::Act(Action::Deliver(Delivery::SAVE))
         }
         VK_S if press.control && press.shift && selected && still => Response::Act(Action::SaveAs),
+        VK_F3 if !press.control && !press.alt && !press.shift && marking && !press.repeat => {
+            Response::Act(Action::Pin)
+        }
+        VK_T if press.control && !press.alt && !press.shift && marking && !press.repeat => {
+            Response::Act(Action::Pin)
+        }
         VK_LEFT => moved(-step, 0),
         VK_RIGHT => moved(step, 0),
         VK_UP => moved(0, -step),
@@ -199,7 +205,7 @@ mod tests {
     use windows::Win32::Foundation::LPARAM;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, VIRTUAL_KEY, VK_A, VK_ADD, VK_C,
-        VK_DELETE, VK_ESCAPE, VK_F4, VK_LEFT, VK_NUMPAD1, VK_O, VK_OEM_MINUS, VK_P, VK_R,
+        VK_DELETE, VK_ESCAPE, VK_F3, VK_F4, VK_LEFT, VK_NUMPAD1, VK_O, VK_OEM_MINUS, VK_P, VK_R,
         VK_RETURN, VK_S, VK_T, VK_Y, VK_Z,
     };
 
@@ -409,6 +415,46 @@ mod tests {
             );
             assert_eq!(key(HOT_KEY_MODIFIERS(0), VK_C), Some(Response::CopyColour));
         }
+    }
+
+    #[test]
+    fn f3_or_ctrl_t_pins_a_still_selection_and_t_alone_still_chooses_the_text_tool() {
+        for purpose in [Purpose::Screenshot, Purpose::Picture] {
+            let key = |modifiers, key| replayed_for(purpose, modifiers, key, true);
+            assert_eq!(
+                key(HOT_KEY_MODIFIERS(0), VK_F3),
+                Some(Response::Act(Action::Pin))
+            );
+            assert_eq!(key(MOD_CONTROL, VK_T), Some(Response::Act(Action::Pin)));
+            assert_eq!(
+                key(HOT_KEY_MODIFIERS(0), VK_T),
+                Some(Response::Tool(Tool::Text))
+            );
+            for modifiers in [MOD_CONTROL, MOD_ALT, MOD_SHIFT, MOD_CONTROL | MOD_SHIFT] {
+                assert_eq!(key(modifiers, VK_F3), None);
+            }
+            assert_eq!(key(MOD_CONTROL | MOD_SHIFT, VK_T), None);
+            assert_eq!(key(MOD_CONTROL | MOD_ALT, VK_T), None);
+            assert_eq!(key(MOD_ALT, VK_T), None);
+            assert_eq!(key(MOD_SHIFT, VK_T), Some(Response::Tool(Tool::Text)));
+        }
+        assert_eq!(replayed(HOT_KEY_MODIFIERS(0), VK_F3, false), None);
+        assert_eq!(
+            replayed_for(Purpose::Recording, HOT_KEY_MODIFIERS(0), VK_F3, true),
+            None
+        );
+        let held = KeyPress {
+            repeat: true,
+            ..as_key_press(LPARAM((VK_F3.0 as isize) << 16))
+        };
+        let selected = Held {
+            selected: true,
+            words: false,
+        };
+        assert_eq!(
+            respond(held, selected, Delivery::COPY_AND_SAVE, Purpose::Screenshot),
+            None
+        );
     }
 
     #[test]

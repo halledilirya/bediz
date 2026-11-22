@@ -68,6 +68,15 @@ impl Runtime {
                 Command::KeepOutOfHistory(keep_out) => self.keep_out_of_history = keep_out,
                 Command::SetTextLayout(layout) => self.text_layout = layout,
                 Command::SetTextLanguage(language) => self.text_language = language,
+                Command::ShowPinsInCaptures(shown) => self.show_pins_in_captures(shown),
+                Command::Pins(action) if self.holds_pins_back(action) => {
+                    self.hold_pins_back(action);
+                }
+                Command::Pins(action) => {
+                    // Actions held back before it reach the shelf first, so the last click wins.
+                    self.let_held_actions_go();
+                    self.on_pin_action(action);
+                }
                 Command::SetRecordingOptions(options) => self.recording_options = options,
                 Command::Quit(step) => self.on_quit(step),
                 Command::ReserveGifCopy { id } => self.reserve_gif_copy(id),
@@ -77,7 +86,10 @@ impl Runtime {
                     self.start_with_windows(on, request);
                 }
                 Command::ShowLabel(label) => self.show_label(label),
-                Command::SetMenuTexts(texts) => self.menu_texts = Some(*texts),
+                Command::SetMenuTexts(texts) => {
+                    self.retitle_pins(&texts.pins);
+                    self.menu_texts = Some(*texts);
+                }
                 Command::Resume => self.resume(),
                 Command::Recording(action) => self.on_recording_action(action),
             }

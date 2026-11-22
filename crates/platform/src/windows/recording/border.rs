@@ -12,12 +12,13 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, GetClientRect, HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOSIZE, SWP_SHOWWINDOW, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowPos,
-    USER_DEFAULT_SCREEN_DPI, WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    WDA_EXCLUDEFROMCAPTURE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{Result, w};
 
 use crate::windows::contrast::high_contrast;
+use crate::windows::monitor::scale_of;
 use crate::windows::window_class::{BORDER_CLASS, DASHED_BORDER_CLASS, OwnedWindow};
 
 const THICKNESS: f32 = 2.0;
@@ -49,7 +50,7 @@ pub fn erase(window: HWND, dc: HDC, line: Line) {
     if line == Line::Solid {
         return;
     }
-    let scale = unsafe { GetDpiForWindow(window) } as f32 / USER_DEFAULT_SCREEN_DPI as f32;
+    let scale = scale_of(unsafe { GetDpiForWindow(window) });
     let dash = (DASH * scale).round() as i32;
     let across = client.right >= client.bottom;
     let length = if across { client.right } else { client.bottom };

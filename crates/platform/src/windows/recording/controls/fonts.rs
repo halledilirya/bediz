@@ -10,7 +10,8 @@ use windows::Win32::UI::HiDpi::SystemParametersInfoForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS};
 use windows::core::{Error, Result};
 
-use super::{pixels, scale};
+use super::pixels;
+use crate::windows::monitor::scale_of;
 
 const ICON_SIZE: f32 = 16.0;
 const ICON_FACE: &str = "Segoe Fluent Icons";
@@ -51,7 +52,7 @@ pub(super) fn icon_font(dpi: u32) -> Option<Font> {
         *unit = wanted;
     }
     let logical = LOGFONTW {
-        lfHeight: -pixels(ICON_SIZE, scale(dpi)),
+        lfHeight: -pixels(ICON_SIZE, scale_of(dpi)),
         lfWeight: FW_NORMAL.0 as i32,
         lfCharSet: DEFAULT_CHARSET,
         lfQuality: CLEARTYPE_QUALITY,

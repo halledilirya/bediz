@@ -238,15 +238,10 @@ impl Gpu {
 
     // A picture larger than the device holds is halved first; it is only shown, never copied.
     pub fn picture_bitmap(&self, image: &Image) -> Result<ID2D1Bitmap1> {
-        let most = unsafe { self.canvas.GetMaximumBitmapSize() }.max(1);
-        let mut smaller = None;
-        let mut current = image;
-        while current.width() > most || current.height() > most {
-            let half = picture::halved(current)
-                .ok_or_else(|| Error::new(E_FAIL, "the image could not be made smaller"))?;
-            current = smaller.insert(half);
-        }
-        self.created(current, D2D1_ALPHA_MODE_PREMULTIPLIED)
+        let most = unsafe { self.canvas.GetMaximumBitmapSize() };
+        let shown = picture::within(image, most)
+            .ok_or_else(|| Error::new(E_FAIL, "the image could not be made smaller"))?;
+        self.created(&shown, D2D1_ALPHA_MODE_PREMULTIPLIED)
     }
 
     fn created(&self, image: &Image, alpha: D2D1_ALPHA_MODE) -> Result<ID2D1Bitmap1> {

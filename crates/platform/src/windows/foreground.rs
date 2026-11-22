@@ -4,7 +4,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{INPUT, INPUT_MOUSE, SendInput, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
+    GetForegroundWindow, GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetForegroundWindow,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,8 +26,11 @@ pub fn take(window: HWND) -> Foreground {
     taken
 }
 
+// A window hidden since, a pin say, would take the keys out of sight.
 pub fn give_back(previous: HWND) {
-    if unsafe { IsWindow(Some(previous)) }.as_bool() {
+    if unsafe { IsWindow(Some(previous)) }.as_bool()
+        && unsafe { IsWindowVisible(previous) }.as_bool()
+    {
         let _ = unsafe { SetForegroundWindow(previous) };
     }
 }

@@ -10,6 +10,7 @@ mod scaler;
 mod start;
 mod timer;
 
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -25,6 +26,7 @@ use super::clock::{Clock, Tick};
 use super::countdown::Countdown;
 use super::foreground;
 use super::scene::Scene;
+use super::window_class;
 use border::Border;
 use controls::Controls;
 pub use pipeline::{Ended, Pipeline};
@@ -144,6 +146,32 @@ impl Recording {
         &self.summary
     }
 
+    pub fn record_while<T>(
+        &mut self,
+        scene: &mut Scene,
+        notes: &mut Vec<String>,
+        modal: impl FnOnce() -> T,
+    ) -> windows::core::Result<(T, Next)> {
+        let Some(timer) = self.timer() else {
+            return Ok((modal(), Next::Going));
+        };
+        let mut next = Next::Going;
+        let held = timer::keep_pace(
+            timer,
+            || {
+                next = self.tick(scene, notes);
+                // A hotkey press the menu took will stop the recording, so it ends the menu too.
+                if matches!(next, Next::Going) && !window_class::hotkey_missed() {
+                    ControlFlow::Continue(())
+                } else {
+                    ControlFlow::Break(())
+                }
+            },
+            modal,
+        )?;
+        Ok((held, next))
+    }
+
     pub fn tick(&mut self, scene: &mut Scene, notes: &mut Vec<String>) -> Next {
         let elapsed = self.elapsed();
         if self.countdown.is_some() {
@@ -198,7 +226,8 @@ impl Recording {
     }
 
     pub fn stop(mut self, scene: Option<&mut Scene>, notes: &mut Vec<String>) -> (Pipeline, Rect) {
-        let end = self.elapsed();
+        // A stop acted on late still ends the GIF at its time limit; no frame is taken past it.
+        let end = self.elapsed().min(self.time_limit);
         if let Some(scene) = scene {
             if let Err(stop) = self.collect(scene, true, notes) {
                 notes.push(format!(
