@@ -1,4 +1,5 @@
-//! The marking-up tools with their keys, and the colours they draw in.
+//! The marking-up tools with their keys and the tool each mark was drawn with, and the colours
+//! they draw in.
 
 use super::{Mark, Shape};
 
@@ -51,6 +52,22 @@ impl Tool {
     pub fn for_key(key: char) -> Option<Self> {
         let key = key.to_ascii_uppercase();
         Self::ALL.into_iter().find(|tool| tool.key() == key)
+    }
+
+    pub fn of(mark: &Mark) -> Self {
+        match mark.shape {
+            Shape::Pen(_) => Self::Pen,
+            Shape::Highlighter(_) => Self::Highlighter,
+            Shape::Line(..) => Self::Line,
+            Shape::Arrow(..) => Self::Arrow,
+            Shape::Rectangle(..) => Self::Rectangle,
+            Shape::Ellipse(..) => Self::Ellipse,
+            Shape::Text { .. } => Self::Text,
+            Shape::Step { .. } => Self::Step,
+            Shape::Redact(..) => Self::Redact,
+            Shape::Blur(..) => Self::Blur,
+            Shape::Pixelate(..) => Self::Pixelate,
+        }
     }
 }
 
@@ -133,6 +150,7 @@ impl Swatch {
 mod tests {
     use super::*;
     use crate::geometry::Point;
+    use crate::markup::Markup;
 
     fn mark(shape: Shape, colour: Colour) -> Mark {
         Mark {
@@ -174,6 +192,15 @@ mod tests {
         assert_eq!(keys.len(), Tool::ALL.len());
         for taken in ['R', 'C', 'O'] {
             assert_eq!(Tool::for_key(taken), None);
+        }
+    }
+
+    #[test]
+    fn a_mark_belongs_to_the_tool_that_drew_it() {
+        let mut markup = Markup::default();
+        for tool in Tool::ALL {
+            markup.draw(tool, Point::new(5, 5), Swatch::Red.colour(), 3.0);
+            assert_eq!(markup.marks().last().map(Tool::of), Some(tool));
         }
     }
 

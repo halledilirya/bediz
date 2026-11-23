@@ -1,5 +1,5 @@
-//! BGRA images with premultiplied alpha: joining parts into one, encoding as PNG, the bottom-up
-//! rows the clipboard takes and a pixel's colour written as hex.
+//! BGRA images with premultiplied alpha: joining parts into one, encoding as PNG and reading one
+//! back, the bottom-up rows the clipboard takes and a pixel's colour written as hex.
 
 use thiserror::Error;
 

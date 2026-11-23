@@ -8,6 +8,7 @@ mod clipboard;
 mod clock;
 mod contrast;
 mod countdown;
+mod cursor;
 mod desktop_switch;
 mod displays;
 mod folder;

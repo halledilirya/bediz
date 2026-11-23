@@ -8,6 +8,7 @@ use std::time::Duration;
 use bediz_core::recording::RecordingStop;
 use windows::Win32::Foundation::{HANDLE, HWND, WAIT_FAILED, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{INFINITE, WaitForSingleObject};
+use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::Input::KeyboardAndMouse::VK_F10;
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE,
@@ -250,6 +251,16 @@ impl Runtime {
         }
         if let Some(request) = window_class::take_controls_request() {
             self.on_controls(request);
+        }
+        if let Some(window) = window_class::take_mouse_left() {
+            let left = MSG {
+                hwnd: window,
+                message: WM_MOUSELEAVE,
+                ..Default::default()
+            };
+            if self.takes_input(&left) {
+                self.on_input(&left);
+            }
         }
         self.on_pin_events();
         self.follow_input_method();

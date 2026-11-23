@@ -1,6 +1,6 @@
-//! Marking up a screenshot's selection on the overlay: the chosen tool, colour and width, the
-//! measured size of each text, the blurs and pixelations made from what lies under them, and
-//! the image copied or saved with every mark on it.
+//! Marking up a screenshot's selection on the overlay: the chosen tool, the colour, each tool's
+//! width, the measured size of each text, the blurs and pixelations made from what lies under
+//! them, and the image copied or saved with every mark on it.
 
 mod composing;
 pub mod layout;
@@ -8,7 +8,9 @@ mod maker;
 pub mod paint;
 mod render;
 
-use bediz_core::geometry::{Point, Rect};
+use std::collections::HashMap;
+
+use bediz_core::geometry::{DragDistance, Point, Rect};
 use bediz_core::image::Image;
 use bediz_core::markup::composition::{self, Composed, Composition};
 use bediz_core::markup::effect::{self, Effect, Job};
@@ -68,7 +70,8 @@ pub struct Marking {
     markup: Markup,
     tool: Option<Tool>,
     swatch: Swatch,
-    width: f32,
+    widths: HashMap<Tool, f32>,
+    first_width: f32,
     step: f32,
     previews: Vec<Preview>,
     refreshed: Option<u64>,
@@ -87,7 +90,8 @@ impl Marking {
             markup: Markup::default(),
             tool: None,
             swatch: Swatch::default(),
-            width: (DEFAULT_WIDTH * scale).round(),
+            widths: HashMap::new(),
+            first_width: (DEFAULT_WIDTH * scale).round(),
             step: scale.round(),
             previews: Vec::new(),
             refreshed: None,
@@ -115,6 +119,14 @@ impl Marking {
 
     pub fn tool(&self) -> Option<Tool> {
         self.tool
+    }
+
+    pub fn tool_width(&self) -> Option<(Tool, f32)> {
+        self.tool.map(|tool| (tool, self.width_of(tool)))
+    }
+
+    fn width_of(&self, tool: Tool) -> f32 {
+        self.widths.get(&tool).copied().unwrap_or(self.first_width)
     }
 
     pub fn swatch(&self) -> Swatch {
@@ -181,19 +193,23 @@ impl Marking {
         self.markup.recolour(swatch.colour());
     }
 
-    pub fn widen(&mut self, steps: i32) {
-        let base = self
-            .markup
-            .editing()
-            .or(self.markup.selected())
-            .map_or(self.width, |mark| mark.width);
+    pub fn widen(&mut self, steps: i32) -> bool {
+        let shown = self.markup.editing().or(self.markup.selected());
+        let Some((tool, base)) = shown
+            .map(|mark| (Tool::of(mark), mark.width))
+            .or_else(|| self.tool_width())
+        else {
+            return false;
+        };
         let width = (base + steps as f32 * self.step).clamp(THINNEST, THICKEST);
-        self.width = width;
+        self.widths.insert(tool, width);
         self.markup.rewidth(width);
+        true
     }
 
-    pub fn draw(&mut self, tool: Tool, at: Point) {
-        self.markup.draw(tool, at, self.swatch.colour(), self.width);
+    pub fn press(&mut self, tool: Tool, at: Point, distance: DragDistance) {
+        let (colour, width) = (self.swatch.colour(), self.width_of(tool));
+        self.markup.press(tool, at, colour, width, distance);
     }
 
     pub fn type_unit(&mut self, unit: u16) {
@@ -418,13 +434,18 @@ mod tests {
         Composition::from_input_method(&units, &[], &[], units.len())
     }
 
+    fn draw(marking: &mut Marking, tool: Tool, at: Point) {
+        let (colour, width) = (marking.swatch.colour(), marking.width_of(tool));
+        marking.markup.draw(tool, at, colour, width);
+    }
+
     #[test]
     fn a_blur_over_a_text_is_made_from_the_composition_shown_in_it() {
         let mut marking = Marking::new(1.0, HWND::default());
-        marking.draw(Tool::Text, Point::new(2, 2));
+        draw(&mut marking, Tool::Text, Point::new(2, 2));
         marking.markup_mut().type_text("ab");
         marking.markup_mut().end_editing();
-        marking.draw(Tool::Blur, Point::new(0, 0));
+        draw(&mut marking, Tool::Blur, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(19, 19), false);
         let marks = marking.markup().marks().to_vec();
         let (Some(job), Some(text)) = (effect::jobs(&marks).next(), marks.first()) else {
@@ -453,11 +474,11 @@ mod tests {
     #[test]
     fn a_blur_is_made_again_only_when_what_lies_beneath_it_changes() {
         let mut marking = Marking::new(1.0, HWND::default());
-        marking.draw(Tool::Pen, Point::new(0, 0));
+        draw(&mut marking, Tool::Pen, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(30, 30), false);
-        marking.draw(Tool::Blur, Point::new(10, 10));
+        draw(&mut marking, Tool::Blur, Point::new(10, 10));
         marking.markup_mut().finish(Point::new(60, 60), false);
-        marking.draw(Tool::Arrow, Point::new(0, 50));
+        draw(&mut marking, Tool::Arrow, Point::new(0, 50));
         marking.markup_mut().finish(Point::new(90, 50), false);
         let marks = marking.markup().marks().to_vec();
         let Some(job) = effect::jobs(&marks).next() else {
@@ -482,7 +503,7 @@ mod tests {
     #[test]
     fn the_wheel_grows_the_selected_mark_from_its_own_width() {
         let mut marking = Marking::new(1.0, HWND::default());
-        marking.draw(Tool::Line, Point::new(0, 0));
+        draw(&mut marking, Tool::Line, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(40, 0), false);
         assert!(marking.markup_mut().rewidth(10.0));
         marking.widen(1);
@@ -490,14 +511,42 @@ mod tests {
             marking.markup().selected().map(|mark| mark.width),
             Some(11.0)
         );
-        assert_eq!(marking.width, 11.0);
+        assert_eq!(marking.width_of(Tool::Line), 11.0);
+        assert_eq!(marking.width_of(Tool::Pen), DEFAULT_WIDTH);
+    }
+
+    #[test]
+    fn each_tool_keeps_its_own_width() {
+        let mut marking = Marking::new(1.0, HWND::default());
+        assert!(!marking.widen(5));
+        assert_eq!(marking.width_of(Tool::Pen), DEFAULT_WIDTH);
+        marking.choose(Tool::Pen);
+        assert!(marking.widen(-100));
+        marking.choose(Tool::Highlighter);
+        assert!(marking.widen(5));
+        assert_eq!(
+            marking.tool_width(),
+            Some((Tool::Highlighter, DEFAULT_WIDTH + 5.0))
+        );
+        marking.choose(Tool::Pen);
+        assert_eq!(marking.tool_width(), Some((Tool::Pen, THINNEST)));
+        let distance = DragDistance {
+            width: 4,
+            height: 4,
+        };
+        marking.press(Tool::Pen, Point::new(0, 0), distance);
+        assert_eq!(
+            marking.markup().marks().last().map(|mark| mark.width),
+            Some(THINNEST)
+        );
+        assert_eq!(marking.width_of(Tool::Arrow), DEFAULT_WIDTH);
     }
 
     #[test]
     fn choosing_another_tool_lets_go_of_the_mark_just_drawn() {
         let mut marking = Marking::new(1.0, HWND::default());
         marking.choose(Tool::Rectangle);
-        marking.draw(Tool::Rectangle, Point::new(0, 0));
+        draw(&mut marking, Tool::Rectangle, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(40, 30), false);
         assert!(marking.markup().selected().is_some());
         marking.choose(Tool::Arrow);
@@ -519,7 +568,7 @@ mod tests {
     fn putting_the_tool_down_lets_go_of_the_mark_and_keeps_every_mark() {
         let mut marking = Marking::new(1.0, HWND::default());
         marking.choose(Tool::Rectangle);
-        marking.draw(Tool::Rectangle, Point::new(0, 0));
+        draw(&mut marking, Tool::Rectangle, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(40, 30), false);
         let marks = marking.markup().marks().to_vec();
         marking.put_down();
@@ -533,19 +582,20 @@ mod tests {
     #[test]
     fn the_width_follows_the_display_scale_and_stays_in_bounds() {
         let mut marking = Marking::new(2.0, HWND::default());
-        assert_eq!(marking.width, DEFAULT_WIDTH * 2.0);
+        marking.choose(Tool::Pen);
+        assert_eq!(marking.width_of(Tool::Pen), DEFAULT_WIDTH * 2.0);
         marking.widen(1);
-        assert_eq!(marking.width, DEFAULT_WIDTH * 2.0 + 2.0);
+        assert_eq!(marking.width_of(Tool::Pen), DEFAULT_WIDTH * 2.0 + 2.0);
         marking.widen(-100);
-        assert_eq!(marking.width, THINNEST);
+        assert_eq!(marking.width_of(Tool::Pen), THINNEST);
         marking.widen(100);
-        assert_eq!(marking.width, THICKEST);
+        assert_eq!(marking.width_of(Tool::Pen), THICKEST);
     }
 
     #[test]
     fn a_character_typed_in_two_halves_arrives_whole_and_a_lone_half_is_dropped() {
         let mut marking = Marking::new(1.0, HWND::default());
-        marking.draw(Tool::Text, Point::new(0, 0));
+        draw(&mut marking, Tool::Text, Point::new(0, 0));
         for unit in "a😀".encode_utf16() {
             marking.type_unit(unit);
         }
@@ -566,12 +616,12 @@ mod tests {
     #[test]
     fn previews_are_made_again_after_each_change_but_not_during_a_drag() {
         let mut marking = Marking::new(1.0, HWND::default());
-        marking.draw(Tool::Text, Point::new(0, 0));
+        draw(&mut marking, Tool::Text, Point::new(0, 0));
         marking.refreshed = Some(marking.markup().revision());
         assert!(!marking.stale());
         marking.type_unit(u16::from(b'a'));
         assert!(marking.stale());
-        marking.draw(Tool::Blur, Point::new(0, 0));
+        draw(&mut marking, Tool::Blur, Point::new(0, 0));
         marking.markup_mut().drag(Point::new(20, 20), false);
         assert!(!marking.stale());
         marking.markup_mut().finish(Point::new(40, 40), false);
@@ -584,7 +634,7 @@ mod tests {
     #[test]
     fn a_made_blur_is_shown_until_the_one_for_its_new_width_arrives() {
         let mut marking = Marking::new(1.0, HWND::default());
-        marking.draw(Tool::Blur, Point::new(0, 0));
+        draw(&mut marking, Tool::Blur, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(9, 9), false);
         let Some(mark) = marking.markup().marks().first().cloned() else {
             panic!("the blur is drawn");
@@ -626,7 +676,7 @@ mod tests {
     #[test]
     fn a_blur_made_for_a_width_undone_meanwhile_is_not_shown() {
         let mut marking = Marking::new(1.0, HWND::default());
-        marking.draw(Tool::Blur, Point::new(0, 0));
+        draw(&mut marking, Tool::Blur, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(9, 9), false);
         let Some(mark) = marking.markup().marks().first().cloned() else {
             panic!("the blur is drawn");
@@ -669,10 +719,10 @@ mod tests {
             if let Some(area) = within {
                 marking.make_effects_from(area);
             }
-            marking.draw(Tool::Blur, Point::new(10, 10));
+            draw(&mut marking, Tool::Blur, Point::new(10, 10));
             marking.markup_mut().finish(Point::new(40, 40), false);
             assert!(marking.markup_mut().nudge_selected(200, 200));
-            marking.draw(Tool::Pixelate, Point::new(10, 10));
+            draw(&mut marking, Tool::Pixelate, Point::new(10, 10));
             marking.markup_mut().finish(Point::new(40, 40), false);
             marking
         };
@@ -720,7 +770,7 @@ mod tests {
     fn a_new_colour_is_kept_for_the_next_mark() {
         let mut marking = Marking::new(1.0, HWND::default());
         marking.recolour(Swatch::Blue);
-        marking.draw(Tool::Line, Point::new(0, 0));
+        draw(&mut marking, Tool::Line, Point::new(0, 0));
         marking.markup_mut().finish(Point::new(10, 0), false);
         assert_eq!(
             marking.markup().marks().first().map(|mark| mark.colour),

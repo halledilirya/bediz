@@ -1,17 +1,18 @@
-//! The keys of a selection: what each one does on a screenshot, a recording or an opened picture,
-//! with or without a selection or the words read from it, and acting on it for the selection, the
-//! marks, the words or the app.
+//! The keys of a selection: which ones are held, what each one does on a screenshot, a recording
+//! or an opened picture, with or without a selection or the words read from it, and acting on it
+//! for the selection, the marks, the words or the app.
 
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::markup::{Markup, Tool};
+use bediz_core::selection::Modifiers;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VIRTUAL_KEY, VK_A, VK_ADD, VK_APPS, VK_BACK, VK_C, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F3, VK_F4,
-    VK_F10, VK_LEFT, VK_MENU, VK_O, VK_OEM_MINUS, VK_OEM_PLUS, VK_R, VK_RETURN, VK_RIGHT, VK_S,
-    VK_SHIFT, VK_SUBTRACT, VK_T, VK_UP, VK_Y, VK_Z,
+    GetKeyState, VIRTUAL_KEY, VK_A, VK_ADD, VK_APPS, VK_BACK, VK_C, VK_DELETE, VK_DOWN, VK_ESCAPE,
+    VK_F3, VK_F4, VK_F10, VK_LEFT, VK_MENU, VK_O, VK_OEM_MINUS, VK_OEM_PLUS, VK_R, VK_RETURN,
+    VK_RIGHT, VK_S, VK_SHIFT, VK_SUBTRACT, VK_T, VK_UP, VK_Y, VK_Z,
 };
 
-use super::{Action, KeyPress, Purpose, Session, confirm, modifiers};
+use super::{Action, KeyPress, Purpose, Session, confirm};
 use crate::windows::scene::Scene;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +92,10 @@ impl Session {
                 edit_marks(markup, response).then_some(Action::None)
             }
             Response::Widen(steps) => {
-                self.marking.widen(steps);
+                if !self.marking.widen(steps) {
+                    return None;
+                }
+                self.show_width();
                 Some(Action::None)
             }
             Response::WholeMonitor => {
@@ -195,6 +199,18 @@ fn respond(press: KeyPress, held: Held, enter: Delivery, purpose: Purpose) -> Op
         _ => return None,
     };
     Some(response)
+}
+
+pub(super) fn modifiers() -> Modifiers {
+    Modifiers {
+        square: is_down(VK_SHIFT),
+        centered: is_down(VK_MENU),
+    }
+}
+
+pub(super) fn is_down(key: VIRTUAL_KEY) -> bool {
+    let state = unsafe { GetKeyState(i32::from(key.0)) };
+    state < 0
 }
 
 #[cfg(test)]

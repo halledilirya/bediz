@@ -15,26 +15,28 @@ pub use words::{Content, Found};
 use bediz_core::delivery::Delivery;
 use bediz_core::geometry::{Point, Rect};
 use bediz_core::markup::{Mark, Markup, Shape, shape};
-use bediz_core::selection::{Modifiers, Selection};
+use bediz_core::selection::Selection;
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::SystemServices::MK_LBUTTON;
+use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_SHIFT,
+    ReleaseCapture, SetCapture, VIRTUAL_KEY, VK_CONTROL, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, IDC_CROSS, LoadCursorW, MSG, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP,
+    GetCursorPos, IDC_CROSS, MSG, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONUP, WM_SYSKEYDOWN,
+    WM_SYSKEYUP,
 };
-use windows::core::{PCWSTR, Result};
+use windows::core::Result;
 
+use super::cursor;
 use super::marking::{Decor, Marking};
 use super::overlay::View;
 use super::scene::Scene;
-use super::window_class;
 use super::window_list::WindowList;
+use keys::is_down;
 use live::LiveFrames;
-use pointer::Click;
+use pointer::{Click, Hovering};
 use words::Words;
 
 const HANDLES_REACH: i32 = 32;
@@ -94,6 +96,7 @@ pub struct Session {
     click: Option<Click>,
     beside: Option<Point>,
     pointer: Option<Point>,
+    hovering: Hovering,
     views: Vec<View>,
     live: LiveFrames,
     marking: Marking,
@@ -110,11 +113,11 @@ impl Session {
         scene: &Scene,
         reply_to: HWND,
     ) -> Self {
-        show_cursor(IDC_CROSS);
-        let mut cursor = POINT::default();
-        let pointer = unsafe { GetCursorPos(&mut cursor) }
+        cursor::show(IDC_CROSS);
+        let mut at = POINT::default();
+        let pointer = unsafe { GetCursorPos(&mut at) }
             .ok()
-            .map(|()| Point::new(cursor.x, cursor.y));
+            .map(|()| Point::new(at.x, at.y));
         let scale = pointer.map_or(1.0, |pointer| scene.scale_at(pointer));
         Self {
             previous,
@@ -124,6 +127,7 @@ impl Session {
             click: None,
             beside: None,
             pointer,
+            hovering: Hovering::default(),
             views: Vec::new(),
             live: LiveFrames::default(),
             marking: Marking::new(scale, reply_to),
@@ -190,6 +194,7 @@ impl Session {
         let point = Point::new(message.pt.x, message.pt.y);
         if message.message == WM_MOUSEMOVE {
             self.pointer = Some(point);
+            self.entered(message.hwnd, point);
         }
         let changed = match message.message {
             WM_LBUTTONDBLCLK
@@ -200,6 +205,7 @@ impl Session {
                 return Ok(confirm(self.purpose, self.enter));
             }
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
+                self.hovering.width_at = None;
                 if !self.press_words(scene, point) && !self.press_mark(scene, message.hwnd, point) {
                     self.press(scene, windows, point);
                 }
@@ -220,7 +226,8 @@ impl Session {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, message.hwnd, point)
             }
-            WM_MOUSEMOVE => self.hover(scene, point),
+            WM_MOUSEMOVE => self.hover(scene, point) || self.follows_pointer(),
+            WM_MOUSELEAVE => self.left(scene),
             WM_LBUTTONUP => {
                 let _ = unsafe { ReleaseCapture() };
                 self.release(scene, message.hwnd, point)
@@ -237,7 +244,13 @@ impl Session {
                 return Ok(Action::Pin);
             }
             WM_CHAR => self.type_unit(scene, message.hwnd, message.wParam.0 as u16),
-            WM_MOUSEWHEEL => self.turn_wheel((message.wParam.0 >> 16) as u16 as i16),
+            WM_MOUSEWHEEL => {
+                let turned = self.turn_wheel((message.wParam.0 >> 16) as u16 as i16);
+                if turned {
+                    self.point_again(scene);
+                }
+                turned
+            }
             WM_KEYDOWN | WM_SYSKEYDOWN => {
                 let press = KeyPress {
                     key: VIRTUAL_KEY(message.wParam.0 as u16),
@@ -266,7 +279,10 @@ impl Session {
         point: Point,
     ) -> Result<Action> {
         match self.key(scene, last_region, press, point) {
-            Some(Action::None) => self.redraw(scene, windows).map(|()| Action::None),
+            Some(Action::None) => {
+                self.point_again(scene);
+                self.redraw(scene, windows).map(|()| Action::None)
+            }
             Some(action) => Ok(action),
             None => Ok(Action::None),
         }
@@ -314,6 +330,7 @@ impl Session {
             label_monitor(monitors, rect).map(|monitor| (monitor, self.size_of(rect)))
         });
         let magnified = self.magnified();
+        let brush = self.brush();
         let unclipped = unclipped_area(self.marking.markup());
         for (index, (bounds, drawn)) in monitors.iter().zip(self.views.iter_mut()).enumerate() {
             let shown_here = |rect: &Rect| bounds.intersection(rect).is_some();
@@ -327,6 +344,7 @@ impl Session {
                 pointer: magnified.filter(|pointer| bounds.contains(*pointer)),
                 marks: shows_marks(*bounds, selection, unclipped).then_some(marks),
                 words: selection.filter(shown_here).and(words),
+                brush: brush.filter(|brush| brush.reaches(*bounds)),
             };
             if *drawn != view || self.live.owed(index) {
                 scene.draw_one(index, &view, &decor)?;
@@ -407,24 +425,6 @@ fn label_monitor(monitors: &[Rect], rect: Rect) -> Option<usize> {
                 .iter()
                 .position(|monitor| monitor.intersection(&rect).is_some())
         })
-}
-
-fn modifiers() -> Modifiers {
-    Modifiers {
-        square: is_down(VK_SHIFT),
-        centered: is_down(VK_MENU),
-    }
-}
-
-fn is_down(key: VIRTUAL_KEY) -> bool {
-    let state = unsafe { GetKeyState(i32::from(key.0)) };
-    state < 0
-}
-
-fn show_cursor(shape: PCWSTR) {
-    if let Ok(cursor) = unsafe { LoadCursorW(None, shape) } {
-        window_class::use_cursor(cursor);
-    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! Draws the parts of an overlay: the captured image, the dimmed surround, the words and QR codes
-//! read from the selection, the frame and its handles, the size label and the magnifier with the
-//! colour under the pointer.
+//! read from the selection, the frame and its handles, the size label, the magnifier, and a pen's
+//! ring the cursor cannot carry, with the width shown while it changes.
 
 mod marks;
 
@@ -9,7 +9,7 @@ use bediz_core::image::hex_colour;
 use bediz_core::ocr::Turn;
 use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_DRAW_TEXT_OPTIONS_NONE,
+    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
     D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_ROUNDED_RECT, ID2D1Bitmap1, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
@@ -19,6 +19,7 @@ use windows_numerics::{Matrix3x2, Vector2};
 
 use crate::windows::gpu::Gpu;
 
+const CURSOR_REACH: f32 = 12.0;
 const HANDLE_SIZE: f32 = 7.0;
 const LABEL_GAP: f32 = 6.0;
 const LABEL_PADDING_X: f32 = 6.0;
@@ -262,6 +263,52 @@ impl Painter<'_> {
                 },
             );
         }
+    }
+
+    pub fn ring(&self, at: Point, across: u32) {
+        let radius = across as f32 / 2.0;
+        let circle = |by: f32| D2D1_ELLIPSE {
+            point: Vector2::new(at.x as f32 + 0.5, at.y as f32 + 0.5),
+            radiusX: radius + by,
+            radiusY: radius + by,
+        };
+        let gpu = self.gpu;
+        unsafe {
+            gpu.canvas
+                .DrawEllipse(&circle(1.5), &gpu.border, 1.0, None::<&ID2D1StrokeStyle>);
+            gpu.canvas
+                .DrawEllipse(&circle(0.5), &gpu.outline, 1.0, None::<&ID2D1StrokeStyle>);
+        }
+    }
+
+    pub fn width_label(&self, at: Point, across: u32, width: u32) {
+        let text = width.to_string();
+        let Some((width, height)) = self.measure(&text) else {
+            return;
+        };
+        let full = rect_f(self.bounds);
+        let beyond =
+            (across as f32 / 2.0 + 2.0).max(CURSOR_REACH * self.scale) + LABEL_GAP * self.scale;
+        let (x, y) = (at.x as f32 + 0.5, at.y as f32 + 0.5);
+        let left = if x + beyond + width > full.right {
+            x - beyond - width
+        } else {
+            x + beyond
+        };
+        let top = if y + beyond + height > full.bottom {
+            y - beyond - height
+        } else {
+            y + beyond
+        };
+        self.label(
+            &text,
+            D2D_RECT_F {
+                left,
+                top,
+                right: left + width,
+                bottom: top + height,
+            },
+        );
     }
 
     fn measure(&self, text: &str) -> Option<(f32, f32)> {

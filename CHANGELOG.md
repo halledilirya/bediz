@@ -7,18 +7,21 @@ All notable changes to Bediz are listed here. The format follows [Keep a Changel
 ### Added
 
 - **Delayed screenshot** in the tray menu takes the screenshot 3, 5 or 10 seconds later, so a menu or a tooltip that closes when a key is pressed can be open when it is taken. The seconds left show in a corner and stay out of the screenshot; Print Screen takes it at once, and the tray menu can cancel it.
-- **Copy text or QR code** copies the text in a selection, read on your computer by Windows' own text recognition: press O, or pick it in the bar beside the selection or the right-click menu. The words it read are highlighted and the selection stays open; marks count, so text under a black box is not read. When nothing is found, or Windows has no language installed that reads text, a label says so and the clipboard is left as it was.
+- **Copy text or QR code** copies the text in a selection, read on your computer by Windows' own text recognition: press O, or pick it in the bar beside the selection or the right-click menu. The words it read are highlighted; marks count, so text under a black box is not read. When nothing is found, or Windows has no language installed that reads text, a label says so and the clipboard is left as it was.
 - Drag across the highlighted words or click one to choose it, and Ctrl+A chooses them all; Ctrl+C, or Copy in the bar, copies the words chosen, or all of them. The selection stays open, so other words can be copied, or the screenshot itself copied or saved.
 - **Join lines** copies the text as one line, and **Keep indentation** starts each line with as many spaces as it is indented on the screen, as code needs. Both are in the right-click menu and in the settings, under **Copying text**.
 - The language text is read in can be chosen under **Copying text** too; **Automatic** keeps the first of your Windows languages that can read text.
 - QR codes are read too, small ones and light on dark included: what a code says is copied instead of the text around it and shown in a label, so a link can be checked before it is pasted; nothing is opened.
 - **Pin to screen** keeps a selection, with its marks, on top of every window where it was and just as large as it was shown: press F3, Ctrl+T or a middle-click, or pick it in the bar or the right-click menu. A pin can be dragged, zoomed with the mouse wheel and faded with Ctrl+wheel; the wheel stops on the way where the pin fills its monitor. A pin never takes the keyboard by itself, and its right-click menu copies, saves, zooms and closes it. Moved to a monitor with other scaling, a pin keeps its size in screen pixels.
 - The tray menu's **Pins** hides or shows every pin, brings back the last one closed and closes them all. Pins stay out of screenshots, GIFs and screen sharing unless **Show pins in screenshots and screen sharing** is on in the settings.
+- The pen and the highlighter show a ring as wide as their stroke around the pointer, and while the wheel or + and − change the width, its size in pixels shows beside the pointer, so it can be set before anything is drawn.
 
 ### Changed
 
 - The tray menu is shorter: checking for updates, the log folder and About are under **Help**, and starting with Windows is set in the settings. A new version, once found, shows in the menu as **Update to version …**.
 - While a GIF records, **Take a screenshot** in the tray menu is greyed out instead of finishing the recording; **Record ▸ Finish** finishes it.
+- A click beside the mark just drawn lets go of it, as Esc does, instead of leaving a dot or a tiny shape there; a drag there still begins the next mark, and the numbered step and the text still place the next one with a click.
+- Each marking-up tool keeps its own width while a screenshot or an image is marked up.
 
 ## [0.3.1] - 2026-11-19
 

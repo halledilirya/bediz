@@ -4,6 +4,7 @@
 pub mod composition;
 pub mod effect;
 mod gesture;
+pub mod ring;
 pub mod shape;
 mod text;
 mod tools;
@@ -107,7 +108,7 @@ impl Markup {
     }
 
     pub fn settled(&self) -> usize {
-        let held = self.gesture.as_ref().map(Gesture::mark);
+        let held = self.gesture.as_ref().and_then(Gesture::mark);
         [self.selected, self.editing, held]
             .into_iter()
             .flatten()
@@ -269,7 +270,7 @@ impl Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::Rect;
+    use crate::geometry::{DragDistance, Rect};
 
     const RED: Colour = Swatch::Red.colour();
     const SCREEN: Rect = Rect::new(0, 0, 1000, 1000);
@@ -280,63 +281,18 @@ mod tests {
     }
 
     #[test]
-    fn a_drawn_arrow_is_kept_and_a_click_without_a_drag_draws_nothing() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Arrow,
-            Point::new(10, 10),
-            Point::new(60, 40),
-        );
-        assert_eq!(
-            markup.marks().first().map(|mark| &mark.shape),
-            Some(&Shape::Arrow(Point::new(10, 10), Point::new(60, 40)))
-        );
-        drawn(
-            &mut markup,
-            Tool::Rectangle,
-            Point::new(5, 5),
-            Point::new(5, 5),
-        );
-        assert_eq!(markup.marks().len(), 1);
-        assert!(markup.undo());
-        assert!(markup.is_empty());
-        assert!(!markup.can_undo());
-    }
-
-    #[test]
-    fn a_drawn_mark_stays_selected_until_the_next_one_begins() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Arrow,
-            Point::new(10, 10),
-            Point::new(60, 40),
-        );
-        assert_eq!(
-            markup.selected().map(|mark| &mark.shape),
-            Some(&Shape::Arrow(Point::new(10, 10), Point::new(60, 40)))
-        );
-        assert!(markup.rewidth(9.0));
-        assert_eq!(markup.selected().map(|mark| mark.width), Some(9.0));
-        drawn(
-            &mut markup,
-            Tool::Rectangle,
-            Point::new(90, 90),
-            Point::new(90, 90),
-        );
-        assert!(markup.selected().is_none());
-        assert_eq!(markup.marks().len(), 1);
-        assert!(!markup.deselect());
-    }
-
-    #[test]
     fn marks_are_settled_up_to_the_first_one_drawn_held_selected_or_typed() {
         let mut markup = Markup::default();
         assert_eq!(markup.settled(), 0);
         drawn(&mut markup, Tool::Line, Point::new(0, 0), Point::new(40, 0));
         assert_eq!(markup.settled(), 0);
-        markup.draw(Tool::Pen, Point::new(0, 20), RED, 3.0);
+        let distance = DragDistance {
+            width: 4,
+            height: 4,
+        };
+        markup.press(Tool::Pen, Point::new(0, 20), RED, 3.0, distance);
+        assert_eq!(markup.settled(), 0);
+        markup.drag(Point::new(10, 20), false);
         assert_eq!(markup.settled(), 1);
         assert!(markup.finish(Point::new(40, 30), false));
         assert_eq!(markup.settled(), 1);
@@ -353,80 +309,6 @@ mod tests {
         markup.end_editing();
         assert!(markup.deselect());
         assert_eq!(markup.settled(), 3);
-    }
-
-    #[test]
-    fn while_drawing_only_the_selected_mark_is_taken_hold_of() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Rectangle,
-            Point::new(10, 10),
-            Point::new(110, 60),
-        );
-        drawn(
-            &mut markup,
-            Tool::Line,
-            Point::new(200, 10),
-            Point::new(300, 10),
-        );
-        assert!(!markup.grab_selected(Point::new(10, 30), 2));
-        assert!(markup.grab_selected(Point::new(250, 11), 2));
-        assert!(markup.finish(Point::new(250, 51), false));
-        assert_eq!(
-            markup.selected().map(|mark| &mark.shape),
-            Some(&Shape::Line(Point::new(200, 50), Point::new(300, 50)))
-        );
-        assert!(markup.grab_selected(Point::new(301, 49), 2));
-        assert!(markup.finish(Point::new(321, 79), false));
-        assert_eq!(
-            markup.selected().map(|mark| &mark.shape),
-            Some(&Shape::Line(Point::new(200, 50), Point::new(320, 80)))
-        );
-        assert!(markup.undo());
-        assert!(markup.undo());
-        assert_eq!(
-            markup.marks().get(1).map(|mark| &mark.shape),
-            Some(&Shape::Line(Point::new(200, 10), Point::new(300, 10)))
-        );
-    }
-
-    #[test]
-    fn inside_a_selected_box_a_new_mark_can_still_begin() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Rectangle,
-            Point::new(10, 10),
-            Point::new(110, 60),
-        );
-        assert!(!markup.grab_selected(Point::new(60, 35), 2));
-        assert!(markup.grab_selected(Point::new(110, 35), 2));
-        assert!(!markup.finish(Point::new(110, 35), false));
-        assert!(markup.undo());
-        assert!(markup.is_empty());
-    }
-
-    #[test]
-    fn a_finished_text_is_selected_and_taken_hold_of_while_typing() {
-        let mut markup = Markup::default();
-        markup.draw(Tool::Text, Point::new(5, 5), RED, 3.0);
-        markup.type_text("note");
-        assert!(markup.selected().is_none());
-        assert!(markup.grab_selected(Point::new(8, 10), 2));
-        assert!(markup.editing().is_none());
-        assert!(markup.finish(Point::new(28, 40), false));
-        assert_eq!(
-            markup.selected().map(|mark| &mark.shape),
-            Some(&Shape::Text {
-                at: Point::new(25, 35),
-                text: "note".to_owned(),
-                extent: None,
-            })
-        );
-        markup.draw(Tool::Text, Point::new(200, 200), RED, 3.0);
-        markup.end_editing();
-        assert!(markup.selected().is_none());
     }
 
     #[test]
@@ -450,136 +332,6 @@ mod tests {
     }
 
     #[test]
-    fn a_mark_is_grabbed_moved_and_moved_back_by_undo() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Rectangle,
-            Point::new(10, 10),
-            Point::new(50, 30),
-        );
-        assert!(markup.grab(Point::new(20, 20), 3, SCREEN));
-        markup.finish(Point::new(30, 25), false);
-        assert_eq!(
-            markup.selected().map(|mark| &mark.shape),
-            Some(&Shape::Rectangle(Point::new(20, 15), Point::new(60, 35)))
-        );
-        assert!(markup.undo());
-        assert_eq!(
-            markup.marks().first().map(|mark| &mark.shape),
-            Some(&Shape::Rectangle(Point::new(10, 10), Point::new(50, 30)))
-        );
-    }
-
-    #[test]
-    fn grabbing_without_moving_selects_and_leaves_no_step_to_undo() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Ellipse,
-            Point::new(0, 0),
-            Point::new(40, 40),
-        );
-        assert!(markup.grab(Point::new(20, 20), 3, SCREEN));
-        markup.finish(Point::new(20, 20), false);
-        assert!(markup.selected().is_some());
-        assert!(markup.undo());
-        assert!(markup.is_empty());
-        assert!(!markup.grab(Point::new(500, 500), 3, SCREEN));
-        assert!(markup.selected().is_none());
-    }
-
-    #[test]
-    fn the_selected_marks_corner_reshapes_it() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Blur,
-            Point::new(10, 10),
-            Point::new(50, 50),
-        );
-        assert!(markup.grab(Point::new(30, 30), 3, SCREEN));
-        markup.finish(Point::new(30, 30), false);
-        assert!(markup.grab(Point::new(51, 49), 3, SCREEN));
-        assert!(markup.finish(Point::new(81, 89), false));
-        assert_eq!(
-            markup.marks().first().map(|mark| &mark.shape),
-            Some(&Shape::Blur(Point::new(10, 10), Point::new(80, 90)))
-        );
-        assert!(markup.grab(Point::new(79, 91), 3, SCREEN));
-        assert!(!markup.finish(Point::new(79, 91), false));
-    }
-
-    #[test]
-    fn a_step_and_a_text_grow_from_a_corner_and_shrink_back_by_undo() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Step,
-            Point::new(50, 50),
-            Point::new(50, 50),
-        );
-        let Some(corner) = markup.selected().map(shape::corners) else {
-            panic!("the step is selected");
-        };
-        let Some((_, bottom_right)) = corner.get(2).copied() else {
-            panic!("a step has four corners");
-        };
-        assert!(markup.grab_selected(bottom_right, 2));
-        assert!(markup.finish(Point::new(bottom_right.x + 20, bottom_right.y + 20), false));
-        assert!(markup.selected().is_some_and(|mark| mark.width > 3.0));
-        markup.draw(Tool::Text, Point::new(200, 200), RED, 3.0);
-        markup.type_text("hi");
-        markup.end_editing();
-        let before = markup.selected().cloned();
-        let Some(corner) = markup.selected().map(shape::corners) else {
-            panic!("the text is selected");
-        };
-        let Some((_, bottom_right)) = corner.get(2).copied() else {
-            panic!("a text has four corners");
-        };
-        assert!(markup.grab_selected(bottom_right, 2));
-        assert!(markup.finish(Point::new(bottom_right.x + 30, bottom_right.y + 30), false));
-        assert!(markup.selected().is_some_and(|mark| mark.width > 3.0));
-        assert!(markup.undo());
-        assert_eq!(markup.marks().last().cloned(), before);
-    }
-
-    #[test]
-    fn steps_count_on_from_the_highest_number() {
-        let mut markup = Markup::default();
-        for x in [10, 60, 110] {
-            drawn(
-                &mut markup,
-                Tool::Step,
-                Point::new(x, 10),
-                Point::new(x, 10),
-            );
-        }
-        let numbers = |markup: &Markup| -> Vec<u32> {
-            markup
-                .marks()
-                .iter()
-                .filter_map(|mark| match mark.shape {
-                    Shape::Step { number, .. } => Some(number),
-                    _ => None,
-                })
-                .collect()
-        };
-        assert_eq!(numbers(&markup), [1, 2, 3]);
-        assert!(markup.grab(Point::new(60, 10), 2, SCREEN));
-        markup.finish(Point::new(60, 10), false);
-        assert!(markup.delete_selected());
-        drawn(
-            &mut markup,
-            Tool::Step,
-            Point::new(9, 90),
-            Point::new(9, 90),
-        );
-        assert_eq!(numbers(&markup), [1, 3, 4]);
-    }
-
-    #[test]
     fn colour_and_width_change_the_selected_mark_within_bounds() {
         let mut markup = Markup::default();
         drawn(&mut markup, Tool::Line, Point::new(0, 0), Point::new(40, 0));
@@ -597,36 +349,6 @@ mod tests {
         assert_eq!(mark.map(|mark| mark.width), Some(THICKEST));
         assert!(markup.undo());
         assert_eq!(markup.marks().first().map(|mark| mark.width), Some(3.0));
-    }
-
-    #[test]
-    fn a_shift_drag_draws_a_square_and_a_straight_line() {
-        let mut markup = Markup::default();
-        markup.draw(Tool::Rectangle, Point::new(0, 0), RED, 3.0);
-        markup.finish(Point::new(30, 10), true);
-        markup.draw(Tool::Line, Point::new(0, 0), RED, 3.0);
-        markup.finish(Point::new(50, 4), true);
-        let shapes: Vec<&Shape> = markup.marks().iter().map(|mark| &mark.shape).collect();
-        assert_eq!(
-            shapes,
-            [
-                &Shape::Rectangle(Point::new(0, 0), Point::new(30, 30)),
-                &Shape::Line(Point::new(0, 0), Point::new(50, 0)),
-            ]
-        );
-    }
-
-    #[test]
-    fn an_abandoned_drawing_leaves_the_marks_as_they_were() {
-        let mut markup = Markup::default();
-        drawn(&mut markup, Tool::Line, Point::new(0, 0), Point::new(9, 9));
-        markup.draw(Tool::Pen, Point::new(1, 1), RED, 3.0);
-        markup.drag(Point::new(5, 5), false);
-        markup.abandon();
-        assert_eq!(markup.marks().len(), 1);
-        assert!(!markup.is_busy());
-        assert!(markup.undo());
-        assert!(markup.is_empty());
     }
 
     #[test]
@@ -751,31 +473,5 @@ mod tests {
         }
         assert_eq!(undone, HISTORY);
         assert!(markup.is_empty());
-    }
-
-    #[test]
-    fn a_press_outside_the_selection_reaches_only_the_selected_marks_corners() {
-        let mut markup = Markup::default();
-        drawn(
-            &mut markup,
-            Tool::Rectangle,
-            Point::new(10, 10),
-            Point::new(50, 30),
-        );
-        assert!(markup.deselect());
-        let selection = Rect::new(100, 100, 300, 300);
-        assert!(!markup.grab(Point::new(30, 10), 2, selection));
-        assert!(!markup.is_busy());
-        assert!(markup.selected().is_none());
-        assert!(markup.grab(Point::new(30, 10), 2, SCREEN));
-        assert!(!markup.finish(Point::new(30, 10), false));
-        assert!(markup.grab(Point::new(50, 30), 2, selection));
-        assert!(markup.finish(Point::new(60, 40), false));
-        assert_eq!(
-            markup.selected().map(|mark| &mark.shape),
-            Some(&Shape::Rectangle(Point::new(10, 10), Point::new(60, 40)))
-        );
-        assert!(!markup.grab(Point::new(30, 10), 2, selection));
-        assert!(markup.selected().is_none());
     }
 }

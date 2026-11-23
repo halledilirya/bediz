@@ -1,5 +1,5 @@
-//! The user's settings with their defaults, read so one unreadable value costs only itself, and
-//! merged so a window's changes keep those made elsewhere meanwhile.
+//! The user's settings with their defaults, read so an unreadable value gets its default without
+//! losing the others, and merged so a window's changes keep those made elsewhere meanwhile.
 
 use std::path::PathBuf;
 

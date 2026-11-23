@@ -1,4 +1,5 @@
-//! Points, rectangles and lengths in virtual screen coordinates, and a box set beside an area.
+//! Points, rectangles and lengths in virtual screen coordinates, a box set beside an area, and the
+//! distance a press moves before it is a drag.
 
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +102,19 @@ pub fn length(value: u32) -> i32 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DragDistance {
+    pub width: i32,
+    pub height: i32,
+}
+
+impl DragDistance {
+    pub fn passed(self, from: Point, to: Point) -> bool {
+        from.x.abs_diff(to.x) > self.width.max(1).unsigned_abs()
+            || from.y.abs_diff(to.y) > self.height.max(1).unsigned_abs()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     Above,
     Below,
@@ -159,6 +173,26 @@ mod tests {
 
     fn above(area: Rect, clear_of: Option<Rect>) -> Point {
         beside(area, clear_of, WORK, LABEL, 8, Side::Above)
+    }
+
+    #[test]
+    fn a_press_is_a_drag_once_it_moves_past_the_distance_on_either_axis() {
+        let distance = DragDistance {
+            width: 4,
+            height: 2,
+        };
+        let from = Point::new(10, 10);
+        assert!(!distance.passed(from, Point::new(14, 12)));
+        assert!(!distance.passed(from, Point::new(6, 8)));
+        assert!(distance.passed(from, Point::new(15, 10)));
+        assert!(distance.passed(from, Point::new(10, 7)));
+        let unset = DragDistance {
+            width: 0,
+            height: -3,
+        };
+        assert!(!unset.passed(from, Point::new(11, 9)));
+        assert!(unset.passed(from, Point::new(12, 10)));
+        assert!(distance.passed(Point::new(i32::MIN, 0), Point::new(i32::MAX, 0)));
     }
 
     #[test]

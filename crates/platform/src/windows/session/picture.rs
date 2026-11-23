@@ -9,7 +9,8 @@ use bediz_core::selection::{Grip, Selection};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::IDC_ARROW;
 
-use super::{Purpose, Session, show_cursor};
+use super::{Purpose, Session};
+use crate::windows::cursor;
 use crate::windows::scene::Scene;
 
 pub struct Picture {
@@ -29,7 +30,7 @@ impl Session {
         session.selection = Selection::restore(scene.monitor_rects(), picture.shown);
         session.marking.make_effects_from(picture.shown);
         session.picture = Some(picture);
-        show_cursor(IDC_ARROW);
+        cursor::show(IDC_ARROW);
         session
     }
 

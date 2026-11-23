@@ -20,6 +20,7 @@ mod ready;
 mod recording;
 mod save_as;
 mod screenshot;
+mod shortcuts;
 mod typing;
 
 use std::collections::VecDeque;

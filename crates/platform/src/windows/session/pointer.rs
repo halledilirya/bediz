@@ -1,19 +1,36 @@
 //! The selection's side of the mouse: a press that grabs the selection, starts a new one or waits
-//! beside it for a drag, a click that selects the window under it, letting go, and the pointer's
-//! shape over the selection.
+//! beside it for a drag, a click that selects the window under it, letting go, the pointer's
+//! shape over the selection, and a pen's ring and width the overlay draws beside it.
 
-use bediz_core::geometry::{Point, Rect};
+use bediz_core::geometry::{DragDistance, Point, Rect};
+use bediz_core::markup::{Tool, ring};
 use bediz_core::selection::{Grip, Handle, Selection};
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, IDC_ARROW, IDC_CROSS, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
-    IDC_SIZENWSE, IDC_SIZEWE, SM_CXDRAG, SM_CYDRAG,
+    GetCursorPos, GetSystemMetrics, IDC_ARROW, IDC_CROSS, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW,
+    IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, SM_CXDRAG, SM_CYDRAG, WindowFromPoint,
 };
 use windows::core::PCWSTR;
 
-use super::{Session, modifiers, show_cursor};
+use super::Session;
+use super::keys::modifiers;
+use crate::windows::cursor;
+use crate::windows::overlay::Brush;
 use crate::windows::scene::Scene;
 use crate::windows::window_list::WindowList;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Look {
+    Shared(PCWSTR),
+    Ring(cursor::Ring),
+}
+
+#[derive(Default)]
+pub(super) struct Hovering {
+    pub(super) width_at: Option<Point>,
+    away: bool,
+}
 
 pub(super) struct Click {
     at: Point,
@@ -44,7 +61,7 @@ impl Session {
                 if let Some(selection) = &mut self.selection {
                     selection.grab(grip, point);
                 }
-                show_cursor(cursor_for(Some(grip)));
+                cursor::show(cursor_for(Some(grip)));
             }
             Press::Beside => self.beside = Some(point),
             Press::Start => {
@@ -52,7 +69,7 @@ impl Session {
                 self.click = windows
                     .and_then(|windows| windows.window_at(point))
                     .map(|window| Click { at: point, window });
-                show_cursor(IDC_CROSS);
+                cursor::show(IDC_CROSS);
             }
         }
     }
@@ -63,6 +80,9 @@ impl Session {
         }
         if self.marks_busy() {
             self.drag_mark(point);
+            if let Some((ring, _)) = cursor::ring_shown() {
+                cursor::show_ring(ring.moved(point, scene.monitor_rects()));
+            }
             return true;
         }
         if let Some(at) = self.beside {
@@ -71,7 +91,7 @@ impl Session {
             }
             self.beside = None;
             self.selection = Selection::start(scene.monitor_rects(), at);
-            show_cursor(IDC_CROSS);
+            cursor::show(IDC_CROSS);
         }
         if let Some(click) = &self.click {
             if !beyond_drag_threshold(click.at, point) {
@@ -86,24 +106,102 @@ impl Session {
             }
             Some(selection) => {
                 let selection = *selection;
-                let reach = scene.reach_at(point);
-                let grip = self.grip(&selection, point, reach);
-                let over_words = self.shows_words() && grip == Some(Grip::Inside);
-                let shape = over_words
-                    .then_some(IDC_IBEAM)
-                    .or_else(|| self.mark_cursor(point, grip, reach))
-                    .unwrap_or_else(|| {
-                        if self.purpose.reshapes() {
-                            cursor_for(grip)
-                        } else {
-                            IDC_ARROW
-                        }
-                    });
-                show_cursor(shape);
+                show(self.look_at(scene, &selection, point));
                 false
             }
             None => true,
         }
+    }
+
+    // A wheel, a key or the runtime's change over a still pointer sends no WM_SETCURSOR.
+    pub fn point_again(&self, scene: &Scene) {
+        let (Some(point), Some(selection)) = (self.pointer, self.selection) else {
+            return;
+        };
+        if selection.is_dragging()
+            || self.marks_busy()
+            || self.choosing_words()
+            || !cursor::is_ours()
+        {
+            return;
+        }
+        show(self.look_at(scene, &selection, point));
+    }
+
+    pub(super) fn show_width(&mut self) {
+        self.hovering.width_at = self.pointer;
+    }
+
+    pub(super) fn entered(&mut self, window: HWND, point: Point) {
+        self.hovering.away = false;
+        if self
+            .hovering
+            .width_at
+            .is_some_and(|at| beyond_drag_threshold(at, point))
+        {
+            self.hovering.width_at = None;
+        }
+        // A leave ends tracking even where the runtime misses it, so each move asks again.
+        let mut leave = TRACKMOUSEEVENT {
+            cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+            dwFlags: TME_LEAVE,
+            hwndTrack: window,
+            dwHoverTime: 0,
+        };
+        let _ = unsafe { TrackMouseEvent(&mut leave) };
+    }
+
+    // Moving onto another monitor's overlay leaves the first one too, and the ring stays.
+    pub(super) fn left(&mut self, scene: &Scene) -> bool {
+        let mut at = POINT::default();
+        let on_overlay =
+            unsafe { GetCursorPos(&mut at) }.is_ok() && scene.owns(unsafe { WindowFromPoint(at) });
+        self.hovering.away = !on_overlay;
+        self.hovering.away && self.views.iter().any(|view| view.brush.is_some())
+    }
+
+    pub(super) fn follows_pointer(&self) -> bool {
+        self.brush().is_some() || self.views.iter().any(|view| view.brush.is_some())
+    }
+
+    pub(super) fn brush(&self) -> Option<Brush> {
+        if self.hovering.away || self.is_dragging() || !self.purpose.is_still() {
+            return None;
+        }
+        let at = self.pointer?;
+        let shown =
+            cursor::ring_shown().filter(|_| brushes(self.marking.tool_width(), self.shows_words()));
+        let drawn = shown.is_some_and(|(_, carried)| !carried);
+        let inside = cursor::is_ours() && self.selected().is_some_and(|area| area.contains(at));
+        let width = self
+            .hovering
+            .width_at
+            .filter(|_| inside)
+            .and(self.marking.tool_width())
+            .and_then(|(tool, width)| ring::stroke(tool, width))
+            .map(|stroke| stroke.round() as u32);
+        (drawn || width.is_some()).then(|| Brush {
+            at,
+            across: shown.map_or(0, |(ring, _)| ring.across()),
+            ring: drawn,
+            width,
+        })
+    }
+
+    fn look_at(&self, scene: &Scene, selection: &Selection, point: Point) -> Look {
+        let reach = scene.reach_at(point);
+        let grip = self.grip(selection, point, reach);
+        if self.shows_words() && grip == Some(Grip::Inside) {
+            return Look::Shared(IDC_IBEAM);
+        }
+        self.mark_cursor(scene, point, grip, reach)
+            .unwrap_or_else(|| {
+                Look::Shared(if self.purpose.reshapes() {
+                    cursor_for(grip)
+                } else {
+                    IDC_ARROW
+                })
+            })
     }
 
     pub(super) fn release(&mut self, scene: &Scene, window: HWND, point: Point) -> bool {
@@ -143,9 +241,27 @@ fn press_on(selection: Option<&Selection>, at: Point, reach: i32) -> Press {
     }
 }
 
+fn brushes(tool_width: Option<(Tool, f32)>, words_shown: bool) -> bool {
+    !words_shown
+        && tool_width
+            .and_then(|(tool, width)| ring::footprint(tool, width))
+            .is_some()
+}
+
+fn show(look: Look) {
+    match look {
+        Look::Shared(shape) => cursor::show(shape),
+        Look::Ring(ring) => cursor::show_ring(ring),
+    }
+}
+
 pub(super) fn beyond_drag_threshold(from: Point, to: Point) -> bool {
+    drag_distance().passed(from, to)
+}
+
+pub(super) fn drag_distance() -> DragDistance {
     let (width, height) = unsafe { (GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG)) };
-    (to.x - from.x).abs() > width.max(1) || (to.y - from.y).abs() > height.max(1)
+    DragDistance { width, height }
 }
 
 fn cursor_for(grip: Option<Grip>) -> PCWSTR {
@@ -186,5 +302,16 @@ mod tests {
             press_on(Some(&nothing), Point::new(800, 600), 4),
             Press::Start
         );
+    }
+
+    #[test]
+    fn only_a_pen_or_highlighter_away_from_the_words_draws_its_ring() {
+        assert!(brushes(Some((Tool::Pen, 3.0)), false));
+        assert!(brushes(Some((Tool::Highlighter, 40.0)), false));
+        assert!(!brushes(Some((Tool::Pen, 3.0)), true));
+        assert!(!brushes(None, false));
+        for tool in [Tool::Rectangle, Tool::Text, Tool::Step, Tool::Blur] {
+            assert!(!brushes(Some((tool, 3.0)), false), "{tool:?}");
+        }
     }
 }

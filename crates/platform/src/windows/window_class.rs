@@ -17,19 +17,20 @@ use windows::Win32::Graphics::Gdi::{
     CreateSolidBrush, HDC, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE, RedrawWindow, ValidateRect,
 };
 use windows::Win32::System::SystemServices::MK_LBUTTON;
-use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
+use windows::Win32::UI::Controls::{DRAWITEMSTRUCT, WM_MOUSELEAVE};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BN_CLICKED, CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HCURSOR, HTCLIENT,
-    HTTRANSPARENT, IDC_CROSS, IDC_SIZEALL, LoadCursorW, MA_NOACTIVATE, RegisterClassExW, SetCursor,
-    WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_DRAWITEM, WM_ERASEBKGND, WM_GETOBJECT, WM_HOTKEY, WM_IME_COMPOSITION,
-    WM_IME_ENDCOMPOSITION, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
-    WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSEXW,
+    BN_CLICKED, CS_DBLCLKS, DefWindowProcW, DestroyWindow, EndMenu, HTCLIENT, HTTRANSPARENT,
+    IDC_CROSS, IDC_SIZEALL, LoadCursorW, MA_NOACTIVATE, RegisterClassExW, SetCursor, WM_APP,
+    WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DISPLAYCHANGE,
+    WM_DRAWITEM, WM_ERASEBKGND, WM_GETOBJECT, WM_HOTKEY, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
+    WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE,
+    WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE,
+    WNDCLASSEXW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
 use super::automation;
+use super::cursor;
 use super::hotkey::{GIF_HOTKEY, HOTKEY};
 use super::ime;
 use super::recording::border::{self, Line};
@@ -50,10 +51,10 @@ thread_local! {
     static LABEL_CLOSE_REQUESTED: Cell<Option<HWND>> = const { Cell::new(None) };
     static CONTROLS_REQUEST: Cell<Option<controls::Request>> = const { Cell::new(None) };
     static COLOURS_CHANGED: Cell<bool> = const { Cell::new(false) };
-    static CURSOR: Cell<Option<HCURSOR>> = const { Cell::new(None) };
     static MISSED: Cell<Vec<u32>> = const { Cell::new(Vec::new()) };
     static MISSED_HOTKEY: Cell<Option<LPARAM>> = const { Cell::new(None) };
     static MISSED_GIF_HOTKEY: Cell<Option<LPARAM>> = const { Cell::new(None) };
+    static MOUSE_LEFT: Cell<Option<HWND>> = const { Cell::new(None) };
 }
 
 pub struct OwnedWindow(pub HWND);
@@ -80,11 +81,6 @@ pub fn hotkey_missed() -> bool {
     MISSED_HOTKEY.with(Cell::get).is_some() || MISSED_GIF_HOTKEY.with(Cell::get).is_some()
 }
 
-pub fn use_cursor(cursor: HCURSOR) {
-    CURSOR.with(|current| current.set(Some(cursor)));
-    unsafe { SetCursor(Some(cursor)) };
-}
-
 pub fn take_display_changed() -> bool {
     DISPLAY_CHANGED.with(|flag| flag.replace(false))
 }
@@ -103,6 +99,10 @@ pub fn take_colours_changed() -> bool {
 
 pub fn take_controls_request() -> Option<controls::Request> {
     CONTROLS_REQUEST.with(Cell::take)
+}
+
+pub fn take_mouse_left() -> Option<HWND> {
+    MOUSE_LEFT.with(Cell::take)
 }
 
 pub fn register(instance: HINSTANCE) -> Result<()> {
@@ -391,7 +391,11 @@ fn on_overlay_message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM
             automation::detach(window);
             LRESULT(0)
         }
-        WM_SETCURSOR if (lparam.0 & 0xFFFF) as u32 == HTCLIENT => match CURSOR.with(Cell::get) {
+        WM_MOUSELEAVE => {
+            MOUSE_LEFT.with(|left| left.set(Some(window)));
+            LRESULT(0)
+        }
+        WM_SETCURSOR if (lparam.0 & 0xFFFF) as u32 == HTCLIENT => match cursor::shown() {
             Some(cursor) => {
                 unsafe { SetCursor(Some(cursor)) };
                 LRESULT(1)
@@ -431,5 +435,18 @@ mod tests {
         assert!(hotkey_missed());
         assert_eq!(take_missed_hotkey(), Some(LPARAM(7)));
         assert!(!hotkey_missed());
+    }
+
+    #[test]
+    fn a_leave_an_overlay_hears_is_kept_for_the_runtime_and_taken_once() {
+        let leave = || on_overlay_message(HWND::default(), WM_MOUSELEAVE, WPARAM(0), LPARAM(0));
+        assert_eq!(take_mouse_left(), None);
+        assert_eq!(leave(), LRESULT(0));
+        assert_eq!(take_mouse_left(), Some(HWND::default()));
+        assert_eq!(take_mouse_left(), None);
+        assert_eq!(leave(), LRESULT(0));
+        assert_eq!(leave(), LRESULT(0));
+        assert_eq!(take_mouse_left(), Some(HWND::default()));
+        assert_eq!(take_mouse_left(), None);
     }
 }

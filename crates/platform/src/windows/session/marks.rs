@@ -4,7 +4,7 @@
 
 use bediz_core::geometry::Point;
 use bediz_core::markup::typing::Motion;
-use bediz_core::markup::{Shape, Tool, shape};
+use bediz_core::markup::{Shape, Tool, ring, shape};
 use bediz_core::selection::Grip;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -17,7 +17,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-use super::{Action, KeyPress, Session, is_down};
+use super::keys::is_down;
+use super::pointer::{Look, drag_distance};
+use super::{Action, KeyPress, Session};
+use crate::windows::cursor;
 use crate::windows::ime::Update;
 use crate::windows::marking::layout::Typed;
 use crate::windows::scene::Scene;
@@ -66,7 +69,7 @@ impl Session {
                 self.marking.markup_mut().edit_text(id);
                 self.caret_to(scene, point);
             }
-            None => self.marking.draw(tool, point),
+            None => self.marking.press(tool, point, drag_distance()),
         }
         self.marking.place_composition(scene, window);
         true
@@ -96,31 +99,37 @@ impl Session {
 
     pub(super) fn mark_cursor(
         &self,
+        scene: &Scene,
         point: Point,
         grip: Option<Grip>,
         reach: i32,
-    ) -> Option<PCWSTR> {
+    ) -> Option<Look> {
         if !self.purpose.is_still() {
             return None;
         }
         let selected = self.marking.markup().selected();
         if let Some(facing) = selected.and_then(|mark| shape::corner_facing(mark, point, reach)) {
-            return Some(facing_cursor(facing));
+            return Some(Look::Shared(facing_cursor(facing)));
         }
         if matches!(grip, Some(Grip::Handle(_))) {
             return None;
         }
-        let tool = self.marking.tool()?;
+        let (tool, width) = self.marking.tool_width()?;
         if selected.is_some_and(|mark| shape::outline_touches(mark, point, reach)) {
-            return Some(IDC_SIZEALL);
+            return Some(Look::Shared(IDC_SIZEALL));
         }
         if !self.selected().is_some_and(|rect| rect.contains(point)) {
             return None;
         }
-        Some(if tool == Tool::Text {
-            IDC_IBEAM
-        } else {
-            IDC_CROSS
+        Some(match ring::footprint(tool, width) {
+            Some(across) => Look::Ring(cursor::Ring::at(
+                across,
+                scene.scale_at(point),
+                point,
+                scene.monitor_rects(),
+            )),
+            None if tool == Tool::Text => Look::Shared(IDC_IBEAM),
+            None => Look::Shared(IDC_CROSS),
         })
     }
 
@@ -148,7 +157,10 @@ impl Session {
         if steps == 0 {
             return false;
         }
-        self.marking.widen(steps);
+        if !self.marking.widen(steps) {
+            return false;
+        }
+        self.show_width();
         true
     }
 

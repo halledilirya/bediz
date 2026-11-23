@@ -6,8 +6,10 @@ mod frames;
 mod paint;
 mod picture;
 mod settled;
+mod view;
 
 pub use frames::SHOWN_WITHIN_MS;
+pub use view::{Brush, View};
 
 use std::cell::RefCell;
 
@@ -55,17 +57,6 @@ const PARKED: i32 = -32000;
 const LABEL_FONT_SIZE: f32 = 12.0;
 // A waitable swap chain queues one frame, not three, and ResizeBuffers must repeat the flag.
 const SWAP_CHAIN_FLAGS: DXGI_SWAP_CHAIN_FLAG = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct View {
-    pub selection: Option<Rect>,
-    pub handles: bool,
-    pub highlight: Option<Rect>,
-    pub label: Option<(u32, u32)>,
-    pub pointer: Option<Point>,
-    pub marks: Option<u64>,
-    pub words: Option<u64>,
-}
 
 struct Surfaces {
     target: ID2D1Bitmap1,
@@ -276,7 +267,7 @@ impl Overlay {
         let (left, top) = (self.rect.left, self.rect.top);
         let bounds = self.rect.translated(-left, -top);
         let local = |area: Rect| area.translated(-left, -top);
-        let framed = framed(view).map(|(area, handles)| (local(area), handles));
+        let framed = view.framed().map(|(area, handles)| (local(area), handles));
         let pointer = view
             .pointer
             .filter(|pointer| self.rect.contains(*pointer))
@@ -336,6 +327,15 @@ impl Overlay {
         if let Some(at) = pointer {
             painter.magnifier(&surfaces.image_bitmap, at, colour);
         }
+        if let Some(brush) = view.brush {
+            let at = Point::new(brush.at.x - left, brush.at.y - top);
+            if brush.ring {
+                painter.ring(at, brush.across);
+            }
+            if let Some(width) = brush.width.filter(|_| self.rect.contains(brush.at)) {
+                painter.width_label(at, brush.across, width);
+            }
+        }
         let drawn = unsafe { gpu.canvas.EndDraw(None, None) };
         unsafe { gpu.canvas.SetTarget(None::<&ID2D1Image>) };
         drawn
@@ -394,12 +394,6 @@ impl Overlay {
     }
 }
 
-fn framed(view: &View) -> Option<(Rect, bool)> {
-    view.selection
-        .map(|area| (area, view.handles))
-        .or(view.highlight.map(|area| (area, false)))
-}
-
 fn text_format(gpu: &Gpu, scale: f32) -> Result<IDWriteTextFormat> {
     let format = unsafe {
         gpu.text.CreateTextFormat(
@@ -428,29 +422,5 @@ fn set_flag(window: HWND, attribute: DWMWINDOWATTRIBUTE, value: bool) -> Result<
             (&value as *const BOOL).cast(),
             size_of::<BOOL>() as u32,
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_selection_has_handles_only_when_its_view_asks_and_a_window_never() {
-        let area = Rect::new(10, 20, 110, 220);
-        let selected = |handles| View {
-            selection: Some(area),
-            handles,
-            ..View::default()
-        };
-        assert_eq!(framed(&selected(true)), Some((area, true)));
-        assert_eq!(framed(&selected(false)), Some((area, false)));
-        let window = View {
-            highlight: Some(area),
-            handles: true,
-            ..View::default()
-        };
-        assert_eq!(framed(&window), Some((area, false)));
-        assert_eq!(framed(&View::default()), None);
     }
 }
